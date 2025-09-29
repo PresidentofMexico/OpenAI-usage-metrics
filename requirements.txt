@@ -1,0 +1,10 @@
+# OpenAI Usage Metrics Dashboard
+
+This file contains the necessary Python dependencies for the OpenAI usage metrics dashboard.
+
+# Required dependencies
+streamlit
+pandas
+numpy
+sqlalchemy
+python-dotenv
