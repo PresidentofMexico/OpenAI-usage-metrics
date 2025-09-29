@@ -1,9 +1,3 @@
- (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
-diff --git a/README.md b/README.md
-index b689373f5f50ad9ded576e6675828fe14ea98f0c..df5b9efb689d2ba15d1a4dba6dd5a6f2011fd8b4 100644
---- a/README.md
-+++ b/README.md
-@@ -1,2 +1,29 @@
  # OpenAI usage metrics
 -Automatically pull and update user metrics
 +
