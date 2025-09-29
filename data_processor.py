@@ -1,85 +1,150 @@
-"""
-Data processing module for OpenAI usage metrics
-"""
+"""Data processing functions for OpenAI usage metrics."""
 import pandas as pd
-import numpy as np
+import sqlite3
 from datetime import datetime
-import config
+import re
 
 class DataProcessor:
     def __init__(self, db_manager):
         self.db = db_manager
     
     def process_monthly_data(self, df, filename):
-        """Process uploaded monthly data"""
+        """Process uploaded monthly data."""
         try:
-            # Clean and standardize data
-            df_clean = self.clean_data(df)
+            print(f"Processing {len(df)} rows from {filename}")
+            print(f"Original DataFrame columns: {list(df.columns)}")
+            
+            # Clean the data based on OpenAI format
+            processed_df = self.clean_openai_data(df, filename)
+            
+            if processed_df.empty:
+                return False, "No valid data found after processing"
+            
+            print(f"Sample processed data:")
+            print(processed_df.head())
             
             # Insert into database
-            success, message = self.db.insert_batch_data(df_clean, filename)
-            return success, message
+            conn = sqlite3.connect(self.db.db_path)
+            processed_df.to_sql('usage_metrics', conn, if_exists='append', index=False)
+            conn.close()
+            
+            return True, f"Successfully processed {len(processed_df)} records from {filename}"
             
         except Exception as e:
+            print(f"Error processing data: {str(e)}")
             return False, f"Error processing data: {str(e)}"
     
-    def clean_data(self, df):
-        """Clean and standardize the data"""
-        # Map columns to standard names
-        df_clean = df.copy()
-        
-        # Ensure required columns exist with default values
-        required_columns = ['user_id', 'user_name', 'department', 'date', 'feature_used', 'usage_count', 'cost_usd']
-        
-        for col in required_columns:
-            if col not in df_clean.columns:
-                if col in config.DEFAULT_VALUES:
-                    df_clean[col] = config.DEFAULT_VALUES[col]
-                else:
-                    df_clean[col] = None
-        
-        # Clean date format
-        if 'date' in df_clean.columns:
-            df_clean['date'] = pd.to_datetime(df_clean['date']).dt.strftime('%Y-%m-%d')
-        
-        # Ensure numeric columns are numeric
-        if 'usage_count' in df_clean.columns:
-            df_clean['usage_count'] = pd.to_numeric(df_clean['usage_count'], errors='coerce').fillna(1)
-        
-        if 'cost_usd' in df_clean.columns:
-            df_clean['cost_usd'] = pd.to_numeric(df_clean['cost_usd'], errors='coerce').fillna(0.0)
-        
-        return df_clean[required_columns]
-    
-    def calculate_growth_metrics(self, data):
-        """Calculate growth metrics"""
+    def clean_openai_data(self, df, filename):
+        """Clean OpenAI usage data format."""
         try:
-            # Group by month
-            data['date'] = pd.to_datetime(data['date'])
-            monthly_data = data.groupby(data['date'].dt.to_period('M')).agg({
-                'usage_count': 'sum',
-                'cost_usd': 'sum',
-                'user_id': 'nunique'
-            }).reset_index()
+            # Create processed dataframe
+            processed_data = []
             
-            if len(monthly_data) < 2:
+            for _, row in df.iterrows():
+                # Skip rows where user is not active or has no messages
+                if pd.isna(row.get('messages', 0)) or row.get('messages', 0) == 0:
+                    continue
+                
+                # Extract basic info
+                user_email = row.get('email', 'unknown@company.com')
+                user_name = row.get('name', 'Unknown User')
+                department = self.extract_department(row.get('department', 'Unknown'))
+                period_start = row.get('period_start', '2025-08-01')
+                messages = row.get('messages', 0)
+                
+                # Create records for different features based on usage
+                records = []
+                
+                # ChatGPT Messages
+                if messages > 0:
+                    records.append({
+                        'user_id': user_email,
+                        'user_name': user_name,
+                        'department': department,
+                        'date': period_start,
+                        'feature_used': 'ChatGPT Messages',
+                        'usage_count': int(messages),
+                        'cost_usd': float(messages) * 0.02,  # Estimated cost
+                        'created_at': datetime.now().isoformat(),
+                        'file_source': filename
+                    })
+                
+                # Tool Messages
+                tool_messages = row.get('tool_messages', 0)
+                if pd.notna(tool_messages) and tool_messages > 0:
+                    records.append({
+                        'user_id': user_email,
+                        'user_name': user_name,
+                        'department': department,
+                        'date': period_start,
+                        'feature_used': 'Tool Messages',
+                        'usage_count': int(tool_messages),
+                        'cost_usd': float(tool_messages) * 0.01,  # Estimated cost
+                        'created_at': datetime.now().isoformat(),
+                        'file_source': filename
+                    })
+                
+                # Project Messages
+                project_messages = row.get('project_messages', 0)
+                if pd.notna(project_messages) and project_messages > 0:
+                    records.append({
+                        'user_id': user_email,
+                        'user_name': user_name,
+                        'department': department,
+                        'date': period_start,
+                        'feature_used': 'Project Messages',
+                        'usage_count': int(project_messages),
+                        'cost_usd': float(project_messages) * 0.015,  # Estimated cost
+                        'created_at': datetime.now().isoformat(),
+                        'file_source': filename
+                    })
+                
+                processed_data.extend(records)
+            
+            return pd.DataFrame(processed_data)
+            
+        except Exception as e:
+            print(f"Error in clean_openai_data: {str(e)}")
+            return pd.DataFrame()
+    
+    def extract_department(self, dept_str):
+        """Extract department from the department string."""
+        if pd.isna(dept_str) or dept_str == '':
+            return 'Unknown'
+        
+        # Handle the format like ["finance"] or ["analytics","finance"]
+        if isinstance(dept_str, str) and dept_str.startswith('['):
+            # Extract text between quotes
+            departments = re.findall(r'"([^"]*)"', dept_str)
+            if departments:
+                return departments[0].title()  # Return first department, capitalize
+        
+        return str(dept_str).title()
+    
+    def calculate_growth_metrics(self, df):
+        """Calculate growth metrics."""
+        try:
+            if df.empty:
                 return pd.DataFrame()
             
-            # Calculate growth rates
-            monthly_data['usage_growth'] = monthly_data['usage_count'].pct_change() * 100
-            monthly_data['cost_growth'] = monthly_data['cost_usd'].pct_change() * 100
-            monthly_data['user_growth'] = monthly_data['user_id'].pct_change() * 100
+            # Simple growth calculation
+            monthly_totals = df.groupby(df['date'].str[:7])['usage_count'].sum()
             
-            # Create results
-            results = []
-            for _, row in monthly_data.tail(3).iterrows():
-                if not pd.isna(row['usage_growth']):
-                    results.append({
-                        'period': str(row['date']),
-                        'growth_rate': row['usage_growth']
-                    })
+            if len(monthly_totals) < 2:
+                return pd.DataFrame()
             
-            return pd.DataFrame(results)
+            growth_data = []
+            for i in range(1, len(monthly_totals)):
+                current = monthly_totals.iloc[i]
+                previous = monthly_totals.iloc[i-1]
+                growth_rate = ((current - previous) / previous * 100) if previous > 0 else 0
+                
+                growth_data.append({
+                    'period': monthly_totals.index[i],
+                    'growth_rate': growth_rate
+                })
+            
+            return pd.DataFrame(growth_data)
             
         except Exception as e:
             return pd.DataFrame()
