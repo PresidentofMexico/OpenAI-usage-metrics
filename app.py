@@ -22,7 +22,7 @@ import config
 # Page configuration
 st.set_page_config(
     page_title="OpenAI Usage Metrics Dashboard",
-    page_icon="📊",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
