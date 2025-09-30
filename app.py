@@ -137,7 +137,7 @@ def check_data_quality(data):
         quality_issues.append(f"⚠️ {invalid_usage} records with zero or negative usage")
     
     # Check for extremely high costs (potential data errors)
-    if data['cost_usd'].max() > 0:
+    if len(data) > 0 and data['cost_usd'].max() > 0:
         high_cost_threshold = data['cost_usd'].quantile(0.95) * 3
         high_costs = (data['cost_usd'] > high_cost_threshold).sum()
         if high_costs > 0:
@@ -154,7 +154,7 @@ def check_data_quality(data):
     return quality_issues, quality_stats
 
 def check_date_coverage(db, start_date, end_date):
-    """Check data coverage for selected date range."""
+    """Check data coverage for selected date range and allow cross-month analysis."""
     available_months = db.get_available_months()
     
     if not available_months:
@@ -165,14 +165,21 @@ def check_date_coverage(db, start_date, end_date):
     end_dt = pd.to_datetime(end_date)
     available_dates = [pd.to_datetime(d) for d in available_months]
     
-    # Check if we have data for the requested range
+    # Enhanced: Allow flexible date ranges that span across available data
     min_available = min(available_dates)
     max_available = max(available_dates)
     
-    if start_dt < min_available or end_dt > max_available:
-        return False, f"Data only available from {min_available.strftime('%Y-%m-%d')} to {max_available.strftime('%Y-%m-%d')}"
+    # Check if there's ANY overlap with available data
+    if end_dt < min_available or start_dt > max_available:
+        return False, f"Selected range ({start_date} to {end_date}) has no overlap with available data ({min_available.strftime('%Y-%m-%d')} to {max_available.strftime('%Y-%m-%d')})"
     
-    return True, "Data coverage OK"
+    # If there's partial overlap, show warning but allow
+    if start_dt < min_available or end_dt > max_available:
+        overlap_start = max(start_dt, min_available).strftime('%Y-%m-%d')
+        overlap_end = min(end_dt, max_available).strftime('%Y-%m-%d')
+        return True, f"Partial data coverage: showing data from {overlap_start} to {overlap_end}"
+    
+    return True, "Full data coverage for selected range"
 
 def main():
     # Main header with version indicator
@@ -209,6 +216,12 @@ def main():
                 full_df = pd.read_csv(StringIO(uploaded_file.getvalue().decode('utf-8')))
                 st.caption(f"📊 {len(full_df)} rows, {len(full_df.columns)} columns")
                 
+                # Show date range in file
+                if 'period_start' in full_df.columns:
+                    min_date = full_df['period_start'].min()
+                    max_date = full_df['period_start'].max()
+                    st.caption(f"📅 Date range: {min_date} to {max_date}")
+                
             except Exception as e:
                 st.error(f"Cannot preview file: {str(e)}")
             
@@ -238,7 +251,7 @@ def main():
         
         st.divider()
         
-        # Enhanced date range selector with validation
+        # Enhanced date range selector with flexible cross-month analysis
         st.subheader("📅 Date Range")
         available_months = db.get_available_months()
         
@@ -248,20 +261,25 @@ def main():
             
             # Show data coverage info
             st.info(f"📊 Data available from {default_start} to {default_end}")
+            st.caption("💡 You can select any date range - even across months!")
             
+            # Allow flexible date selection - not restricted to available data
             date_range = st.date_input(
-                "Select date range",
+                "Select date range for analysis",
                 value=(default_start, default_end),
-                min_value=default_start,
-                max_value=default_end,
-                help="Select the date range for analysis. Data must be available for selected dates."
+                help="Select any date range for analysis. The system will use available data within your selection."
             )
             
-            # Validate date range
+            # Show coverage information for selected range
             if len(date_range) == 2:
                 coverage_ok, coverage_msg = check_date_coverage(db, date_range[0], date_range[1])
-                if not coverage_ok:
-                    st.warning(f"⚠️ {coverage_msg}")
+                if coverage_ok:
+                    if "Partial" in coverage_msg:
+                        st.warning(f"ℹ️ {coverage_msg}")
+                    else:
+                        st.success("✅ Full data coverage for selected range")
+                else:
+                    st.error(f"❌ {coverage_msg}")
         else:
             st.info("No data available. Please upload your first monthly export.")
             return
@@ -302,16 +320,17 @@ def main():
         st.dataframe(sample_data)
         return
     
-    # Get filtered data with enhanced validation
+    # Get filtered data with enhanced cross-month validation
     if len(date_range) == 2:
         start_date, end_date = date_range
         coverage_ok, coverage_msg = check_date_coverage(db, start_date, end_date)
         
         if not coverage_ok:
-            st.error(f"❌ Cannot load data: {coverage_msg}")
+            st.error(f"❌ Cannot analyze data: {coverage_msg}")
             st.info("Please select a different date range or upload data for the requested period.")
             return
         
+        # Get data for the selected range (will automatically filter to available data)
         data = db.get_filtered_data(
             start_date=start_date,
             end_date=end_date,
@@ -323,8 +342,16 @@ def main():
         return
     
     if data.empty:
-        st.warning("No data found for the selected filters.")
+        st.warning("No data found for the selected filters and date range.")
+        st.info("Try expanding your date range or removing some filters.")
         return
+    
+    # Show actual date range of data being displayed
+    if not data.empty:
+        actual_start = data['date'].min()
+        actual_end = data['date'].max()
+        if actual_start != str(start_date) or actual_end != str(end_date):
+            st.info(f"📊 Showing data from {actual_start} to {actual_end} (based on available data)")
     
     # MVP2: Data Quality Dashboard
     st.subheader("🛡️ Data Quality Check")
@@ -512,7 +539,7 @@ def main():
     
     # Enhanced Raw Data View
     with st.expander("📋 View Raw Data", expanded=False):
-        st.write(f"**Showing {len(data)} records**")
+        st.write(f"**Showing {len(data)} records** from {data['date'].min()} to {data['date'].max()}")
         st.dataframe(data, use_container_width=True)
         
         col1, col2 = st.columns(2)
