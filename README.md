@@ -1,7 +1,17 @@
- # OpenAI usage metrics
-Automatically pull and update user metrics
+ # AI Usage Metrics Dashboard
+Multi-provider analytics dashboard for AI platform usage metrics
 
-A lightweight Streamlit application for exploring OpenAI Enterprise workspace exports. Upload the monthly CSV metrics provided in the Workspace Settings panel to generate dashboards that highlight adoption trends, top users, and day-to-day activity.
+A lightweight Streamlit application for analyzing usage metrics from multiple AI providers including OpenAI, BlueFlame AI, Anthropic, and Google. Upload monthly CSV exports to generate comprehensive dashboards with cost analysis, adoption trends, and user insights.
+
+## 🚀 Features
+
+- **Multi-Provider Support**: Analyze data from OpenAI, BlueFlame AI, Anthropic, Google, and more
+- **Automatic Provider Detection**: System automatically identifies provider from CSV format
+- **Provider-Specific Analytics**: Tailored cost models and feature categories for each provider
+- **Interactive Dashboards**: Month-over-month trends, user analytics, and department breakdowns
+- **Cost Transparency**: Detailed cost calculations with provider-specific pricing models
+- **Data Quality Checks**: Built-in validation and quality metrics
+- **Database Management**: Track uploads, manage data, and monitor system health
 
 ## Getting started
 
@@ -12,10 +22,62 @@ A lightweight Streamlit application for exploring OpenAI Enterprise workspace ex
   ```
 3. Launch the Streamlit dashboard:
    ```bash
-   streamlit run streamlit_app.py
+   streamlit run app.py
    ```
 
-The app stores uploaded data in the current Streamlit session. Upload the latest monthly export at the end of each month to refresh the dashboards. Use the **Clear loaded data** button in the sidebar to reset the dashboard.
+## Supported Providers
+
+- **OpenAI (ChatGPT)** 🤖 - ChatGPT Messages, Tool Messages, Project Messages
+- **BlueFlame AI** 🔥 - API Calls, Model Requests
+- **Anthropic (Claude)** 🧠 - Claude Messages, API Usage
+- **Google (Gemini)** 🔍 - Gemini Queries, Bard Interactions
+
+See [MULTI_PROVIDER_GUIDE.md](MULTI_PROVIDER_GUIDE.md) for details on adding new providers.
+
+## Usage
+
+1. **Upload Data**: Use the sidebar to upload CSV exports from your AI provider
+2. **Select Provider**: Choose which provider's data to analyze from the dropdown
+3. **Analyze**: View interactive dashboards with usage trends, costs, and insights
+4. **Filter**: Refine analysis by date range, users, or departments
+5. **Export**: Download filtered data and summary reports
+
+The app stores data in a SQLite database for persistent analytics across sessions.
+
+## Advanced Features
+
+### Multi-Provider Analytics
+- Automatic provider detection from CSV format
+- Provider-specific cost models and feature categories
+- Isolated analytics per provider
+- Easy addition of new providers via configuration
+
+### Data Quality Dashboard
+- Completeness metrics and duplicate detection
+- Data validation and anomaly alerts
+- Active user tracking
+
+### Management Insights
+- Usage growth analysis
+- Cost efficiency metrics
+- Top users and departments
+- Feature usage distribution
+
+## Configuration
+
+Provider configurations are defined in `config.py`:
+- Column mappings for each provider
+- Cost models (per-unit pricing)
+- Provider detection rules
+- Display settings (icons, names)
+
+## Database
+
+Data is stored in SQLite (`data/openai_metrics.db` by default):
+- Persistent storage across sessions
+- Multi-provider data isolation
+- Automatic schema migration
+- Database management UI included
 
 ## Features
 
