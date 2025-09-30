@@ -14,11 +14,9 @@ from io import StringIO
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import sqlite3
 
 from data_processor import DataProcessor
 from database import DatabaseManager
-import config
 
 # Page configuration
 st.set_page_config(
@@ -80,6 +78,9 @@ st.markdown("""
         border-radius: 0.5rem;
         border: 1px solid #dee2e6;
         margin: 1rem 0;
+    }
+    .stAlert > div {
+        padding-top: 0.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -193,22 +194,18 @@ def get_database_info():
                     'total_records': 0,
                     'total_users': 0,
                     'total_days': 0,
-                    'total_cost': 0.0
+                    'total_cost': 0
                 },
                 'upload_history': [],
-                'date_coverage': pd.DataFrame()
+                'date_coverage': []
             }
         
-        # Calculate total statistics with null checks
-        total_cost = all_data['cost_usd'].sum() if 'cost_usd' in all_data.columns else 0.0
-        if pd.isna(total_cost):
-            total_cost = 0.0
-            
+        # Calculate total statistics
         total_stats = {
             'total_records': len(all_data),
             'total_users': all_data['user_id'].nunique(),
             'total_days': (pd.to_datetime(all_data['date'].max()) - pd.to_datetime(all_data['date'].min())).days + 1,
-            'total_cost': float(total_cost)
+            'total_cost': all_data['cost_usd'].sum()
         }
         
         # Get upload history
@@ -243,10 +240,10 @@ def get_database_info():
                 'total_records': 0,
                 'total_users': 0,
                 'total_days': 0,
-                'total_cost': 0.0
+                'total_cost': 0
             },
             'upload_history': [],
-            'date_coverage': pd.DataFrame()
+            'date_coverage': []
         }
 
 def display_admin_dashboard():
@@ -267,14 +264,14 @@ def display_admin_dashboard():
     with col3:
         st.metric("Date Range", f"{db_info['total_stats']['total_days']} days")
     with col4:
-        total_cost = db_info['total_stats']['total_cost'] or 0.0
+        total_cost = db_info['total_stats']['total_cost'] or 0
         st.metric("Total Cost", f"${total_cost:,.2f}")
     
     # Upload History Management
     st.subheader("📁 Upload History")
     if db_info['upload_history']:
         upload_df = pd.DataFrame(db_info['upload_history'])
-        st.dataframe(upload_df, width="stretch")
+        st.dataframe(upload_df, use_container_width=True)
         
         # File Management Actions
         st.subheader("🗂️ File Management")
@@ -295,14 +292,16 @@ def display_admin_dashboard():
                         st.warning(f"⚠️ Click again to confirm deletion of: {selected_file}")
                     else:
                         try:
-                            # Delete records from specific file using sqlite3 directly
+                            # Use database manager properly
+                            import sqlite3
                             conn = sqlite3.connect(db.db_path)
                             conn.execute("DELETE FROM usage_metrics WHERE file_source = ?", (selected_file,))
                             conn.commit()
                             conn.close()
                             
                             st.success(f"✅ Deleted all records from {selected_file}")
-                            del st.session_state.confirm_delete_file
+                            if 'confirm_delete_file' in st.session_state:
+                                del st.session_state.confirm_delete_file
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error deleting file: {str(e)}")
@@ -315,13 +314,15 @@ def display_admin_dashboard():
                     st.error("⚠️ **DANGER**: This will delete ALL data! Click again to confirm.")
                 else:
                     try:
+                        import sqlite3
                         conn = sqlite3.connect(db.db_path)
                         conn.execute("DELETE FROM usage_metrics")
                         conn.commit()
                         conn.close()
                         
                         st.success("✅ Database cleared successfully")
-                        del st.session_state.confirm_clear_db
+                        if 'confirm_clear_db' in st.session_state:
+                            del st.session_state.confirm_clear_db
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error clearing database: {str(e)}")
@@ -334,7 +335,7 @@ def display_admin_dashboard():
         coverage_df = db_info['date_coverage'].copy()
         coverage_df['date'] = pd.to_datetime(coverage_df['date'])
         
-        # Plot date coverage
+        # Plot date coverage with fixed Plotly config
         fig = px.bar(
             coverage_df, 
             x='date', 
@@ -343,7 +344,7 @@ def display_admin_dashboard():
             labels={'user_id': 'Active Users', 'date': 'Date'}
         )
         fig.update_layout(height=300)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # Show data gaps
         date_range = pd.date_range(
@@ -366,8 +367,61 @@ def display_admin_dashboard():
                 st.write(f"**Missing date range:** {missing_list[0].strftime('%Y-%m-%d')} to {missing_list[-1].strftime('%Y-%m-%d')}")
         else:
             st.success("✅ No data gaps detected in date range")
-    else:
-        st.info("No data available for coverage analysis.")
+    
+    # Database Schema Information
+    with st.expander("🔧 Database Schema & Technical Info"):
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db.db_path)
+            
+            # Get table info
+            schema_info = conn.execute("PRAGMA table_info(usage_metrics)").fetchall()
+            
+            st.write("**Database Schema:**")
+            schema_df = pd.DataFrame(schema_info, columns=['Column ID', 'Column Name', 'Data Type', 'Not Null', 'Default Value', 'Primary Key'])
+            st.dataframe(schema_df)
+            
+            # Get database size (if possible)
+            st.write("**Database Statistics:**")
+            total_records = conn.execute("SELECT COUNT(*) FROM usage_metrics").fetchone()[0]
+            st.write(f"• Total Records: {total_records:,}")
+            
+            # Get distinct values for key fields
+            distinct_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM usage_metrics").fetchone()[0]
+            distinct_dates = conn.execute("SELECT COUNT(DISTINCT date) FROM usage_metrics").fetchone()[0]
+            distinct_features = conn.execute("SELECT COUNT(DISTINCT feature_used) FROM usage_metrics").fetchone()[0]
+            
+            st.write(f"• Unique Users: {distinct_users:,}")
+            st.write(f"• Unique Dates: {distinct_dates:,}")
+            st.write(f"• Unique Features: {distinct_features:,}")
+            
+            conn.close()
+            
+        except Exception as e:
+            st.error(f"Error getting database schema: {str(e)}")
+    
+    # Raw Database Query Interface
+    with st.expander("🔍 Advanced: Raw Database Query"):
+        st.warning("⚠️ **Advanced Users Only**: Direct SQL queries can break the application if used incorrectly.")
+        
+        query = st.text_area(
+            "Enter SQL Query:",
+            value="SELECT * FROM usage_metrics LIMIT 10;",
+            help="Execute raw SQL queries on the database. Use with caution!"
+        )
+        
+        if st.button("Execute Query"):
+            try:
+                import sqlite3
+                conn = sqlite3.connect(db.db_path)
+                result = pd.read_sql_query(query, conn)
+                conn.close()
+                
+                st.write(f"**Query Result** ({len(result)} rows):")
+                st.dataframe(result)
+                
+            except Exception as e:
+                st.error(f"Query error: {str(e)}")
 
 def main():
     # Main header with version indicator
@@ -378,6 +432,7 @@ def main():
     
     with tab2:
         display_admin_dashboard()
+        return
     
     with tab1:
         # Sidebar for navigation and controls
@@ -587,7 +642,7 @@ def main():
         # MVP2: Cost calculation transparency
         display_cost_calculation_details(total_cost, total_users, data)
         
-        # Usage Trends (enhanced)
+        # Usage Trends (enhanced with fixed Plotly warnings)
         st.subheader("📊 Usage Trends")
         
         col1, col2 = st.columns(2)
@@ -606,7 +661,7 @@ def main():
                 labels={'usage_count': 'Usage Count', 'date': 'Date'}
             )
             fig_daily.update_layout(height=300)
-            st.plotly_chart(fig_daily, width="stretch")
+            st.plotly_chart(fig_daily, use_container_width=True)
         
         with col2:
             # Cost trend
@@ -622,7 +677,7 @@ def main():
                 labels={'cost_usd': 'Cost (USD)', 'date': 'Date'}
             )
             fig_cost.update_layout(height=300)
-            st.plotly_chart(fig_cost, width="stretch")
+            st.plotly_chart(fig_cost, use_container_width=True)
         
         # User Analysis
         st.subheader("👥 User Analysis")
@@ -643,7 +698,7 @@ def main():
                 labels={'usage_count': 'Total Usage', 'user_name': 'User'}
             )
             fig_users.update_layout(height=400)
-            st.plotly_chart(fig_users, width="stretch")
+            st.plotly_chart(fig_users, use_container_width=True)
         
         with col2:
             # Department breakdown
@@ -656,7 +711,7 @@ def main():
                 title='Usage by Department'
             )
             fig_dept.update_layout(height=400)
-            st.plotly_chart(fig_dept, width="stretch")
+            st.plotly_chart(fig_dept, use_container_width=True)
         
         # Feature Usage Analysis
         st.subheader("🔧 Feature Usage Analysis")
@@ -673,7 +728,7 @@ def main():
             labels={'usage_count': 'Total Usage', 'feature_used': 'Feature'}
         )
         fig_features.update_layout(height=300)
-        st.plotly_chart(fig_features, width="stretch")
+        st.plotly_chart(fig_features, use_container_width=True)
         
         # Enhanced Management Insights
         st.subheader("💡 Management Insights")
@@ -715,7 +770,7 @@ def main():
         # Enhanced Raw Data View
         with st.expander("📋 View Raw Data", expanded=False):
             st.write(f"**Showing {len(data)} records**")
-            st.dataframe(data, width="stretch")
+            st.dataframe(data, use_container_width=True)
             
             col1, col2 = st.columns(2)
             
