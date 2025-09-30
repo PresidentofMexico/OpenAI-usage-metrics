@@ -403,20 +403,17 @@ def main():
             
             # Date range selector
             st.subheader("📅 Date Range")
-            available_months = db.get_available_months()
+            min_date, max_date = db.get_date_range()
             
-            if available_months:
-                default_end = max(available_months)
-                default_start = min(available_months)
-                
-                st.info(f"📊 Data available from {default_start} to {default_end}")
+            if min_date and max_date:
+                st.info(f"📊 Data available from {min_date} to {max_date}")
                 
                 date_range = st.date_input(
                     "Select date range",
-                    value=(default_start, default_end),
-                    min_value=default_start,
-                    max_value=default_end,
-                    help="Select the date range for analysis"
+                    value=(min_date, max_date),
+                    min_value=min_date,
+                    max_value=max_date,
+                    help="Select the date range for analysis. Monthly uploads cover the entire month."
                 )
             else:
                 st.info("No data available. Please upload your first monthly export.")
@@ -441,7 +438,7 @@ def main():
             )
         
         # Main dashboard content
-        if not available_months:
+        if not min_date or not max_date:
             st.info("👋 Welcome! Please upload your first OpenAI usage metrics file using the sidebar.")
             
             # Show sample data format

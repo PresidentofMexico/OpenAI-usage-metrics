@@ -46,6 +46,32 @@ class DatabaseManager:
             print(f"Error getting months: {e}")
             return []
     
+    def get_date_range(self):
+        """Get the actual date range coverage from uploaded data.
+        
+        Returns a tuple of (min_date, max_date) as date objects.
+        For monthly data, this returns the full coverage including end of month.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            df = pd.read_sql_query("SELECT MIN(date) as min_date, MAX(date) as max_date FROM usage_metrics", conn)
+            conn.close()
+            
+            if df.empty or pd.isna(df['min_date'].iloc[0]):
+                return None, None
+            
+            min_date = pd.to_datetime(df['min_date'].iloc[0]).date()
+            max_date = pd.to_datetime(df['max_date'].iloc[0]).date()
+            
+            # For monthly data, extend max_date to end of month
+            # This allows users to select any date within the month
+            max_date = pd.Period(max_date, 'M').end_time.date()
+            
+            return min_date, max_date
+        except Exception as e:
+            print(f"Error getting date range: {e}")
+            return None, None
+    
     def get_unique_users(self):
         """Get unique users."""
         try:
