@@ -1,7 +1,22 @@
- # OpenAI usage metrics
-Automatically pull and update user metrics
+ # Multi-Provider AI Usage Metrics Dashboard
 
-A lightweight Streamlit application for exploring OpenAI Enterprise workspace exports. Upload the monthly CSV metrics provided in the Workspace Settings panel to generate dashboards that highlight adoption trends, top users, and day-to-day activity.
+A lightweight Streamlit application for exploring AI usage metrics from multiple providers. Upload monthly CSV exports to generate dashboards that highlight adoption trends, top users, and day-to-day activity across different AI platforms.
+
+## Supported Providers
+
+- **OpenAI** - ChatGPT, Tool Messages, Project Messages
+- **BlueFlame AI** - Chat Interactions, API Calls, Token Usage  
+- **Anthropic (Claude)** - Claude Messages, Token Usage
+
+## Features
+
+- **Multi-Provider Support** - Switch between different AI providers with a dropdown selector
+- **Provider-Specific Data Processing** - Automatic handling of different CSV formats and column mappings
+- **Cost Analytics** - Provider-specific cost calculations and breakdowns
+- **Interactive Dashboards** - Visualize usage trends, top users, and department analytics
+- **Database Management** - Store and manage historical data with SQLite
+- **Data Quality Checks** - Automatic validation and quality reporting
+- **Flexible Configuration** - Easy to add new providers (see PROVIDER_GUIDE.md)
 
 ## Getting started
 
@@ -12,19 +27,57 @@ A lightweight Streamlit application for exploring OpenAI Enterprise workspace ex
   ```
 3. Launch the Streamlit dashboard:
    ```bash
-   streamlit run streamlit_app.py
+   streamlit run app.py
    ```
 
-The app stores uploaded data in the current Streamlit session. Upload the latest monthly export at the end of each month to refresh the dashboards. Use the **Clear loaded data** button in the sidebar to reset the dashboard.
+## Usage
 
-## Features
+1. **Select Provider** - Use the dropdown in the sidebar to choose your AI provider
+2. **Upload Data** - Upload the monthly CSV export from your provider
+3. **View Analytics** - Explore usage metrics, costs, and trends
+4. **Filter Data** - Use date range and filters to drill down into specific segments
 
-- Automatic normalisation of CSV exports with flexible column-name matching.
-- Month-over-month summaries of requests, tokens, cost and active user counts.
-- User-level breakdowns with active day counts per selected month.
-- Trend analysis that highlights the largest increases or decreases in usage.
-- Daily/weekly/monthly time-series visualisations with optional rolling averages.
+The app stores uploaded data in an SQLite database. Data is segregated by provider, allowing you to maintain metrics for multiple AI platforms in one dashboard.
 
-# Customising column aliases
+## Adding New Providers
 
-If your export uses different headings, you can provide additional aliases by editing `usage_metrics/data_ingestion.py` and extending the `DEFAULT_COLUMN_ALIASES` mapping.
+See [PROVIDER_GUIDE.md](PROVIDER_GUIDE.md) for detailed instructions on adding support for additional AI providers.
+
+## Expected Data Formats
+
+### OpenAI Format
+```csv
+email,name,department,period_start,messages,tool_messages,project_messages
+user@company.com,John Doe,["engineering"],2024-01-01,100,50,25
+```
+
+### BlueFlame AI Format
+```csv
+user_id,full_name,team,usage_date,chat_interactions,api_calls,total_tokens
+user123,Jane Smith,Marketing,2024-01-01,150,200,50000
+```
+
+### Anthropic Format
+```csv
+user_email,username,org_unit,usage_date,claude_messages,tokens_used
+user@company.com,Bob Johnson,Research,2024-01-01,75,30000
+```
+
+## Database Management
+
+The dashboard includes a Database Management tab with:
+- View database statistics
+- Delete specific uploads
+- Clear entire database
+- Date coverage analysis
+- Upload history tracking
+
+## Customizing
+
+### Column Aliases
+
+If your export uses different headings, you can add new providers or modify existing ones in `config.py`. See the `PROVIDERS` configuration for examples.
+
+### Cost Models
+
+Cost per unit is configurable per provider in `config.py`. Adjust the `cost_per_unit` values to match your provider's actual pricing.

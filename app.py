@@ -538,14 +538,6 @@ def main():
             sample_data = pd.DataFrame([provider_config['sample_format']])
             st.dataframe(sample_data)
             return
-                'department': ['Engineering', 'Marketing'],
-                'date': ['2024-01-15', '2024-01-16'],
-                'feature_used': ['ChatGPT', 'API'],
-                'usage_count': [25, 15],
-                'cost_usd': [12.50, 8.75]
-            })
-            st.dataframe(sample_data)
-            return
         
         # Get filtered data with enhanced validation
         if len(date_range) == 2:
