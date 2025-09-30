@@ -84,8 +84,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def display_cost_calculation_details(total_cost, total_users, data):
+def display_cost_calculation_details(total_cost, total_users, data, provider='openai'):
     """Display detailed cost calculation breakdown."""
+    provider_config = config.PROVIDERS.get(provider, config.PROVIDERS['openai'])
+    
     with st.expander("💡 Cost Calculation Details", expanded=False):
         st.markdown("""
         <div class="calculation-tooltip">
@@ -110,16 +112,25 @@ ${total_cost:,.2f} ÷ {total_users} = ${total_cost/max(total_users,1):.2f}
                     st.write(f"• {feature}: ${cost:,.2f} ({percentage:.1f}%)")
         
         with col2:
-            st.write("**Pricing Assumptions:**")
-            st.info("""
-            📊 **Current Cost Model:**
-            - ChatGPT Messages: $0.02 per message
-            - Tool Messages: $0.01 per message  
-            - Model Usage: $0.025 per interaction
-            - Project Messages: $0.015 per message
+            st.write(f"**{provider_config['display_name']} Pricing Model:**")
             
-            💡 **Note:** These are estimated costs based on typical OpenAI enterprise pricing.
+            # Build pricing info from provider config
+            pricing_lines = []
+            for feature_key, feature_config in provider_config['features'].items():
+                cost = feature_config['cost_per_unit']
+                if cost < 0.001:  # Very small costs (like per-token)
+                    pricing_lines.append(f"- {feature_config['name']}: ${cost:.5f} per unit")
+                else:
+                    pricing_lines.append(f"- {feature_config['name']}: ${cost:.3f} per unit")
+            
+            pricing_text = "\n".join(pricing_lines)
+            st.info(f"""
+            📊 **{provider_config['display_name']} Cost Model:**
+            {pricing_text}
+            
+            💡 **Note:** These are estimated costs based on typical enterprise pricing.
             """)
+
 
 def check_data_quality(data):
     """Enhanced data quality checks for MVP2."""
@@ -620,7 +631,7 @@ def main():
                      help="Total cost divided by number of active users")
         
         # MVP2: Cost calculation transparency
-        display_cost_calculation_details(total_cost, total_users, data)
+        display_cost_calculation_details(total_cost, total_users, data, provider=provider)
         
         # Usage Trends (enhanced)
         st.subheader("📊 Usage Trends")
