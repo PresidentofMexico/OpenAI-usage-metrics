@@ -1,0 +1,4 @@
+email,name,department,date,gemini_requests,api_calls,tokens,cost
+alice@company.com,Alice Johnson,Engineering,2024-01-15,80,120,50000,14.25
+bob@company.com,Bob Smith,Marketing,2024-01-15,60,90,35000,10.50
+charlie@company.com,Charlie Davis,Sales,2024-01-15,70,100,40000,12.00

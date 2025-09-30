@@ -1,0 +1,4 @@
+email,name,department,period_start,messages,tool_messages,project_messages
+alice@company.com,Alice Johnson,Engineering,2024-01-15,150,30,10
+bob@company.com,Bob Smith,Marketing,2024-01-15,80,15,5
+charlie@company.com,Charlie Davis,Sales,2024-01-15,120,25,8

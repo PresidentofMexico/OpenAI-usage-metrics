@@ -1,0 +1,4 @@
+email,full_name,department,usage_date,claude_messages,api_requests,total_cost
+alice@company.com,Alice Johnson,Engineering,2024-01-15,100,50,15.75
+bob@company.com,Bob Smith,Marketing,2024-01-15,80,40,12.50
+charlie@company.com,Charlie Davis,Sales,2024-01-15,90,45,14.00

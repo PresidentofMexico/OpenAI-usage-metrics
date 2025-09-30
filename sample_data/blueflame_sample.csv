@@ -1,0 +1,4 @@
+user_id,username,team,date,queries,api_calls,tokens_used,cost
+user123,alice.johnson,Engineering,2024-01-15,75,125,45000,12.50
+user456,bob.smith,Marketing,2024-01-15,50,80,30000,8.75
+user789,charlie.davis,Sales,2024-01-15,60,100,35000,10.25
