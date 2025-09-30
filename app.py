@@ -403,7 +403,20 @@ def main():
             
             # Date range selector
             st.subheader("📅 Date Range")
-            min_date, max_date = db.get_date_range()
+            try:
+                min_date, max_date = db.get_date_range()
+            except AttributeError:
+                st.error("⚠️ Cache error detected: The database object is missing the 'get_date_range()' method.")
+                st.warning("This usually happens when the code is updated while the app is running.")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔄 Clear Cache & Reload", type="primary"):
+                        st.cache_resource.clear()
+                        st.rerun()
+                with col2:
+                    st.info("Or restart the app manually: Press Ctrl+C in terminal and run `streamlit run app.py`")
+                return
             
             if min_date and max_date:
                 st.info(f"📊 Data available from {min_date} to {max_date}")
