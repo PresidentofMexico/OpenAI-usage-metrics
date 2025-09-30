@@ -46,7 +46,8 @@ class DatabaseManager:
             if not df.empty:
                 return df['provider'].tolist()
             return ['OpenAI']  # Default
-        except:
+        except Exception as e:
+            print(f"Error getting providers: {e}")
             return ['OpenAI']
     
     def get_available_months(self, provider=None):
@@ -66,7 +67,8 @@ class DatabaseManager:
             if not df.empty:
                 return pd.to_datetime(df['date']).dt.date.tolist()
             return []
-        except:
+        except Exception as e:
+            print(f"Error getting months: {e}")
             return []
     
     def get_unique_users(self, provider=None):
@@ -83,7 +85,8 @@ class DatabaseManager:
             df = pd.read_sql_query(query, conn, params=params)
             conn.close()
             return df['user_name'].tolist() if not df.empty else []
-        except:
+        except Exception as e:
+            print(f"Error getting users: {e}")
             return []
     
     def get_unique_departments(self, provider=None):
@@ -100,7 +103,8 @@ class DatabaseManager:
             df = pd.read_sql_query(query, conn, params=params)
             conn.close()
             return df['department'].tolist() if not df.empty else []
-        except:
+        except Exception as e:
+            print(f"Error getting departments: {e}")
             return []
     
     def get_all_data(self, provider=None):
@@ -118,7 +122,8 @@ class DatabaseManager:
             df = pd.read_sql_query(query, conn, params=params)
             conn.close()
             return df
-        except:
+        except Exception as e:
+            print(f"Error getting all data: {e}")
             return pd.DataFrame()
     
     def get_filtered_data(self, start_date, end_date, provider=None, users=None, departments=None):
@@ -143,5 +148,6 @@ class DatabaseManager:
             df = pd.read_sql_query(query, conn, params=params)
             conn.close()
             return df
-        except:
+        except Exception as e:
+            print(f"Error getting filtered data: {e}")
             return pd.DataFrame()
