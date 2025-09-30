@@ -14,6 +14,7 @@ from io import StringIO
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import sqlite3
 
 from data_processor import DataProcessor
 from database import DatabaseManager
@@ -192,18 +193,22 @@ def get_database_info():
                     'total_records': 0,
                     'total_users': 0,
                     'total_days': 0,
-                    'total_cost': 0
+                    'total_cost': 0.0
                 },
                 'upload_history': [],
-                'date_coverage': []
+                'date_coverage': pd.DataFrame()
             }
         
-        # Calculate total statistics
+        # Calculate total statistics with null checks
+        total_cost = all_data['cost_usd'].sum() if 'cost_usd' in all_data.columns else 0.0
+        if pd.isna(total_cost):
+            total_cost = 0.0
+            
         total_stats = {
             'total_records': len(all_data),
             'total_users': all_data['user_id'].nunique(),
             'total_days': (pd.to_datetime(all_data['date'].max()) - pd.to_datetime(all_data['date'].min())).days + 1,
-            'total_cost': all_data['cost_usd'].sum()
+            'total_cost': float(total_cost)
         }
         
         # Get upload history
@@ -238,10 +243,10 @@ def get_database_info():
                 'total_records': 0,
                 'total_users': 0,
                 'total_days': 0,
-                'total_cost': 0
+                'total_cost': 0.0
             },
             'upload_history': [],
-            'date_coverage': []
+            'date_coverage': pd.DataFrame()
         }
 
 def display_admin_dashboard():
@@ -262,14 +267,14 @@ def display_admin_dashboard():
     with col3:
         st.metric("Date Range", f"{db_info['total_stats']['total_days']} days")
     with col4:
-        total_cost = db_info['total_stats']['total_cost'] or 0
+        total_cost = db_info['total_stats']['total_cost'] or 0.0
         st.metric("Total Cost", f"${total_cost:,.2f}")
     
     # Upload History Management
     st.subheader("📁 Upload History")
     if db_info['upload_history']:
         upload_df = pd.DataFrame(db_info['upload_history'])
-        st.dataframe(upload_df, width=800)
+        st.dataframe(upload_df, width="stretch")
         
         # File Management Actions
         st.subheader("🗂️ File Management")
@@ -290,8 +295,8 @@ def display_admin_dashboard():
                         st.warning(f"⚠️ Click again to confirm deletion of: {selected_file}")
                     else:
                         try:
-                            # Delete records from specific file
-                            conn = db.get_connection()
+                            # Delete records from specific file using sqlite3 directly
+                            conn = sqlite3.connect(db.db_path)
                             conn.execute("DELETE FROM usage_metrics WHERE file_source = ?", (selected_file,))
                             conn.commit()
                             conn.close()
@@ -310,7 +315,7 @@ def display_admin_dashboard():
                     st.error("⚠️ **DANGER**: This will delete ALL data! Click again to confirm.")
                 else:
                     try:
-                        conn = db.get_connection()
+                        conn = sqlite3.connect(db.db_path)
                         conn.execute("DELETE FROM usage_metrics")
                         conn.commit()
                         conn.close()
@@ -361,59 +366,8 @@ def display_admin_dashboard():
                 st.write(f"**Missing date range:** {missing_list[0].strftime('%Y-%m-%d')} to {missing_list[-1].strftime('%Y-%m-%d')}")
         else:
             st.success("✅ No data gaps detected in date range")
-    
-    # Database Schema Information
-    with st.expander("🔧 Database Schema & Technical Info"):
-        try:
-            conn = db.get_connection()
-            
-            # Get table info
-            schema_info = conn.execute("PRAGMA table_info(usage_metrics)").fetchall()
-            
-            st.write("**Database Schema:**")
-            schema_df = pd.DataFrame(schema_info, columns=['Column ID', 'Column Name', 'Data Type', 'Not Null', 'Default Value', 'Primary Key'])
-            st.dataframe(schema_df)
-            
-            # Get database size (if possible)
-            st.write("**Database Statistics:**")
-            total_records = conn.execute("SELECT COUNT(*) FROM usage_metrics").fetchone()[0]
-            st.write(f"• Total Records: {total_records:,}")
-            
-            # Get distinct values for key fields
-            distinct_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM usage_metrics").fetchone()[0]
-            distinct_dates = conn.execute("SELECT COUNT(DISTINCT date) FROM usage_metrics").fetchone()[0]
-            distinct_features = conn.execute("SELECT COUNT(DISTINCT feature_used) FROM usage_metrics").fetchone()[0]
-            
-            st.write(f"• Unique Users: {distinct_users:,}")
-            st.write(f"• Unique Dates: {distinct_dates:,}")
-            st.write(f"• Unique Features: {distinct_features:,}")
-            
-            conn.close()
-            
-        except Exception as e:
-            st.error(f"Error getting database schema: {str(e)}")
-    
-    # Raw Database Query Interface
-    with st.expander("🔍 Advanced: Raw Database Query"):
-        st.warning("⚠️ **Advanced Users Only**: Direct SQL queries can break the application if used incorrectly.")
-        
-        query = st.text_area(
-            "Enter SQL Query:",
-            value="SELECT * FROM usage_metrics LIMIT 10;",
-            help="Execute raw SQL queries on the database. Use with caution!"
-        )
-        
-        if st.button("Execute Query"):
-            try:
-                conn = db.get_connection()
-                result = pd.read_sql_query(query, conn)
-                conn.close()
-                
-                st.write(f"**Query Result** ({len(result)} rows):")
-                st.dataframe(result)
-                
-            except Exception as e:
-                st.error(f"Query error: {str(e)}")
+    else:
+        st.info("No data available for coverage analysis.")
 
 def main():
     # Main header with version indicator
@@ -424,7 +378,6 @@ def main():
     
     with tab2:
         display_admin_dashboard()
-        return
     
     with tab1:
         # Sidebar for navigation and controls
