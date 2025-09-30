@@ -371,7 +371,8 @@ def display_admin_dashboard():
 
 def main():
     # Main header with version indicator
-    st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard v2.1</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">📊 AI Usage Metrics Dashboard v3.0</h1>', unsafe_allow_html=True)
+    st.caption("Multi-Provider Analytics: OpenAI • BlueFlame AI • Anthropic • Google")
     
     # Create tabs for different views
     tab1, tab2 = st.tabs(["📊 Analytics Dashboard", "🔧 Database Management"])
@@ -384,12 +385,37 @@ def main():
         with st.sidebar:
             st.header("🔧 Controls")
             
+            # Provider selector
+            st.subheader("🔍 AI Provider")
+            available_providers = db.get_available_providers()
+            
+            if available_providers:
+                # Create provider options with display names
+                provider_options = {}
+                for prov in available_providers:
+                    provider_info = config.PROVIDERS.get(prov, {})
+                    icon = provider_info.get('icon', '🤖')
+                    display = provider_info.get('display_name', prov.title())
+                    provider_options[f"{icon} {display}"] = prov
+                
+                selected_provider_display = st.selectbox(
+                    "Select provider to analyze:",
+                    options=list(provider_options.keys()),
+                    help="Choose which AI provider's data to display"
+                )
+                selected_provider = provider_options[selected_provider_display]
+            else:
+                selected_provider = None
+                st.info("Upload data to select a provider")
+            
+            st.divider()
+            
             # Enhanced file upload section
             st.subheader("📁 Upload Monthly Data")
             uploaded_file = st.file_uploader(
-                "Upload OpenAI Usage Metrics CSV",
+                "Upload AI Usage Metrics CSV",
                 type=['csv'],
-                help="Select your monthly OpenAI enterprise usage export file"
+                help="Select your monthly AI provider usage export file"
             )
             
             # Show upload history if available
@@ -518,7 +544,8 @@ def main():
                 start_date=start_date,
                 end_date=end_date,
                 users=selected_users if selected_users else None,
-                departments=selected_departments if selected_departments else None
+                departments=selected_departments if selected_departments else None,
+                provider=selected_provider
             )
         else:
             st.warning("Please select both start and end dates.")
@@ -527,6 +554,13 @@ def main():
         if data.empty:
             st.warning("No data found for the selected filters.")
             return
+        
+        # Provider context indicator
+        if selected_provider:
+            provider_info = config.PROVIDERS.get(selected_provider, {})
+            provider_icon = provider_info.get('icon', '🤖')
+            provider_name = provider_info.get('display_name', selected_provider.title())
+            st.info(f"{provider_icon} **Currently analyzing:** {provider_name}")
         
         # MVP2: Data Quality Dashboard
         st.subheader("🛡️ Data Quality Check")

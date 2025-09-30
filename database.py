@@ -23,10 +23,20 @@ class DatabaseManager:
                 usage_count INTEGER,
                 cost_usd REAL,
                 created_at TEXT,
-                file_source TEXT
+                file_source TEXT,
+                provider TEXT DEFAULT 'openai'
             )
         """)
         conn.commit()
+        
+        # Migrate existing data to have provider column if it doesn't exist
+        try:
+            conn.execute("SELECT provider FROM usage_metrics LIMIT 1")
+        except:
+            # Column doesn't exist, add it
+            conn.execute("ALTER TABLE usage_metrics ADD COLUMN provider TEXT DEFAULT 'openai'")
+            conn.commit()
+        
         conn.close()
     
     def get_available_months(self):
@@ -61,6 +71,16 @@ class DatabaseManager:
         except:
             return []
     
+    def get_available_providers(self):
+        """Get list of available providers in the database."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            df = pd.read_sql_query("SELECT DISTINCT provider FROM usage_metrics WHERE provider IS NOT NULL ORDER BY provider", conn)
+            conn.close()
+            return df['provider'].tolist() if not df.empty else []
+        except:
+            return []
+    
     def get_all_data(self):
         """Get all data."""
         try:
@@ -71,12 +91,16 @@ class DatabaseManager:
         except:
             return pd.DataFrame()
     
-    def get_filtered_data(self, start_date, end_date, users=None, departments=None):
+    def get_filtered_data(self, start_date, end_date, users=None, departments=None, provider=None):
         """Get filtered data."""
         try:
             conn = sqlite3.connect(self.db_path)
             query = "SELECT * FROM usage_metrics WHERE date BETWEEN ? AND ?"
             params = [str(start_date), str(end_date)]
+            
+            if provider:
+                query += " AND provider = ?"
+                params.append(provider)
             
             if users:
                 query += " AND user_name IN ({})".format(','.join(['?' for _ in users]))
