@@ -185,16 +185,14 @@ def get_database_info():
         # Get upload history
         upload_history = []
         if 'file_source' in all_data.columns:
-            files_data = all_data.groupby('file_source').agg({
-                'date': ['min', 'max'],
-                'user_id': 'count'
-            }).reset_index()
+            # Group by file_source and get stats
+            file_groups = all_data.groupby('file_source')
             
-            for idx, row in files_data.iterrows():
+            for filename, group in file_groups:
                 upload_history.append({
-                    'filename': str(row['file_source']),
-                    'date_range': f"{row['date']['min']} to {row['date']['max']}",
-                    'records': int(row['user_id']['count'])
+                    'filename': str(filename),
+                    'date_range': f"{group['date'].min()} to {group['date'].max()}",
+                    'records': len(group)
                 })
         
         # Date coverage analysis
