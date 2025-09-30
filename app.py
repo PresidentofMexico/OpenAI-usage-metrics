@@ -143,12 +143,19 @@ def check_data_quality(data):
     if invalid_usage > 0:
         quality_issues.append(f"⚠️ {invalid_usage} records with zero or negative usage")
     
-    # Quality statistics
+    # Check for extremely high costs (potential data errors)
+    if len(data) > 0 and data['cost_usd'].max() > 0:
+        high_cost_threshold = data['cost_usd'].quantile(0.95) * 3
+        high_costs = (data['cost_usd'] > high_cost_threshold).sum()
+        if high_costs > 0:
+            quality_issues.append(f"⚠️ {high_costs} records with unusually high costs")
+    
+    # Calculate quality statistics
     quality_stats = {
         'total_records': len(data),
         'unique_users': data['user_id'].nunique(),
-        'date_range_days': (pd.to_datetime(data['date'].max()) - pd.to_datetime(data['date'].min())).days + 1,
-        'duplicate_rate': duplicates / len(data) * 100 if len(data) > 0 else 0
+        'data_completeness': (1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100,
+        'duplicate_rate': (duplicates / len(data)) * 100 if len(data) > 0 else 0
     }
     
     return quality_issues, quality_stats
@@ -467,18 +474,37 @@ def main():
             st.warning("No data found for the selected filters.")
             return
         
-        # Data Quality Checks
+        # Data Quality Check Section
+        st.subheader("🛡️ Data Quality Check")
         quality_issues, quality_stats = check_data_quality(data)
         
+        # Display quality metrics in 3 columns
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            completeness = quality_stats.get('data_completeness', 0)
+            st.metric("Data Completeness", f"{completeness:.1f}%", 
+                     help="Percentage of non-null values in the dataset")
+            
+        with col2:
+            duplicate_rate = quality_stats.get('duplicate_rate', 0)
+            st.metric("Duplicate Rate", f"{duplicate_rate:.1f}%",
+                     help="Percentage of potentially duplicate records")
+            
+        with col3:
+            unique_users = quality_stats.get('unique_users', 0)
+            st.metric("Active Users", f"{unique_users}",
+                     help="Number of unique users in current data")
+        
+        # Display quality issues
         if quality_issues:
             st.markdown('<div class="data-quality-warning">', unsafe_allow_html=True)
-            st.warning("**Data Quality Issues Detected:**")
+            st.warning("⚠️ Data Quality Issues Detected:")
             for issue in quality_issues:
-                st.write(issue)
+                st.write(f"• {issue}")
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="data-quality-success">', unsafe_allow_html=True)
-            st.success("✅ Data quality check passed - no issues detected")
+            st.success("✅ No data quality issues detected")
             st.markdown('</div>', unsafe_allow_html=True)
         
         # Key Metrics Row
