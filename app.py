@@ -1,8 +1,8 @@
 """
-OpenAI Usage Metrics Dashboard
+OpenAI Usage Metrics Dashboard v2
 
 A Streamlit-based dashboard for analyzing OpenAI enterprise usage metrics.
-Provides interactive visualizations and insights for management reporting.
+Enhanced with cost transparency, data quality checks, and improved analytics.
 """
 
 import streamlit as st
@@ -36,7 +36,7 @@ def init_app():
 
 db, processor = init_app()
 
-# Custom CSS for better styling
+# Enhanced CSS for MVP2
 st.markdown("""
 <style>
     .main-header {
@@ -55,14 +55,35 @@ st.markdown("""
     .sidebar .sidebar-content {
         width: 300px;
     }
+    .calculation-tooltip {
+        background: #e8f4fd;
+        border-left: 4px solid #1f77b4;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .data-quality-warning {
+        background: #fff3cd;
+        border-left: 4px solid #ffc107;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .data-quality-success {
+        background: #d4edda;
+        border-left: 4px solid #28a745;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
+
 def display_cost_calculation_details(total_cost, total_users, data):
     """Display detailed cost calculation breakdown."""
     with st.expander("💡 Cost Calculation Details", expanded=False):
         st.markdown("""
-        ### How we calculate Cost per User:
-        """)
+        <div class="calculation-tooltip">
+        <h4>How we calculate Cost per User:</h4>
+        </div>
+        """, unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
@@ -74,10 +95,11 @@ ${total_cost:,.2f} ÷ {total_users} = ${total_cost/max(total_users,1):.2f}
             """)
             
             st.write("**Cost Components:**")
-            feature_costs = data.groupby('feature_used')['cost_usd'].sum().sort_values(ascending=False)
-            for feature, cost in feature_costs.items():
-                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
-                st.write(f"• {feature}: ${cost:,.2f} ({percentage:.1f}%)")
+            if not data.empty:
+                feature_costs = data.groupby('feature_used')['cost_usd'].sum().sort_values(ascending=False)
+                for feature, cost in feature_costs.items():
+                    percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
+                    st.write(f"• {feature}: ${cost:,.2f} ({percentage:.1f}%)")
         
         with col2:
             st.write("**Pricing Assumptions:**")
@@ -90,7 +112,7 @@ ${total_cost:,.2f} ÷ {total_users} = ${total_cost/max(total_users,1):.2f}
             
             💡 **Note:** These are estimated costs based on typical OpenAI enterprise pricing.
             """)
-            display_cost_calculation_details(total_cost, total_users, data)
+
 def check_data_quality(data):
     """Enhanced data quality checks for MVP2."""
     quality_issues = []
@@ -114,6 +136,13 @@ def check_data_quality(data):
     if invalid_usage > 0:
         quality_issues.append(f"⚠️ {invalid_usage} records with zero or negative usage")
     
+    # Check for extremely high costs (potential data errors)
+    if data['cost_usd'].max() > 0:
+        high_cost_threshold = data['cost_usd'].quantile(0.95) * 3
+        high_costs = (data['cost_usd'] > high_cost_threshold).sum()
+        if high_costs > 0:
+            quality_issues.append(f"⚠️ {high_costs} records with unusually high costs")
+    
     # Calculate quality statistics
     quality_stats = {
         'total_records': len(data),
@@ -123,15 +152,37 @@ def check_data_quality(data):
     }
 
     return quality_issues, quality_stats
+
+def check_date_coverage(db, start_date, end_date):
+    """Check data coverage for selected date range."""
+    available_months = db.get_available_months()
+    
+    if not available_months:
+        return False, "No data available in database"
+    
+    # Convert to datetime for comparison
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+    available_dates = [pd.to_datetime(d) for d in available_months]
+    
+    # Check if we have data for the requested range
+    min_available = min(available_dates)
+    max_available = max(available_dates)
+    
+    if start_dt < min_available or end_dt > max_available:
+        return False, f"Data only available from {min_available.strftime('%Y-%m-%d')} to {max_available.strftime('%Y-%m-%d')}"
+    
+    return True, "Data coverage OK"
+
 def main():
-    # Main header
-    st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard</h1>', unsafe_allow_html=True)
+    # Main header with version indicator
+    st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard v2.0</h1>', unsafe_allow_html=True)
     
     # Sidebar for navigation and controls
     with st.sidebar:
         st.header("🔧 Controls")
         
-        # File upload section
+        # Enhanced file upload section
         st.subheader("📁 Upload Monthly Data")
         uploaded_file = st.file_uploader(
             "Upload OpenAI Usage Metrics CSV",
@@ -139,7 +190,28 @@ def main():
             help="Select your monthly OpenAI enterprise usage export file"
         )
         
+        # Show upload history if available
+        if hasattr(st.session_state, 'upload_history') and st.session_state.upload_history:
+            st.write("**Recent Uploads:**")
+            for upload in st.session_state.upload_history[-3:]:
+                st.caption(f"✅ {upload}")
+        
         if uploaded_file is not None:
+            # Show file preview
+            try:
+                stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
+                preview_df = pd.read_csv(stringio, nrows=5)
+                
+                st.write("**File Preview:**")
+                st.dataframe(preview_df.head(3), height=120)
+                
+                # Get full file info
+                full_df = pd.read_csv(StringIO(uploaded_file.getvalue().decode('utf-8')))
+                st.caption(f"📊 {len(full_df)} rows, {len(full_df.columns)} columns")
+                
+            except Exception as e:
+                st.error(f"Cannot preview file: {str(e)}")
+            
             if st.button("Process Upload", type="primary"):
                 with st.spinner("Processing data..."):
                     try:
@@ -152,6 +224,12 @@ def main():
                         
                         if success:
                             st.success(f"✅ {message}")
+                            # Track upload history
+                            if 'upload_history' not in st.session_state:
+                                st.session_state.upload_history = []
+                            st.session_state.upload_history.append(
+                                f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
+                            )
                             st.rerun()
                         else:
                             st.error(f"❌ {message}")
@@ -160,7 +238,7 @@ def main():
         
         st.divider()
         
-        # Date range selector
+        # Enhanced date range selector with validation
         st.subheader("📅 Date Range")
         available_months = db.get_available_months()
         
@@ -168,25 +246,43 @@ def main():
             default_end = max(available_months)
             default_start = min(available_months)
             
+            # Show data coverage info
+            st.info(f"📊 Data available from {default_start} to {default_end}")
+            
             date_range = st.date_input(
                 "Select date range",
                 value=(default_start, default_end),
                 min_value=default_start,
-                max_value=default_end
+                max_value=default_end,
+                help="Select the date range for analysis. Data must be available for selected dates."
             )
+            
+            # Validate date range
+            if len(date_range) == 2:
+                coverage_ok, coverage_msg = check_date_coverage(db, date_range[0], date_range[1])
+                if not coverage_ok:
+                    st.warning(f"⚠️ {coverage_msg}")
         else:
             st.info("No data available. Please upload your first monthly export.")
             return
         
         st.divider()
         
-        # Filters
+        # Enhanced filters with counts
         st.subheader("🔍 Filters")
         users = db.get_unique_users()
-        selected_users = st.multiselect("Select Users (leave empty for all)", users)
+        selected_users = st.multiselect(
+            f"Select Users (leave empty for all {len(users)} users)", 
+            users,
+            help=f"Filter by specific users. Currently {len(users)} users available."
+        )
         
         departments = db.get_unique_departments()
-        selected_departments = st.multiselect("Select Departments (leave empty for all)", departments)
+        selected_departments = st.multiselect(
+            f"Select Departments (leave empty for all {len(departments)} departments)", 
+            departments,
+            help=f"Filter by departments. Currently {len(departments)} departments available."
+        )
     
     # Main dashboard content
     if not available_months:
@@ -206,9 +302,16 @@ def main():
         st.dataframe(sample_data)
         return
     
-    # Get filtered data
+    # Get filtered data with enhanced validation
     if len(date_range) == 2:
         start_date, end_date = date_range
+        coverage_ok, coverage_msg = check_date_coverage(db, start_date, end_date)
+        
+        if not coverage_ok:
+            st.error(f"❌ Cannot load data: {coverage_msg}")
+            st.info("Please select a different date range or upload data for the requested period.")
+            return
+        
         data = db.get_filtered_data(
             start_date=start_date,
             end_date=end_date,
@@ -216,33 +319,73 @@ def main():
             departments=selected_departments if selected_departments else None
         )
     else:
-        data = db.get_all_data()
+        st.warning("Please select both start and end dates.")
+        return
     
     if data.empty:
         st.warning("No data found for the selected filters.")
         return
     
-    # Key Metrics Row
+    # MVP2: Data Quality Dashboard
+    st.subheader("🛡️ Data Quality Check")
+    quality_issues, quality_stats = check_data_quality(data)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        completeness = quality_stats.get('data_completeness', 0)
+        st.metric("Data Completeness", f"{completeness:.1f}%", 
+                 help="Percentage of non-null values in the dataset")
+        
+    with col2:
+        duplicate_rate = quality_stats.get('duplicate_rate', 0)
+        st.metric("Duplicate Rate", f"{duplicate_rate:.1f}%",
+                 help="Percentage of potentially duplicate records")
+        
+    with col3:
+        unique_users = quality_stats.get('unique_users', 0)
+        st.metric("Active Users", f"{unique_users}",
+                 help="Number of unique users in current data")
+    
+    # Display quality issues
+    if quality_issues:
+        st.markdown('<div class="data-quality-warning">', unsafe_allow_html=True)
+        st.warning("⚠️ Data Quality Issues Detected:")
+        for issue in quality_issues:
+            st.write(f"• {issue}")
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="data-quality-success">', unsafe_allow_html=True)
+        st.success("✅ No data quality issues detected")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Enhanced Key Metrics Row with explanations
     st.subheader("📈 Key Metrics")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         total_users = data['user_id'].nunique()
-        st.metric("Total Active Users", total_users)
+        st.metric("Total Active Users", total_users, 
+                 help="Number of unique users with activity in selected period")
     
     with col2:
         total_usage = data['usage_count'].sum()
-        st.metric("Total Usage Events", f"{total_usage:,}")
+        st.metric("Total Usage Events", f"{total_usage:,}", 
+                 help="Sum of all usage interactions across all users")
     
     with col3:
         total_cost = data['cost_usd'].sum()
-        st.metric("Total Cost", f"${total_cost:,.2f}")
+        st.metric("Total Cost", f"${total_cost:,.2f}", 
+                 help="Estimated total cost based on usage and pricing model")
     
     with col4:
         avg_cost_per_user = total_cost / max(total_users, 1)
-        st.metric("Avg Cost per User", f"${avg_cost_per_user:.2f}")
+        st.metric("Avg Cost per User", f"${avg_cost_per_user:.2f}", 
+                 help="Total cost divided by number of active users")
     
-    # Usage Trends
+    # MVP2: Cost calculation transparency
+    display_cost_calculation_details(total_cost, total_users, data)
+    
+    # Usage Trends (enhanced)
     st.subheader("📊 Usage Trends")
     
     col1, col2 = st.columns(2)
@@ -251,6 +394,7 @@ def main():
         # Daily usage trend
         daily_usage = data.groupby('date')['usage_count'].sum().reset_index()
         daily_usage['date'] = pd.to_datetime(daily_usage['date'])
+        daily_usage = daily_usage.sort_values('date')
         
         fig_daily = px.line(
             daily_usage, 
@@ -266,6 +410,7 @@ def main():
         # Cost trend
         daily_cost = data.groupby('date')['cost_usd'].sum().reset_index()
         daily_cost['date'] = pd.to_datetime(daily_cost['date'])
+        daily_cost = daily_cost.sort_values('date')
         
         fig_cost = px.line(
             daily_cost, 
@@ -328,7 +473,7 @@ def main():
     fig_features.update_layout(height=300)
     st.plotly_chart(fig_features, use_container_width=True)
     
-    # Management Insights
+    # Enhanced Management Insights
     st.subheader("💡 Management Insights")
     
     col1, col2 = st.columns(2)
@@ -346,6 +491,8 @@ def main():
                     st.success(f"📈 {period}: +{growth_rate:.1f}% growth")
                 else:
                     st.error(f"📉 {period}: {growth_rate:.1f}% decline")
+        else:
+            st.info("💡 Upload multiple months of data to see growth trends")
     
     with col2:
         st.write("**Cost Efficiency Metrics**")
@@ -360,20 +507,49 @@ def main():
         
         st.write("**Top Cost Centers:**")
         for _, row in dept_cost.iterrows():
-            st.write(f"• {row['department']}: ${row['cost_usd']:,.2f}")
+            percentage = (row['cost_usd'] / total_cost) * 100 if total_cost > 0 else 0
+            st.write(f"• {row['department']}: ${row['cost_usd']:,.2f} ({percentage:.1f}%)")
     
-    # Raw Data View
+    # Enhanced Raw Data View
     with st.expander("📋 View Raw Data", expanded=False):
+        st.write(f"**Showing {len(data)} records**")
         st.dataframe(data, use_container_width=True)
         
-        # Download filtered data
-        csv = data.to_csv(index=False)
-        st.download_button(
-            label="📥 Download Filtered Data as CSV",
-            data=csv,
-            file_name=f"openai_metrics_filtered_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Download filtered data
+            csv = data.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Filtered Data as CSV",
+                data=csv,
+                file_name=f"openai_metrics_filtered_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            # Download summary report
+            summary_data = pd.DataFrame([{
+                'Metric': 'Total Active Users',
+                'Value': total_users
+            }, {
+                'Metric': 'Total Usage Events', 
+                'Value': total_usage
+            }, {
+                'Metric': 'Total Cost (USD)',
+                'Value': total_cost
+            }, {
+                'Metric': 'Average Cost per User (USD)',
+                'Value': avg_cost_per_user
+            }])
+            
+            summary_csv = summary_data.to_csv(index=False)
+            st.download_button(
+                label="📊 Download Summary Report",
+                data=summary_csv,
+                file_name=f"openai_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv"
+            )
 
 if __name__ == "__main__":
     main()
