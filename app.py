@@ -1,7 +1,8 @@
 """
-OpenAI Usage Metrics Dashboard v2.1
+AI Usage Metrics Dashboard v3.0 - Multi-Provider Edition
 
-A Streamlit-based dashboard for analyzing OpenAI enterprise usage metrics.
+A Streamlit-based dashboard for analyzing AI provider usage metrics.
+Supports OpenAI, BlueFlame AI, Anthropic, Google AI, and more.
 Enhanced with cost transparency, data quality checks, database management, and improved analytics.
 """
 
@@ -22,8 +23,8 @@ import config
 
 # Page configuration
 st.set_page_config(
-    page_title="OpenAI Usage Metrics Dashboard v2.1",
-    page_icon="📊",
+    page_title="AI Usage Metrics Dashboard v3.0",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -37,7 +38,7 @@ def init_app():
 
 db, processor = init_app()
 
-# Enhanced CSS for MVP2
+# Enhanced CSS for MVP3 - Multi-Provider
 st.markdown("""
 <style>
     .main-header {
@@ -46,6 +47,13 @@ st.markdown("""
         color: #1f77b4;
         text-align: center;
         margin-bottom: 2rem;
+    }
+    .provider-selector {
+        background: #e8f4fd;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
+        margin: 1rem 0;
     }
     .metric-card {
         background: #f0f2f6;
@@ -84,12 +92,72 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def display_cost_calculation_details(total_cost, total_users, data):
-    """Display detailed cost calculation breakdown."""
+def get_provider_icon(provider):
+    """Get icon for AI provider."""
+    icons = {
+        'OpenAI': '🤖',
+        'BlueFlame AI': '🔥',
+        'Anthropic': '🎭',
+        'Google AI': '🔍',
+        'Microsoft Azure AI': '☁️'
+    }
+    return icons.get(provider, '🤖')
+
+def get_provider_color(provider):
+    """Get color theme for AI provider."""
+    colors = {
+        'OpenAI': '#00A67E',
+        'BlueFlame AI': '#FF6B35',
+        'Anthropic': '#7C4DFF',
+        'Google AI': '#4285F4',
+        'Microsoft Azure AI': '#0078D4'
+    }
+    return colors.get(provider, '#1f77b4')
+
+def display_provider_selector():
+    """Display provider selection dropdown."""
+    st.markdown('<div class="provider-selector">', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        st.write("**🎯 AI Provider:**")
+    
+    with col2:
+        # Get available providers from database
+        available_providers = db.get_available_providers()
+        
+        if not available_providers:
+            available_providers = ['OpenAI']  # Default to OpenAI
+        
+        selected_provider = st.selectbox(
+            "",
+            options=available_providers,
+            index=0,
+            key="provider_selector",
+            help="Select which AI provider's metrics to analyze"
+        )
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Display current provider info
+    provider_icon = get_provider_icon(selected_provider)
+    provider_color = get_provider_color(selected_provider)
+    
+    st.markdown(f"""
+    <div style="background: {provider_color}15; padding: 0.5rem; border-radius: 0.5rem; border-left: 4px solid {provider_color}; margin: 0.5rem 0;">
+    <h4 style="color: {provider_color}; margin: 0;">{provider_icon} Currently analyzing: {selected_provider}</h4>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    return selected_provider
+
+def display_cost_calculation_details(total_cost, total_users, data, provider):
+    """Display detailed cost calculation breakdown for specific provider."""
     with st.expander("💡 Cost Calculation Details", expanded=False):
-        st.markdown("""
+        st.markdown(f"""
         <div class="calculation-tooltip">
-        <h4>How we calculate Cost per User:</h4>
+        <h4>How we calculate Cost per User for {provider}:</h4>
         </div>
         """, unsafe_allow_html=True)
         
@@ -110,19 +178,51 @@ ${total_cost:,.2f} ÷ {total_users} = ${total_cost/max(total_users,1):.2f}
                     st.write(f"• {feature}: ${cost:,.2f} ({percentage:.1f}%)")
         
         with col2:
-            st.write("**Pricing Assumptions:**")
-            st.info("""
-            📊 **Current Cost Model:**
-            - ChatGPT Messages: $0.02 per message
-            - Tool Messages: $0.01 per message  
-            - Model Usage: $0.025 per interaction
-            - Project Messages: $0.015 per message
+            st.write(f"**{provider} Pricing Model:**")
             
-            💡 **Note:** These are estimated costs based on typical OpenAI enterprise pricing.
-            """)
+            # Provider-specific pricing info
+            if provider == 'OpenAI':
+                st.info("""
+                📊 **OpenAI Cost Model:**
+                - ChatGPT Messages: $0.02 per message
+                - Tool Messages: $0.01 per message  
+                - Model Usage: $0.025 per interaction
+                - Project Messages: $0.015 per message
+                
+                💡 **Note:** Based on typical OpenAI enterprise pricing.
+                """)
+            elif provider == 'BlueFlame AI':
+                st.info("""
+                🔥 **BlueFlame AI Cost Model:**
+                - AI Conversations: $0.018 per message
+                - Document Analysis: $0.05 per document
+                - API Calls: $0.008 per call
+                - Custom Models: $0.03 per interaction
+                
+                💡 **Note:** Based on BlueFlame AI enterprise pricing.
+                """)
+            elif provider == 'Anthropic':
+                st.info("""
+                🎭 **Anthropic Cost Model:**
+                - Claude Messages: $0.025 per message
+                - Claude Pro: $0.04 per message
+                - API Usage: $0.01 per call
+                - Vision Processing: $0.06 per image
+                
+                💡 **Note:** Based on Anthropic enterprise pricing.
+                """)
+            else:
+                st.info(f"""
+                🤖 **{provider} Cost Model:**
+                - Standard Messages: $0.02 per message
+                - API Calls: $0.01 per call
+                - Premium Features: $0.03 per interaction
+                
+                💡 **Note:** Estimated costs based on typical AI service pricing.
+                """)
 
 def check_data_quality(data):
-    """Enhanced data quality checks for MVP2."""
+    """Enhanced data quality checks for MVP3."""
     quality_issues = []
     quality_stats = {}
 
@@ -130,7 +230,7 @@ def check_data_quality(data):
         return quality_issues, quality_stats
     
     # Check for duplicate records
-    duplicates = data.duplicated(subset=['user_id', 'date', 'feature_used']).sum()
+    duplicates = data.duplicated(subset=['user_id', 'date', 'feature_used', 'provider']).sum()
     if duplicates > 0:
         quality_issues.append(f"⚠️ {duplicates} potential duplicate records found")
     
@@ -151,6 +251,11 @@ def check_data_quality(data):
         if high_costs > 0:
             quality_issues.append(f"⚠️ {high_costs} records with unusually high costs")
     
+    # Check for missing provider data
+    missing_provider = data['provider'].isna().sum()
+    if missing_provider > 0:
+        quality_issues.append(f"⚠️ {missing_provider} records missing provider information")
+    
     # Calculate quality statistics
     quality_stats = {
         'total_records': len(data),
@@ -161,12 +266,12 @@ def check_data_quality(data):
 
     return quality_issues, quality_stats
 
-def check_date_coverage(db, start_date, end_date):
-    """Check data coverage for selected date range."""
-    available_months = db.get_available_months()
+def check_date_coverage(db, start_date, end_date, provider):
+    """Check data coverage for selected date range and provider."""
+    available_months = db.get_available_months(provider)
     
     if not available_months:
-        return False, "No data available in database"
+        return False, f"No data available for {provider}"
     
     # Convert to datetime for comparison
     start_dt = pd.to_datetime(start_date)
@@ -178,14 +283,14 @@ def check_date_coverage(db, start_date, end_date):
     max_available = max(available_dates)
     
     if start_dt < min_available or end_dt > max_available:
-        return False, f"Data only available from {min_available.strftime('%Y-%m-%d')} to {max_available.strftime('%Y-%m-%d')}"
+        return False, f"Data for {provider} only available from {min_available.strftime('%Y-%m-%d')} to {max_available.strftime('%Y-%m-%d')}"
     
     return True, "Data coverage OK"
 
-def get_database_info():
-    """Get comprehensive database information."""
+def get_database_info(provider=None):
+    """Get comprehensive database information for specific provider."""
     try:
-        all_data = db.get_all_data()
+        all_data = db.get_all_data(provider)
         
         if all_data.empty:
             return {
@@ -253,11 +358,18 @@ def display_admin_dashboard():
     """Display the admin/database management dashboard."""
     st.header("🛠️ Database Administration")
     
+    # Provider selection for admin
+    selected_provider = st.selectbox(
+        "Select provider for admin view:",
+        options=db.get_available_providers() or ['All Providers'],
+        key="admin_provider_selector"
+    )
+    
     # Get database information
-    db_info = get_database_info()
+    db_info = get_database_info(selected_provider if selected_provider != 'All Providers' else None)
     
     # Database Overview Metrics
-    st.subheader("📊 Database Overview")
+    st.subheader(f"📊 Database Overview - {selected_provider}")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -297,7 +409,10 @@ def display_admin_dashboard():
                         try:
                             # Delete records from specific file using sqlite3 directly
                             conn = sqlite3.connect(db.db_path)
-                            conn.execute("DELETE FROM usage_metrics WHERE file_source = ?", (selected_file,))
+                            if selected_provider != 'All Providers':
+                                conn.execute("DELETE FROM usage_metrics WHERE file_source = ? AND provider = ?", (selected_file, selected_provider))
+                            else:
+                                conn.execute("DELETE FROM usage_metrics WHERE file_source = ?", (selected_file,))
                             conn.commit()
                             conn.close()
                             
@@ -308,25 +423,28 @@ def display_admin_dashboard():
                             st.error(f"Error deleting file: {str(e)}")
         
         with col2:
-            # Clear entire database
-            if st.button("🧹 Clear Entire Database", type="secondary"):
+            # Clear provider database
+            if st.button(f"🧹 Clear {selected_provider} Database", type="secondary"):
                 if not st.session_state.get('confirm_clear_db', False):
                     st.session_state.confirm_clear_db = True
-                    st.error("⚠️ **DANGER**: This will delete ALL data! Click again to confirm.")
+                    st.error(f"⚠️ **DANGER**: This will delete ALL {selected_provider} data! Click again to confirm.")
                 else:
                     try:
                         conn = sqlite3.connect(db.db_path)
-                        conn.execute("DELETE FROM usage_metrics")
+                        if selected_provider != 'All Providers':
+                            conn.execute("DELETE FROM usage_metrics WHERE provider = ?", (selected_provider,))
+                        else:
+                            conn.execute("DELETE FROM usage_metrics")
                         conn.commit()
                         conn.close()
                         
-                        st.success("✅ Database cleared successfully")
+                        st.success(f"✅ {selected_provider} database cleared successfully")
                         del st.session_state.confirm_clear_db
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error clearing database: {str(e)}")
     else:
-        st.info("No upload history available. Upload some data first.")
+        st.info(f"No upload history available for {selected_provider}. Upload some data first.")
     
     # Date Coverage Analysis
     st.subheader("📅 Date Coverage Analysis")
@@ -339,7 +457,7 @@ def display_admin_dashboard():
             coverage_df, 
             x='date', 
             y='user_id',
-            title='Daily User Activity Coverage',
+            title=f'Daily User Activity Coverage - {selected_provider}',
             labels={'user_id': 'Active Users', 'date': 'Date'}
         )
         fig.update_layout(height=300)
@@ -367,11 +485,14 @@ def display_admin_dashboard():
         else:
             st.success("✅ No data gaps detected in date range")
     else:
-        st.info("No data available for coverage analysis.")
+        st.info(f"No data available for coverage analysis for {selected_provider}.")
 
 def main():
     # Main header with version indicator
-    st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard v2.1</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🤖 AI Usage Metrics Dashboard v3.0</h1>', unsafe_allow_html=True)
+    
+    # Provider selection (moved to top of main content)
+    selected_provider = display_provider_selector()
     
     # Create tabs for different views
     tab1, tab2 = st.tabs(["📊 Analytics Dashboard", "🔧 Database Management"])
@@ -384,12 +505,12 @@ def main():
         with st.sidebar:
             st.header("🔧 Controls")
             
-            # Enhanced file upload section
-            st.subheader("📁 Upload Monthly Data")
+            # Enhanced file upload section with provider context
+            st.subheader(f"📁 Upload {selected_provider} Data")
             uploaded_file = st.file_uploader(
-                "Upload OpenAI Usage Metrics CSV",
+                f"Upload {selected_provider} Usage Metrics CSV",
                 type=['csv'],
-                help="Select your monthly OpenAI enterprise usage export file"
+                help=f"Select your monthly {selected_provider} usage export file"
             )
             
             # Show upload history if available
@@ -421,8 +542,8 @@ def main():
                             stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
                             df = pd.read_csv(stringio)
                             
-                            # Process and store data
-                            success, message = processor.process_monthly_data(df, uploaded_file.name)
+                            # Process and store data with provider context
+                            success, message = processor.process_monthly_data(df, uploaded_file.name, selected_provider)
                             
                             if success:
                                 st.success(f"✅ {message}")
@@ -430,7 +551,7 @@ def main():
                                 if 'upload_history' not in st.session_state:
                                     st.session_state.upload_history = []
                                 st.session_state.upload_history.append(
-                                    f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
+                                    f"{uploaded_file.name} ({selected_provider}) ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
                                 )
                                 st.rerun()
                             else:
@@ -442,72 +563,96 @@ def main():
             
             # Enhanced date range selector with validation
             st.subheader("📅 Date Range")
-            available_months = db.get_available_months()
+            available_months = db.get_available_months(selected_provider)
             
             if available_months:
                 default_end = max(available_months)
                 default_start = min(available_months)
                 
                 # Show data coverage info
-                st.info(f"📊 Data available from {default_start} to {default_end}")
+                st.info(f"📊 {selected_provider} data available from {default_start} to {default_end}")
                 
                 date_range = st.date_input(
                     "Select date range",
                     value=(default_start, default_end),
                     min_value=default_start,
                     max_value=default_end,
-                    help="Select the date range for analysis. Data must be available for selected dates."
+                    help=f"Select the date range for {selected_provider} analysis. Data must be available for selected dates."
                 )
                 
                 # Validate date range
                 if len(date_range) == 2:
-                    coverage_ok, coverage_msg = check_date_coverage(db, date_range[0], date_range[1])
+                    coverage_ok, coverage_msg = check_date_coverage(db, date_range[0], date_range[1], selected_provider)
                     if not coverage_ok:
                         st.warning(f"⚠️ {coverage_msg}")
             else:
-                st.info("No data available. Please upload your first monthly export.")
+                st.info(f"No {selected_provider} data available. Please upload your first monthly export.")
                 return
             
             st.divider()
             
             # Enhanced filters with counts
             st.subheader("🔍 Filters")
-            users = db.get_unique_users()
+            users = db.get_unique_users(selected_provider)
             selected_users = st.multiselect(
                 f"Select Users (leave empty for all {len(users)} users)", 
                 users,
-                help=f"Filter by specific users. Currently {len(users)} users available."
+                help=f"Filter by specific users. Currently {len(users)} users available for {selected_provider}."
             )
             
-            departments = db.get_unique_departments()
+            departments = db.get_unique_departments(selected_provider)
             selected_departments = st.multiselect(
                 f"Select Departments (leave empty for all {len(departments)} departments)", 
                 departments,
-                help=f"Filter by departments. Currently {len(departments)} departments available."
+                help=f"Filter by departments. Currently {len(departments)} departments available for {selected_provider}."
             )
         
         # Main dashboard content
         if not available_months:
-            st.info("👋 Welcome! Please upload your first OpenAI usage metrics file using the sidebar.")
+            provider_icon = get_provider_icon(selected_provider)
+            st.info(f"👋 Welcome! Please upload your first {selected_provider} usage metrics file using the sidebar.")
             
-            # Show sample data format
-            st.subheader("📋 Expected Data Format")
-            sample_data = pd.DataFrame({
-                'user_id': ['user1@company.com', 'user2@company.com'],
-                'user_name': ['John Doe', 'Jane Smith'],
-                'department': ['Engineering', 'Marketing'],
-                'date': ['2024-01-15', '2024-01-16'],
-                'feature_used': ['ChatGPT', 'API'],
-                'usage_count': [25, 15],
-                'cost_usd': [12.50, 8.75]
-            })
+            # Show sample data format for the selected provider
+            st.subheader(f"📋 Expected {selected_provider} Data Format")
+            
+            if selected_provider == 'OpenAI':
+                sample_data = pd.DataFrame({
+                    'email': ['user1@company.com', 'user2@company.com'],
+                    'name': ['John Doe', 'Jane Smith'],
+                    'department': ['["engineering"]', '["marketing"]'],
+                    'period_start': ['2024-01-01', '2024-01-01'],
+                    'messages': [25, 15],
+                    'tool_messages': [5, 3],
+                    'project_messages': [10, 8]
+                })
+            elif selected_provider == 'BlueFlame AI':
+                sample_data = pd.DataFrame({
+                    'user_id': ['user1@company.com', 'user2@company.com'],
+                    'user_name': ['John Doe', 'Jane Smith'],
+                    'department': ['Engineering', 'Marketing'],
+                    'date': ['2024-01-15', '2024-01-16'],
+                    'conversations': [25, 15],
+                    'documents_analyzed': [5, 8],
+                    'api_calls': [100, 75]
+                })
+            else:
+                sample_data = pd.DataFrame({
+                    'user_id': ['user1@company.com', 'user2@company.com'],
+                    'user_name': ['John Doe', 'Jane Smith'],
+                    'department': ['Engineering', 'Marketing'],
+                    'date': ['2024-01-15', '2024-01-16'],
+                    'feature_used': ['Chat', 'API'],
+                    'usage_count': [25, 15],
+                    'cost_usd': [12.50, 8.75]
+                })
+            
             st.dataframe(sample_data)
             return
         
         # Get filtered data with enhanced validation
         if len(date_range) == 2:
             start_date, end_date = date_range
-            coverage_ok, coverage_msg = check_date_coverage(db, start_date, end_date)
+            coverage_ok, coverage_msg = check_date_coverage(db, start_date, end_date, selected_provider)
             
             if not coverage_ok:
                 st.error(f"❌ Cannot load data: {coverage_msg}")
@@ -518,18 +663,19 @@ def main():
                 start_date=start_date,
                 end_date=end_date,
                 users=selected_users if selected_users else None,
-                departments=selected_departments if selected_departments else None
+                departments=selected_departments if selected_departments else None,
+                provider=selected_provider
             )
         else:
             st.warning("Please select both start and end dates.")
             return
         
         if data.empty:
-            st.warning("No data found for the selected filters.")
+            st.warning(f"No {selected_provider} data found for the selected filters.")
             return
         
-        # MVP2: Data Quality Dashboard
-        st.subheader("🛡️ Data Quality Check")
+        # MVP3: Data Quality Dashboard with provider context
+        st.subheader(f"🛡️ Data Quality Check - {selected_provider}")
         quality_issues, quality_stats = check_data_quality(data)
         
         col1, col2, col3 = st.columns(3)
@@ -546,7 +692,7 @@ def main():
         with col3:
             unique_users = quality_stats.get('unique_users', 0)
             st.metric("Active Users", f"{unique_users}",
-                     help="Number of unique users in current data")
+                     help=f"Number of unique users in current {selected_provider} data")
         
         # Display quality issues
         if quality_issues:
@@ -561,34 +707,34 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
         
         # Enhanced Key Metrics Row with explanations
-        st.subheader("📈 Key Metrics")
+        st.subheader(f"📈 Key Metrics - {selected_provider}")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             total_users = data['user_id'].nunique()
             st.metric("Total Active Users", total_users, 
-                     help="Number of unique users with activity in selected period")
+                     help=f"Number of unique users with {selected_provider} activity in selected period")
         
         with col2:
             total_usage = data['usage_count'].sum()
             st.metric("Total Usage Events", f"{total_usage:,}", 
-                     help="Sum of all usage interactions across all users")
+                     help=f"Sum of all {selected_provider} usage interactions across all users")
         
         with col3:
             total_cost = data['cost_usd'].sum()
             st.metric("Total Cost", f"${total_cost:,.2f}", 
-                     help="Estimated total cost based on usage and pricing model")
+                     help=f"Estimated total {selected_provider} cost based on usage and pricing model")
         
         with col4:
             avg_cost_per_user = total_cost / max(total_users, 1)
             st.metric("Avg Cost per User", f"${avg_cost_per_user:.2f}", 
-                     help="Total cost divided by number of active users")
+                     help=f"Total {selected_provider} cost divided by number of active users")
         
-        # MVP2: Cost calculation transparency
-        display_cost_calculation_details(total_cost, total_users, data)
+        # MVP3: Cost calculation transparency with provider context
+        display_cost_calculation_details(total_cost, total_users, data, selected_provider)
         
         # Usage Trends (enhanced)
-        st.subheader("📊 Usage Trends")
+        st.subheader(f"📊 Usage Trends - {selected_provider}")
         
         col1, col2 = st.columns(2)
         
@@ -602,8 +748,9 @@ def main():
                 daily_usage, 
                 x='date', 
                 y='usage_count',
-                title='Daily Usage Trend',
-                labels={'usage_count': 'Usage Count', 'date': 'Date'}
+                title=f'Daily Usage Trend - {selected_provider}',
+                labels={'usage_count': 'Usage Count', 'date': 'Date'},
+                color_discrete_sequence=[get_provider_color(selected_provider)]
             )
             fig_daily.update_layout(height=300)
             st.plotly_chart(fig_daily, width="stretch")
@@ -618,14 +765,15 @@ def main():
                 daily_cost, 
                 x='date', 
                 y='cost_usd',
-                title='Daily Cost Trend',
-                labels={'cost_usd': 'Cost (USD)', 'date': 'Date'}
+                title=f'Daily Cost Trend - {selected_provider}',
+                labels={'cost_usd': 'Cost (USD)', 'date': 'Date'},
+                color_discrete_sequence=[get_provider_color(selected_provider)]
             )
             fig_cost.update_layout(height=300)
             st.plotly_chart(fig_cost, width="stretch")
         
         # User Analysis
-        st.subheader("👥 User Analysis")
+        st.subheader(f"👥 User Analysis - {selected_provider}")
         
         col1, col2 = st.columns(2)
         
@@ -639,8 +787,9 @@ def main():
                 x='usage_count', 
                 y='user_name',
                 orientation='h',
-                title='Top 10 Users by Usage',
-                labels={'usage_count': 'Total Usage', 'user_name': 'User'}
+                title=f'Top 10 Users by Usage - {selected_provider}',
+                labels={'usage_count': 'Total Usage', 'user_name': 'User'},
+                color_discrete_sequence=[get_provider_color(selected_provider)]
             )
             fig_users.update_layout(height=400)
             st.plotly_chart(fig_users, width="stretch")
@@ -653,13 +802,13 @@ def main():
                 dept_usage, 
                 values='usage_count', 
                 names='department',
-                title='Usage by Department'
+                title=f'Usage by Department - {selected_provider}'
             )
             fig_dept.update_layout(height=400)
             st.plotly_chart(fig_dept, width="stretch")
         
         # Feature Usage Analysis
-        st.subheader("🔧 Feature Usage Analysis")
+        st.subheader(f"🔧 Feature Usage Analysis - {selected_provider}")
         
         feature_usage = data.groupby('feature_used')['usage_count'].sum().reset_index()
         feature_usage = feature_usage.sort_values('usage_count', ascending=True)
@@ -669,14 +818,15 @@ def main():
             x='usage_count', 
             y='feature_used',
             orientation='h',
-            title='Feature Usage Distribution',
-            labels={'usage_count': 'Total Usage', 'feature_used': 'Feature'}
+            title=f'Feature Usage Distribution - {selected_provider}',
+            labels={'usage_count': 'Total Usage', 'feature_used': 'Feature'},
+            color_discrete_sequence=[get_provider_color(selected_provider)]
         )
         fig_features.update_layout(height=300)
         st.plotly_chart(fig_features, width="stretch")
         
         # Enhanced Management Insights
-        st.subheader("💡 Management Insights")
+        st.subheader(f"💡 Management Insights - {selected_provider}")
         
         col1, col2 = st.columns(2)
         
@@ -694,7 +844,7 @@ def main():
                     else:
                         st.error(f"📉 {period}: {growth_rate:.1f}% decline")
             else:
-                st.info("💡 Upload multiple months of data to see growth trends")
+                st.info(f"💡 Upload multiple months of {selected_provider} data to see growth trends")
         
         with col2:
             st.write("**Cost Efficiency Metrics**")
@@ -713,8 +863,8 @@ def main():
                 st.write(f"• {row['department']}: ${row['cost_usd']:,.2f} ({percentage:.1f}%)")
         
         # Enhanced Raw Data View
-        with st.expander("📋 View Raw Data", expanded=False):
-            st.write(f"**Showing {len(data)} records**")
+        with st.expander(f"📋 View Raw Data - {selected_provider}", expanded=False):
+            st.write(f"**Showing {len(data)} {selected_provider} records**")
             st.dataframe(data, width="stretch")
             
             col1, col2 = st.columns(2)
@@ -725,13 +875,16 @@ def main():
                 st.download_button(
                     label="📥 Download Filtered Data as CSV",
                     data=csv,
-                    file_name=f"openai_metrics_filtered_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    file_name=f"{selected_provider.lower()}_metrics_filtered_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
             
             with col2:
                 # Download summary report
                 summary_data = pd.DataFrame([{
+                    'Metric': 'AI Provider',
+                    'Value': selected_provider
+                }, {
                     'Metric': 'Total Active Users',
                     'Value': total_users
                 }, {
@@ -749,7 +902,7 @@ def main():
                 st.download_button(
                     label="📊 Download Summary Report",
                     data=summary_csv,
-                    file_name=f"openai_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    file_name=f"{selected_provider.lower()}_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
 
