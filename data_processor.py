@@ -1,24 +1,35 @@
-"""Data processing functions for OpenAI usage metrics."""
+"""Data processing functions for Multi-Provider usage metrics."""
 import pandas as pd
 import sqlite3
 from datetime import datetime
 import re
+import config
 
 class DataProcessor:
     def __init__(self, db_manager):
         self.db = db_manager
     
-    def process_monthly_data(self, df, filename):
-        """Process uploaded monthly data."""
+    def process_monthly_data(self, df, filename, provider='openai'):
+        """Process uploaded monthly data for specified provider."""
         try:
-            print(f"Processing {len(df)} rows from {filename}")
+            print(f"Processing {len(df)} rows from {filename} for provider: {provider}")
             print(f"Original DataFrame columns: {list(df.columns)}")
             
-            # Clean the data based on OpenAI format
-            processed_df = self.clean_openai_data(df, filename)
+            # Clean the data based on provider format
+            if provider == 'openai':
+                processed_df = self.clean_openai_data(df, filename)
+            elif provider == 'blueflame':
+                processed_df = self.clean_blueflame_data(df, filename)
+            elif provider == 'anthropic':
+                processed_df = self.clean_anthropic_data(df, filename)
+            else:
+                return False, f"Unsupported provider: {provider}"
             
             if processed_df.empty:
                 return False, "No valid data found after processing"
+            
+            # Add provider column
+            processed_df['provider'] = provider
             
             print(f"Sample processed data:")
             print(processed_df.head())
@@ -105,6 +116,76 @@ class DataProcessor:
             
         except Exception as e:
             print(f"Error in clean_openai_data: {str(e)}")
+            return pd.DataFrame()
+    
+    def clean_blueflame_data(self, df, filename):
+        """Clean BlueFlame AI usage data format."""
+        try:
+            provider_config = config.PROVIDERS['blueflame']
+            processed_data = []
+            
+            for _, row in df.iterrows():
+                # Extract basic info using BlueFlame column mapping
+                user_id = row.get(provider_config['column_mapping']['user_id'], 'unknown_user')
+                user_name = row.get(provider_config['column_mapping']['user_name'], 'Unknown User')
+                department = row.get(provider_config['column_mapping']['department'], 'Unknown')
+                date = row.get(provider_config['column_mapping']['date'], datetime.now().strftime('%Y-%m-%d'))
+                
+                # Process each usage column
+                for col_name, col_config in provider_config['usage_columns'].items():
+                    usage_value = row.get(col_name, 0)
+                    if pd.notna(usage_value) and usage_value > 0:
+                        processed_data.append({
+                            'user_id': str(user_id),
+                            'user_name': str(user_name),
+                            'department': str(department),
+                            'date': str(date),
+                            'feature_used': col_config['feature'],
+                            'usage_count': int(usage_value),
+                            'cost_usd': float(usage_value) * col_config['cost_per_unit'],
+                            'created_at': datetime.now().isoformat(),
+                            'file_source': filename
+                        })
+            
+            return pd.DataFrame(processed_data)
+            
+        except Exception as e:
+            print(f"Error in clean_blueflame_data: {str(e)}")
+            return pd.DataFrame()
+    
+    def clean_anthropic_data(self, df, filename):
+        """Clean Anthropic (Claude) usage data format."""
+        try:
+            provider_config = config.PROVIDERS['anthropic']
+            processed_data = []
+            
+            for _, row in df.iterrows():
+                # Extract basic info using Anthropic column mapping
+                user_id = row.get(provider_config['column_mapping']['user_id'], 'unknown@company.com')
+                user_name = row.get(provider_config['column_mapping']['user_name'], 'Unknown User')
+                department = row.get(provider_config['column_mapping']['department'], 'Unknown')
+                date = row.get(provider_config['column_mapping']['date'], datetime.now().strftime('%Y-%m-%d'))
+                
+                # Process each usage column
+                for col_name, col_config in provider_config['usage_columns'].items():
+                    usage_value = row.get(col_name, 0)
+                    if pd.notna(usage_value) and usage_value > 0:
+                        processed_data.append({
+                            'user_id': str(user_id),
+                            'user_name': str(user_name),
+                            'department': str(department),
+                            'date': str(date),
+                            'feature_used': col_config['feature'],
+                            'usage_count': int(usage_value),
+                            'cost_usd': float(usage_value) * col_config['cost_per_unit'],
+                            'created_at': datetime.now().isoformat(),
+                            'file_source': filename
+                        })
+            
+            return pd.DataFrame(processed_data)
+            
+        except Exception as e:
+            print(f"Error in clean_anthropic_data: {str(e)}")
             return pd.DataFrame()
     
     def extract_department(self, dept_str):

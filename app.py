@@ -1,7 +1,7 @@
 """
-OpenAI Usage Metrics Dashboard v2.1
+Multi-Provider Usage Metrics Dashboard v3.0
 
-A Streamlit-based dashboard for analyzing OpenAI enterprise usage metrics.
+A Streamlit-based dashboard for analyzing usage metrics from multiple AI providers.
 Enhanced with cost transparency, data quality checks, database management, and improved analytics.
 """
 
@@ -22,7 +22,7 @@ import config
 
 # Page configuration
 st.set_page_config(
-    page_title="OpenAI Usage Metrics Dashboard v2.1",
+    page_title="Multi-Provider Usage Metrics Dashboard v3.0",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -370,8 +370,18 @@ def display_admin_dashboard():
         st.info("No data available for coverage analysis.")
 
 def main():
-    # Main header with version indicator
-    st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard v2.1</h1>', unsafe_allow_html=True)
+    # Initialize session state for provider selection
+    if 'selected_provider' not in st.session_state:
+        st.session_state.selected_provider = 'openai'
+    
+    # Get current provider config
+    provider_config = config.PROVIDERS[st.session_state.selected_provider]
+    
+    # Main header with version indicator and provider
+    st.markdown(
+        f'<h1 class="main-header">{provider_config["icon"]} {provider_config["display_name"]} Usage Metrics Dashboard v3.0</h1>', 
+        unsafe_allow_html=True
+    )
     
     # Create tabs for different views
     tab1, tab2 = st.tabs(["📊 Analytics Dashboard", "🔧 Database Management"])
@@ -384,12 +394,35 @@ def main():
         with st.sidebar:
             st.header("🔧 Controls")
             
+            # Provider selection dropdown
+            st.subheader("🔄 Select Provider")
+            provider_options = {
+                provider_id: f"{pconfig['icon']} {pconfig['display_name']}" 
+                for provider_id, pconfig in config.PROVIDERS.items()
+            }
+            
+            selected_provider_display = st.selectbox(
+                "AI Provider:",
+                options=list(provider_options.values()),
+                index=list(provider_options.keys()).index(st.session_state.selected_provider),
+                help="Select the AI provider to view analytics for"
+            )
+            
+            # Update session state when provider changes
+            new_provider = list(provider_options.keys())[list(provider_options.values()).index(selected_provider_display)]
+            if new_provider != st.session_state.selected_provider:
+                st.session_state.selected_provider = new_provider
+                st.rerun()
+            
+            st.divider()
+            
             # Enhanced file upload section
             st.subheader("📁 Upload Monthly Data")
+            st.info(f"Upload data for: **{provider_config['display_name']}**")
             uploaded_file = st.file_uploader(
-                "Upload OpenAI Usage Metrics CSV",
+                f"Upload {provider_config['display_name']} Usage Metrics CSV",
                 type=['csv'],
-                help="Select your monthly OpenAI enterprise usage export file"
+                help=f"Select your monthly {provider_config['display_name']} usage export file"
             )
             
             # Show upload history if available
@@ -397,6 +430,12 @@ def main():
                 st.write("**Recent Uploads:**")
                 for upload in st.session_state.upload_history[-3:]:
                     st.caption(f"✅ {upload}")
+            
+            # Display expected format for current provider
+            with st.expander("📋 Expected Data Format", expanded=False):
+                st.write(f"**Sample format for {provider_config['display_name']}:**")
+                sample_df = pd.DataFrame([provider_config['sample_format']])
+                st.dataframe(sample_df, use_container_width=True)
             
             if uploaded_file is not None:
                 # Show file preview
@@ -421,8 +460,12 @@ def main():
                             stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
                             df = pd.read_csv(stringio)
                             
-                            # Process and store data
-                            success, message = processor.process_monthly_data(df, uploaded_file.name)
+                            # Process and store data with selected provider
+                            success, message = processor.process_monthly_data(
+                                df, 
+                                uploaded_file.name, 
+                                provider=st.session_state.selected_provider
+                            )
                             
                             if success:
                                 st.success(f"✅ {message}")
@@ -442,7 +485,7 @@ def main():
             
             # Enhanced date range selector with validation
             st.subheader("📅 Date Range")
-            available_months = db.get_available_months()
+            available_months = db.get_available_months(provider=st.session_state.selected_provider)
             
             if available_months:
                 default_end = max(available_months)
@@ -465,21 +508,21 @@ def main():
                     if not coverage_ok:
                         st.warning(f"⚠️ {coverage_msg}")
             else:
-                st.info("No data available. Please upload your first monthly export.")
+                st.info(f"No data available for {provider_config['display_name']}. Please upload your first monthly export.")
                 return
             
             st.divider()
             
             # Enhanced filters with counts
             st.subheader("🔍 Filters")
-            users = db.get_unique_users()
+            users = db.get_unique_users(provider=st.session_state.selected_provider)
             selected_users = st.multiselect(
                 f"Select Users (leave empty for all {len(users)} users)", 
                 users,
                 help=f"Filter by specific users. Currently {len(users)} users available."
             )
             
-            departments = db.get_unique_departments()
+            departments = db.get_unique_departments(provider=st.session_state.selected_provider)
             selected_departments = st.multiselect(
                 f"Select Departments (leave empty for all {len(departments)} departments)", 
                 departments,
@@ -488,13 +531,13 @@ def main():
         
         # Main dashboard content
         if not available_months:
-            st.info("👋 Welcome! Please upload your first OpenAI usage metrics file using the sidebar.")
+            st.info(f"👋 Welcome! Please upload your first {provider_config['display_name']} usage metrics file using the sidebar.")
             
             # Show sample data format
             st.subheader("📋 Expected Data Format")
-            sample_data = pd.DataFrame({
-                'user_id': ['user1@company.com', 'user2@company.com'],
-                'user_name': ['John Doe', 'Jane Smith'],
+            sample_data = pd.DataFrame([provider_config['sample_format']])
+            st.dataframe(sample_data)
+            return
                 'department': ['Engineering', 'Marketing'],
                 'date': ['2024-01-15', '2024-01-16'],
                 'feature_used': ['ChatGPT', 'API'],
@@ -518,7 +561,8 @@ def main():
                 start_date=start_date,
                 end_date=end_date,
                 users=selected_users if selected_users else None,
-                departments=selected_departments if selected_departments else None
+                departments=selected_departments if selected_departments else None,
+                provider=st.session_state.selected_provider
             )
         else:
             st.warning("Please select both start and end dates.")
