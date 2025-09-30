@@ -1,5 +1,5 @@
 """
-OpenAI Usage Metrics Dashboard v2
+OpenAI Usage Metrics Dashboard v2.1
 
 A Streamlit-based dashboard for analyzing OpenAI enterprise usage metrics.
 Enhanced with cost transparency, data quality checks, database management, and improved analytics.
@@ -14,8 +14,6 @@ from io import StringIO
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import sqlite3
-import re
 
 from data_processor import DataProcessor
 from database import DatabaseManager
@@ -23,7 +21,7 @@ import config
 
 # Page configuration
 st.set_page_config(
-    page_title="OpenAI Usage Metrics Dashboard v2",
+    page_title="OpenAI Usage Metrics Dashboard v2.1",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -77,10 +75,10 @@ st.markdown("""
     }
     .admin-section {
         background: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 0.5rem;
         padding: 1rem;
-        margin: 0.5rem 0;
+        border-radius: 0.5rem;
+        border: 1px solid #dee2e6;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -146,7 +144,7 @@ def check_data_quality(data):
         quality_issues.append(f"⚠️ {invalid_usage} records with zero or negative usage")
     
     # Check for extremely high costs (potential data errors)
-    if data['cost_usd'].max() > 0:
+    if len(data) > 0 and data['cost_usd'].max() > 0:
         high_cost_threshold = data['cost_usd'].quantile(0.95) * 3
         high_costs = (data['cost_usd'] > high_cost_threshold).sum()
         if high_costs > 0:
@@ -184,285 +182,244 @@ def check_date_coverage(db, start_date, end_date):
     return True, "Data coverage OK"
 
 def get_database_info():
-    """Get comprehensive database information for admin dashboard."""
+    """Get comprehensive database information."""
     try:
-        conn = sqlite3.connect(db.db_path)
+        all_data = db.get_all_data()
         
-        # Get table info
-        tables_query = "SELECT name FROM sqlite_master WHERE type='table';"
-        tables = pd.read_sql_query(tables_query, conn)
+        if all_data.empty:
+            return {
+                'total_stats': {
+                    'total_records': 0,
+                    'total_users': 0,
+                    'total_days': 0,
+                    'total_cost': 0
+                },
+                'upload_history': [],
+                'date_coverage': []
+            }
         
-        # Get upload summary by file source
-        uploads_query = """
-        SELECT 
-            file_source,
-            MIN(date) as earliest_date,
-            MAX(date) as latest_date,
-            COUNT(*) as record_count,
-            COUNT(DISTINCT user_id) as unique_users,
-            SUM(cost_usd) as total_cost
-        FROM usage_metrics 
-        WHERE file_source IS NOT NULL
-        GROUP BY file_source
-        ORDER BY MAX(created_at) DESC
-        """
-        uploads_df = pd.read_sql_query(uploads_query, conn)
+        # Calculate total statistics
+        total_stats = {
+            'total_records': len(all_data),
+            'total_users': all_data['user_id'].nunique(),
+            'total_days': (pd.to_datetime(all_data['date'].max()) - pd.to_datetime(all_data['date'].min())).days + 1,
+            'total_cost': all_data['cost_usd'].sum()
+        }
         
-        # Get monthly summary
-        monthly_query = """
-        SELECT 
-            strftime('%Y-%m', date) as month,
-            COUNT(*) as records,
-            COUNT(DISTINCT user_id) as unique_users,
-            SUM(usage_count) as total_usage,
-            SUM(cost_usd) as total_cost
-        FROM usage_metrics
-        GROUP BY strftime('%Y-%m', date)
-        ORDER BY month DESC
-        """
-        monthly_df = pd.read_sql_query(monthly_query, conn)
+        # Get upload history
+        upload_history = []
+        if 'file_source' in all_data.columns:
+            file_sources = all_data['file_source'].value_counts()
+            for file_name, count in file_sources.items():
+                upload_history.append({
+                    'file_name': file_name,
+                    'records': count,
+                    'users': all_data[all_data['file_source'] == file_name]['user_id'].nunique(),
+                    'date_range': f"{all_data[all_data['file_source'] == file_name]['date'].min()} to {all_data[all_data['file_source'] == file_name]['date'].max()}"
+                })
         
-        # Get total database stats
-        total_query = """
-        SELECT 
-            COUNT(*) as total_records,
-            COUNT(DISTINCT user_id) as total_users,
-            COUNT(DISTINCT date) as total_days,
-            MIN(date) as earliest_date,
-            MAX(date) as latest_date,
-            SUM(cost_usd) as total_cost
-        FROM usage_metrics
-        """
-        total_stats = pd.read_sql_query(total_query, conn).iloc[0]
-        
-        conn.close()
+        # Get date coverage
+        date_coverage = all_data.groupby('date').agg({
+            'user_id': 'nunique',
+            'usage_count': 'sum',
+            'cost_usd': 'sum'
+        }).reset_index()
         
         return {
-            'tables': tables,
-            'uploads': uploads_df,
-            'monthly': monthly_df,
-            'total_stats': total_stats
+            'total_stats': total_stats,
+            'upload_history': upload_history,
+            'date_coverage': date_coverage
         }
+        
     except Exception as e:
         st.error(f"Error getting database info: {str(e)}")
-        return None
-
-def clear_database():
-    """Clear all data from the database."""
-    try:
-        conn = sqlite3.connect(db.db_path)
-        conn.execute("DELETE FROM usage_metrics")
-        conn.commit()
-        conn.close()
-        return True, "Database cleared successfully"
-    except Exception as e:
-        return False, f"Error clearing database: {str(e)}"
-
-def delete_upload_by_source(file_source):
-    """Delete specific upload by file source."""
-    try:
-        conn = sqlite3.connect(db.db_path)
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM usage_metrics WHERE file_source = ?", (file_source,))
-        deleted_rows = cursor.rowcount
-        conn.commit()
-        conn.close()
-        return True, f"Deleted {deleted_rows} records from {file_source}"
-    except Exception as e:
-        return False, f"Error deleting upload: {str(e)}"
-
-def extract_month_from_filename(filename):
-    """Extract month information from filename for better tracking."""
-    months = {
-        'january': '01', 'february': '02', 'march': '03', 'april': '04',
-        'may': '05', 'june': '06', 'july': '07', 'august': '08',
-        'september': '09', 'october': '10', 'november': '11', 'december': '12'
-    }
-    
-    filename_lower = filename.lower()
-    
-    # Look for month names
-    for month_name, month_num in months.items():
-        if month_name in filename_lower:
-            # Try to find year
-            year_match = re.search(r'20\d{2}', filename)
-            if year_match:
-                return f"{year_match.group()}-{month_num}"
-            else:
-                return f"2025-{month_num}"  # Default to current year
-    
-    # Look for date patterns like 2025-07 or 07-2025
-    date_match = re.search(r'(20\d{2})[_-](\d{1,2})|(\d{1,2})[_-](20\d{2})', filename)
-    if date_match:
-        if date_match.group(1):  # Format: 2025-07
-            return f"{date_match.group(1)}-{date_match.group(2).zfill(2)}"
-        else:  # Format: 07-2025
-            return f"{date_match.group(4)}-{date_match.group(3).zfill(2)}"
-    
-    return None
+        return {
+            'total_stats': {
+                'total_records': 0,
+                'total_users': 0,
+                'total_days': 0,
+                'total_cost': 0
+            },
+            'upload_history': [],
+            'date_coverage': []
+        }
 
 def display_admin_dashboard():
-    """Display administrative dashboard for database management."""
-    st.subheader("🔧 Database Administration")
+    """Display the admin/database management dashboard."""
+    st.header("🛠️ Database Administration")
     
+    # Get database information
     db_info = get_database_info()
     
-    if not db_info:
-        st.error("Could not retrieve database information")
-        return
-    
-    # Database Overview
+    # Database Overview Metrics
+    st.subheader("📊 Database Overview")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Total Records", f"{db_info['total_stats']['total_records']:,}")
+        st.metric("Total Records", db_info['total_stats']['total_records'])
     with col2:
-        st.metric("Total Users", f"{db_info['total_stats']['total_users']:,}")
+        st.metric("Total Users", db_info['total_stats']['total_users'])
     with col3:
         st.metric("Date Range", f"{db_info['total_stats']['total_days']} days")
     with col4:
-        st.metric("Total Cost", f"${db_info['total_stats']['total_cost']:,.2f}")
+        total_cost = db_info['total_stats']['total_cost'] or 0
+        st.metric("Total Cost", f"${total_cost:,.2f}")
     
     # Upload History Management
-    st.write("### 📁 Upload History")
-    
-    if not db_info['uploads'].empty:
-        # Display uploads with management options
-        for idx, upload in db_info['uploads'].iterrows():
-            with st.container():
-                col1, col2, col3 = st.columns([3, 1, 1])
-                
-                with col1:
-                    # Extract month from filename
-                    detected_month = extract_month_from_filename(upload['file_source'])
-                    month_indicator = f" (📅 {detected_month})" if detected_month else ""
-                    
-                    st.write(f"**{upload['file_source']}**{month_indicator}")
-                    st.caption(f"📊 {upload['record_count']} records | 👥 {upload['unique_users']} users | 💰 ${upload['total_cost']:.2f}")
-                    st.caption(f"📅 Data range: {upload['earliest_date']} to {upload['latest_date']}")
-                
-                with col2:
-                    if st.button(f"🔍 View", key=f"view_{idx}"):
-                        st.session_state[f'view_upload_{idx}'] = not st.session_state.get(f'view_upload_{idx}', False)
-                
-                with col3:
-                    if st.button(f"🗑️ Delete", key=f"del_{idx}", type="secondary"):
-                        if st.session_state.get(f'confirm_delete_{idx}', False):
-                            success, message = delete_upload_by_source(upload['file_source'])
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
-                        else:
-                            st.session_state[f'confirm_delete_{idx}'] = True
-                            st.warning("Click delete again to confirm")
-                
-                # Show detailed view if requested
-                if st.session_state.get(f'view_upload_{idx}', False):
-                    try:
-                        conn = sqlite3.connect(db.db_path)
-                        upload_data = pd.read_sql_query(
-                            "SELECT * FROM usage_metrics WHERE file_source = ? LIMIT 100", 
-                            conn, 
-                            params=[upload['file_source']]
-                        )
-                        conn.close()
-                        
-                        st.dataframe(upload_data, height=200)
-                    except Exception as e:
-                        st.error(f"Error loading upload data: {str(e)}")
-                
-                st.divider()
-    else:
-        st.info("No uploads found in database")
-    
-    # Monthly Data Summary
-    st.write("### 📅 Monthly Data Summary")
-    
-    if not db_info['monthly'].empty:
+    st.subheader("📁 Upload History")
+    if db_info['upload_history']:
+        upload_df = pd.DataFrame(db_info['upload_history'])
+        st.dataframe(upload_df, width=800)
+        
+        # File Management Actions
+        st.subheader("🗂️ File Management")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            # Monthly records chart
-            fig_monthly = px.bar(
-                db_info['monthly'], 
-                x='month', 
-                y='records',
-                title='Records by Month',
-                labels={'records': 'Number of Records', 'month': 'Month'}
-            )
-            st.plotly_chart(fig_monthly, use_container_width=True)
+            # Delete specific upload
+            if len(db_info['upload_history']) > 0:
+                selected_file = st.selectbox(
+                    "Select file to delete:",
+                    [item['file_name'] for item in db_info['upload_history']]
+                )
+                
+                if st.button("🗑️ Delete Selected Upload", type="secondary"):
+                    if st.session_state.get('confirm_delete_file') != selected_file:
+                        st.session_state.confirm_delete_file = selected_file
+                        st.warning(f"⚠️ Click again to confirm deletion of: {selected_file}")
+                    else:
+                        try:
+                            # Delete records from specific file
+                            conn = db.get_connection()
+                            conn.execute("DELETE FROM usage_metrics WHERE file_source = ?", (selected_file,))
+                            conn.commit()
+                            conn.close()
+                            
+                            st.success(f"✅ Deleted all records from {selected_file}")
+                            del st.session_state.confirm_delete_file
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error deleting file: {str(e)}")
         
         with col2:
-            # Monthly cost chart
-            fig_cost = px.bar(
-                db_info['monthly'], 
-                x='month', 
-                y='total_cost',
-                title='Cost by Month',
-                labels={'total_cost': 'Total Cost ($)', 'month': 'Month'}
-            )
-            st.plotly_chart(fig_cost, use_container_width=True)
-        
-        # Monthly summary table
-        st.dataframe(db_info['monthly'], use_container_width=True)
-    else:
-        st.info("No monthly data available")
-    
-    # Database Actions
-    st.write("### 🛠️ Database Actions")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown('<div class="admin-section">', unsafe_allow_html=True)
-        st.write("**🗑️ Clear Database**")
-        st.write("Remove all data from the database. This action cannot be undone.")
-        
-        if st.button("⚠️ Clear All Data", type="secondary"):
-            if st.session_state.get('confirm_clear', False):
-                success, message = clear_database()
-                if success:
-                    st.success(message)
-                    # Clear session state
-                    if 'upload_history' in st.session_state:
-                        st.session_state.upload_history = []
-                    st.rerun()
+            # Clear entire database
+            if st.button("🧹 Clear Entire Database", type="secondary"):
+                if not st.session_state.get('confirm_clear_db', False):
+                    st.session_state.confirm_clear_db = True
+                    st.error("⚠️ **DANGER**: This will delete ALL data! Click again to confirm.")
                 else:
-                    st.error(message)
-            else:
-                st.session_state['confirm_clear'] = True
-                st.warning("⚠️ Click again to confirm database clearing")
-        st.markdown('</div>', unsafe_allow_html=True)
+                    try:
+                        conn = db.get_connection()
+                        conn.execute("DELETE FROM usage_metrics")
+                        conn.commit()
+                        conn.close()
+                        
+                        st.success("✅ Database cleared successfully")
+                        del st.session_state.confirm_clear_db
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error clearing database: {str(e)}")
+    else:
+        st.info("No upload history available. Upload some data first.")
     
-    with col2:
-        st.markdown('<div class="admin-section">', unsafe_allow_html=True)
-        st.write("**📥 Export Database**")
-        st.write("Download complete database as CSV for backup.")
+    # Date Coverage Analysis
+    st.subheader("📅 Date Coverage Analysis")
+    if not db_info['date_coverage'].empty:
+        coverage_df = db_info['date_coverage'].copy()
+        coverage_df['date'] = pd.to_datetime(coverage_df['date'])
         
-        try:
-            all_data = db.get_all_data()
-            if not all_data.empty:
-                csv = all_data.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Complete Database",
-                    data=csv,
-                    file_name=f"openai_database_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv"
-                )
+        # Plot date coverage
+        fig = px.bar(
+            coverage_df, 
+            x='date', 
+            y='user_id',
+            title='Daily User Activity Coverage',
+            labels={'user_id': 'Active Users', 'date': 'Date'}
+        )
+        fig.update_layout(height=300)
+        st.plotly_chart(fig, width="stretch")
+        
+        # Show data gaps
+        date_range = pd.date_range(
+            start=coverage_df['date'].min(),
+            end=coverage_df['date'].max(),
+            freq='D'
+        )
+        
+        missing_dates = set(date_range) - set(coverage_df['date'])
+        if missing_dates:
+            st.warning(f"⚠️ {len(missing_dates)} days with missing data detected")
+            
+            # Show missing date ranges
+            missing_list = sorted(missing_dates)
+            if len(missing_list) <= 10:
+                st.write("**Missing dates:**")
+                for date in missing_list:
+                    st.write(f"• {date.strftime('%Y-%m-%d')}")
             else:
-                st.info("No data to export")
+                st.write(f"**Missing date range:** {missing_list[0].strftime('%Y-%m-%d')} to {missing_list[-1].strftime('%Y-%m-%d')}")
+        else:
+            st.success("✅ No data gaps detected in date range")
+    
+    # Database Schema Information
+    with st.expander("🔧 Database Schema & Technical Info"):
+        try:
+            conn = db.get_connection()
+            
+            # Get table info
+            schema_info = conn.execute("PRAGMA table_info(usage_metrics)").fetchall()
+            
+            st.write("**Database Schema:**")
+            schema_df = pd.DataFrame(schema_info, columns=['Column ID', 'Column Name', 'Data Type', 'Not Null', 'Default Value', 'Primary Key'])
+            st.dataframe(schema_df)
+            
+            # Get database size (if possible)
+            st.write("**Database Statistics:**")
+            total_records = conn.execute("SELECT COUNT(*) FROM usage_metrics").fetchone()[0]
+            st.write(f"• Total Records: {total_records:,}")
+            
+            # Get distinct values for key fields
+            distinct_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM usage_metrics").fetchone()[0]
+            distinct_dates = conn.execute("SELECT COUNT(DISTINCT date) FROM usage_metrics").fetchone()[0]
+            distinct_features = conn.execute("SELECT COUNT(DISTINCT feature_used) FROM usage_metrics").fetchone()[0]
+            
+            st.write(f"• Unique Users: {distinct_users:,}")
+            st.write(f"• Unique Dates: {distinct_dates:,}")
+            st.write(f"• Unique Features: {distinct_features:,}")
+            
+            conn.close()
+            
         except Exception as e:
-            st.error(f"Error preparing export: {str(e)}")
+            st.error(f"Error getting database schema: {str(e)}")
+    
+    # Raw Database Query Interface
+    with st.expander("🔍 Advanced: Raw Database Query"):
+        st.warning("⚠️ **Advanced Users Only**: Direct SQL queries can break the application if used incorrectly.")
         
-        st.markdown('</div>', unsafe_allow_html=True)
+        query = st.text_area(
+            "Enter SQL Query:",
+            value="SELECT * FROM usage_metrics LIMIT 10;",
+            help="Execute raw SQL queries on the database. Use with caution!"
+        )
+        
+        if st.button("Execute Query"):
+            try:
+                conn = db.get_connection()
+                result = pd.read_sql_query(query, conn)
+                conn.close()
+                
+                st.write(f"**Query Result** ({len(result)} rows):")
+                st.dataframe(result)
+                
+            except Exception as e:
+                st.error(f"Query error: {str(e)}")
 
 def main():
     # Main header with version indicator
     st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard v2.1</h1>', unsafe_allow_html=True)
     
-    # Add navigation tabs
+    # Create tabs for different views
     tab1, tab2 = st.tabs(["📊 Analytics Dashboard", "🔧 Database Management"])
     
     with tab2:
@@ -489,7 +446,7 @@ def main():
                     st.caption(f"✅ {upload}")
             
             if uploaded_file is not None:
-                # Show file preview and month detection
+                # Show file preview
                 try:
                     stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
                     preview_df = pd.read_csv(stringio, nrows=5)
@@ -500,13 +457,6 @@ def main():
                     # Get full file info
                     full_df = pd.read_csv(StringIO(uploaded_file.getvalue().decode('utf-8')))
                     st.caption(f"📊 {len(full_df)} rows, {len(full_df.columns)} columns")
-                    
-                    # Show detected month
-                    detected_month = extract_month_from_filename(uploaded_file.name)
-                    if detected_month:
-                        st.success(f"📅 Detected period: {detected_month}")
-                    else:
-                        st.warning("⚠️ Could not detect month from filename")
                     
                 except Exception as e:
                     st.error(f"Cannot preview file: {str(e)}")
@@ -526,10 +476,9 @@ def main():
                                 # Track upload history
                                 if 'upload_history' not in st.session_state:
                                     st.session_state.upload_history = []
-                                upload_entry = f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
-                                if detected_month:
-                                    upload_entry += f" [{detected_month}]"
-                                st.session_state.upload_history.append(upload_entry)
+                                st.session_state.upload_history.append(
+                                    f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
+                                )
                                 st.rerun()
                             else:
                                 st.error(f"❌ {message}")
@@ -554,7 +503,7 @@ def main():
                     value=(default_start, default_end),
                     min_value=default_start,
                     max_value=default_end,
-                    help="Select any date range for analysis - supports cross-month periods like July 15 to August 15."
+                    help="Select the date range for analysis. Data must be available for selected dates."
                 )
                 
                 # Validate date range
@@ -602,28 +551,28 @@ def main():
             st.dataframe(sample_data)
             return
         
-        # Get filtered data with enhanced validation (supports cross-month ranges)
+        # Get filtered data with enhanced validation
         if len(date_range) == 2:
             start_date, end_date = date_range
+            coverage_ok, coverage_msg = check_date_coverage(db, start_date, end_date)
             
-            # Enhanced cross-month support - don't restrict by coverage
+            if not coverage_ok:
+                st.error(f"❌ Cannot load data: {coverage_msg}")
+                st.info("Please select a different date range or upload data for the requested period.")
+                return
+            
             data = db.get_filtered_data(
                 start_date=start_date,
                 end_date=end_date,
                 users=selected_users if selected_users else None,
                 departments=selected_departments if selected_departments else None
             )
-            
-            # Show info about cross-month ranges
-            if start_date.month != end_date.month:
-                st.info(f"📅 Cross-month analysis: {start_date.strftime('%B %d')} to {end_date.strftime('%B %d, %Y')}")
-            
         else:
             st.warning("Please select both start and end dates.")
             return
         
         if data.empty:
-            st.warning("No data found for the selected filters and date range.")
+            st.warning("No data found for the selected filters.")
             return
         
         # MVP2: Data Quality Dashboard
@@ -704,7 +653,7 @@ def main():
                 labels={'usage_count': 'Usage Count', 'date': 'Date'}
             )
             fig_daily.update_layout(height=300)
-            st.plotly_chart(fig_daily, use_container_width=True)
+            st.plotly_chart(fig_daily, width="stretch")
         
         with col2:
             # Cost trend
@@ -720,7 +669,7 @@ def main():
                 labels={'cost_usd': 'Cost (USD)', 'date': 'Date'}
             )
             fig_cost.update_layout(height=300)
-            st.plotly_chart(fig_cost, use_container_width=True)
+            st.plotly_chart(fig_cost, width="stretch")
         
         # User Analysis
         st.subheader("👥 User Analysis")
@@ -741,7 +690,7 @@ def main():
                 labels={'usage_count': 'Total Usage', 'user_name': 'User'}
             )
             fig_users.update_layout(height=400)
-            st.plotly_chart(fig_users, use_container_width=True)
+            st.plotly_chart(fig_users, width="stretch")
         
         with col2:
             # Department breakdown
@@ -754,7 +703,7 @@ def main():
                 title='Usage by Department'
             )
             fig_dept.update_layout(height=400)
-            st.plotly_chart(fig_dept, use_container_width=True)
+            st.plotly_chart(fig_dept, width="stretch")
         
         # Feature Usage Analysis
         st.subheader("🔧 Feature Usage Analysis")
@@ -771,7 +720,7 @@ def main():
             labels={'usage_count': 'Total Usage', 'feature_used': 'Feature'}
         )
         fig_features.update_layout(height=300)
-        st.plotly_chart(fig_features, use_container_width=True)
+        st.plotly_chart(fig_features, width="stretch")
         
         # Enhanced Management Insights
         st.subheader("💡 Management Insights")
@@ -813,7 +762,7 @@ def main():
         # Enhanced Raw Data View
         with st.expander("📋 View Raw Data", expanded=False):
             st.write(f"**Showing {len(data)} records**")
-            st.dataframe(data, use_container_width=True)
+            st.dataframe(data, width="stretch")
             
             col1, col2 = st.columns(2)
             
