@@ -370,8 +370,16 @@ def display_admin_dashboard():
         st.info("No data available for coverage analysis.")
 
 def main():
-    # Main header with version indicator
-    st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard v2.1</h1>', unsafe_allow_html=True)
+    # Initialize provider in session state if not exists
+    if 'selected_provider' not in st.session_state:
+        st.session_state.selected_provider = 'openai'
+    
+    # Get current provider config
+    provider = st.session_state.selected_provider
+    provider_config = config.PROVIDERS.get(provider, config.PROVIDERS['openai'])
+    
+    # Main header with provider indicator
+    st.markdown(f'<h1 class="main-header">{provider_config["icon"]} {provider_config["display_name"]} Usage Metrics Dashboard v3.0</h1>', unsafe_allow_html=True)
     
     # Create tabs for different views
     tab1, tab2 = st.tabs(["📊 Analytics Dashboard", "🔧 Database Management"])
@@ -384,12 +392,46 @@ def main():
         with st.sidebar:
             st.header("🔧 Controls")
             
+            # Provider Selection
+            st.subheader("🎯 Select Provider")
+            provider_options = {
+                'openai': f"{config.PROVIDERS['openai']['icon']} {config.PROVIDERS['openai']['display_name']}",
+                'blueflame': f"{config.PROVIDERS['blueflame']['icon']} {config.PROVIDERS['blueflame']['display_name']}",
+                'anthropic': f"{config.PROVIDERS['anthropic']['icon']} {config.PROVIDERS['anthropic']['display_name']}"
+            }
+            
+            selected_provider = st.selectbox(
+                "AI Provider",
+                options=list(provider_options.keys()),
+                format_func=lambda x: provider_options[x],
+                index=list(provider_options.keys()).index(st.session_state.selected_provider),
+                help="Select the AI provider to view analytics for"
+            )
+            
+            # Update session state if provider changed
+            if selected_provider != st.session_state.selected_provider:
+                st.session_state.selected_provider = selected_provider
+                st.rerun()
+            
+            # Update provider config after selection
+            provider = st.session_state.selected_provider
+            provider_config = config.PROVIDERS.get(provider, config.PROVIDERS['openai'])
+            
+            st.divider()
+            
             # Enhanced file upload section
             st.subheader("📁 Upload Monthly Data")
+            
+            # Show sample format for selected provider
+            with st.expander("📋 Expected Format", expanded=False):
+                st.write(f"**{provider_config['display_name']} Format:**")
+                st.code(", ".join(provider_config['sample_format']['columns']), language=None)
+                st.caption(f"Example: {provider_config['sample_format']['example']}")
+            
             uploaded_file = st.file_uploader(
-                "Upload OpenAI Usage Metrics CSV",
+                f"Upload {provider_config['display_name']} Usage Metrics CSV",
                 type=['csv'],
-                help="Select your monthly OpenAI enterprise usage export file"
+                help=f"Select your monthly {provider_config['display_name']} enterprise usage export file"
             )
             
             # Show upload history if available
@@ -421,8 +463,8 @@ def main():
                             stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
                             df = pd.read_csv(stringio)
                             
-                            # Process and store data
-                            success, message = processor.process_monthly_data(df, uploaded_file.name)
+                            # Process and store data with provider parameter
+                            success, message = processor.process_monthly_data(df, uploaded_file.name, provider=provider)
                             
                             if success:
                                 st.success(f"✅ {message}")
@@ -430,7 +472,7 @@ def main():
                                 if 'upload_history' not in st.session_state:
                                     st.session_state.upload_history = []
                                 st.session_state.upload_history.append(
-                                    f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
+                                    f"{uploaded_file.name} ({provider_config['display_name']}) ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
                                 )
                                 st.rerun()
                             else:
@@ -442,7 +484,7 @@ def main():
             
             # Enhanced date range selector with validation
             st.subheader("📅 Date Range")
-            available_months = db.get_available_months()
+            available_months = db.get_available_months(provider=provider)
             
             if available_months:
                 default_end = max(available_months)
@@ -465,21 +507,21 @@ def main():
                     if not coverage_ok:
                         st.warning(f"⚠️ {coverage_msg}")
             else:
-                st.info("No data available. Please upload your first monthly export.")
+                st.info(f"No data available for {provider_config['display_name']}. Please upload your first monthly export.")
                 return
             
             st.divider()
             
             # Enhanced filters with counts
             st.subheader("🔍 Filters")
-            users = db.get_unique_users()
+            users = db.get_unique_users(provider=provider)
             selected_users = st.multiselect(
                 f"Select Users (leave empty for all {len(users)} users)", 
                 users,
                 help=f"Filter by specific users. Currently {len(users)} users available."
             )
             
-            departments = db.get_unique_departments()
+            departments = db.get_unique_departments(provider=provider)
             selected_departments = st.multiselect(
                 f"Select Departments (leave empty for all {len(departments)} departments)", 
                 departments,
@@ -488,23 +530,15 @@ def main():
         
         # Main dashboard content
         if not available_months:
-            st.info("👋 Welcome! Please upload your first OpenAI usage metrics file using the sidebar.")
+            st.info(f"👋 Welcome! Please upload your first {provider_config['display_name']} usage metrics file using the sidebar.")
             
             # Show sample data format
-            st.subheader("📋 Expected Data Format")
-            sample_data = pd.DataFrame({
-                'user_id': ['user1@company.com', 'user2@company.com'],
-                'user_name': ['John Doe', 'Jane Smith'],
-                'department': ['Engineering', 'Marketing'],
-                'date': ['2024-01-15', '2024-01-16'],
-                'feature_used': ['ChatGPT', 'API'],
-                'usage_count': [25, 15],
-                'cost_usd': [12.50, 8.75]
-            })
-            st.dataframe(sample_data)
+            st.subheader(f"📋 Expected {provider_config['display_name']} Data Format")
+            st.write(f"**Required columns:** {', '.join(provider_config['sample_format']['columns'])}")
+            st.code(provider_config['sample_format']['example'], language=None)
             return
         
-        # Get filtered data with enhanced validation
+        # Get filtered data with provider
         if len(date_range) == 2:
             start_date, end_date = date_range
             coverage_ok, coverage_msg = check_date_coverage(db, start_date, end_date)
@@ -518,14 +552,15 @@ def main():
                 start_date=start_date,
                 end_date=end_date,
                 users=selected_users if selected_users else None,
-                departments=selected_departments if selected_departments else None
+                departments=selected_departments if selected_departments else None,
+                provider=provider
             )
         else:
             st.warning("Please select both start and end dates.")
             return
         
         if data.empty:
-            st.warning("No data found for the selected filters.")
+            st.warning(f"No data found for {provider_config['display_name']} with the selected filters.")
             return
         
         # MVP2: Data Quality Dashboard
