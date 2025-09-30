@@ -21,7 +21,7 @@ import config
 
 # Page configuration
 st.set_page_config(
-    page_title="OpenAI Usage Metrics Dashboard v2",
+    page_title="OpenAI Usage Metrics Dashboard",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -57,72 +57,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-def display_cost_calculation_details(total_cost, total_users, data):
-    """Display detailed cost calculation breakdown."""
-    with st.expander("💡 Cost Calculation Details", expanded=False):
-        st.markdown("""
-        ### How we calculate Cost per User:
-        """)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Formula:**")
-            st.code(f"""
-Total Cost ÷ Active Users = Cost per User
-${total_cost:,.2f} ÷ {total_users} = ${total_cost/max(total_users,1):.2f}
-            """)
-            
-            st.write("**Cost Components:**")
-            feature_costs = data.groupby('feature_used')['cost_usd'].sum().sort_values(ascending=False)
-            for feature, cost in feature_costs.items():
-                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
-                st.write(f"• {feature}: ${cost:,.2f} ({percentage:.1f}%)")
-        
-        with col2:
-            st.write("**Pricing Assumptions:**")
-            st.info("""
-            📊 **Current Cost Model:**
-            - ChatGPT Messages: $0.02 per message
-            - Tool Messages: $0.01 per message  
-            - Model Usage: $0.025 per interaction
-            - Project Messages: $0.015 per message
-            
-            💡 **Note:** These are estimated costs based on typical OpenAI enterprise pricing.
-            """)
-            display_cost_calculation_details(total_cost, total_users, data)
-def check_data_quality(data):
-    """Enhanced data quality checks for MVP2."""
-    quality_issues = []
-    quality_stats = {}
 
-    if data.empty:
-        return quality_issues, quality_stats
-    
-    # Check for duplicate records
-    duplicates = data.duplicated(subset=['user_id', 'date', 'feature_used']).sum()
-    if duplicates > 0:
-        quality_issues.append(f"⚠️ {duplicates} potential duplicate records found")
-    
-    # Check for missing user names
-    missing_names = data['user_name'].isna().sum()
-    if missing_names > 0:
-        quality_issues.append(f"⚠️ {missing_names} records missing user names")
-    
-    # Check for zero or negative usage
-    invalid_usage = (data['usage_count'] <= 0).sum()
-    if invalid_usage > 0:
-        quality_issues.append(f"⚠️ {invalid_usage} records with zero or negative usage")
-    
-    # Calculate quality statistics
-    quality_stats = {
-        'total_records': len(data),
-        'unique_users': data['user_id'].nunique(),
-        'data_completeness': (1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100,
-        'duplicate_rate': (duplicates / len(data)) * 100 if len(data) > 0 else 0
-    }
-
-    return quality_issues, quality_stats
 def main():
     # Main header
     st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard</h1>', unsafe_allow_html=True)
