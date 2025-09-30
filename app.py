@@ -1,7 +1,8 @@
 """
-OpenAI Usage Metrics Dashboard v2.1
+AI Usage Metrics Dashboard v3.0
 
-A Streamlit-based dashboard for analyzing OpenAI enterprise usage metrics.
+A Streamlit-based dashboard for analyzing AI provider usage metrics.
+Multi-Provider Support: OpenAI, BlueFlame AI, Anthropic, Google AI, and Custom providers.
 Enhanced with cost transparency, data quality checks, database management, and improved analytics.
 """
 
@@ -22,7 +23,7 @@ import config
 
 # Page configuration
 st.set_page_config(
-    page_title="OpenAI Usage Metrics Dashboard v2.1",
+    page_title="AI Usage Metrics Dashboard v3.0",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -84,7 +85,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def display_cost_calculation_details(total_cost, total_users, data):
+def display_cost_calculation_details(total_cost, total_users, data, provider='OpenAI'):
     """Display detailed cost calculation breakdown."""
     with st.expander("💡 Cost Calculation Details", expanded=False):
         st.markdown("""
@@ -111,15 +112,17 @@ ${total_cost:,.2f} ÷ {total_users} = ${total_cost/max(total_users,1):.2f}
         
         with col2:
             st.write("**Pricing Assumptions:**")
-            st.info("""
-            📊 **Current Cost Model:**
-            - ChatGPT Messages: $0.02 per message
-            - Tool Messages: $0.01 per message  
-            - Model Usage: $0.025 per interaction
-            - Project Messages: $0.015 per message
             
-            💡 **Note:** These are estimated costs based on typical OpenAI enterprise pricing.
-            """)
+            # Get provider-specific cost model
+            cost_model = config.PROVIDER_CONFIGS.get(provider, {}).get('cost_model', {})
+            
+            cost_info = f"📊 **{provider} Cost Model:**\n"
+            for feature, rate in cost_model.items():
+                cost_info += f"- {feature}: ${rate} per unit\n"
+            
+            cost_info += f"\n💡 **Note:** These are estimated costs based on typical {provider} pricing."
+            
+            st.info(cost_info)
 
 def check_data_quality(data):
     """Enhanced data quality checks for MVP2."""
@@ -161,9 +164,9 @@ def check_data_quality(data):
 
     return quality_issues, quality_stats
 
-def check_date_coverage(db, start_date, end_date):
+def check_date_coverage(db, start_date, end_date, provider=None):
     """Check data coverage for selected date range."""
-    available_months = db.get_available_months()
+    available_months = db.get_available_months(provider=provider)
     
     if not available_months:
         return False, "No data available in database"
@@ -182,10 +185,10 @@ def check_date_coverage(db, start_date, end_date):
     
     return True, "Data coverage OK"
 
-def get_database_info():
+def get_database_info(provider=None):
     """Get comprehensive database information."""
     try:
-        all_data = db.get_all_data()
+        all_data = db.get_all_data(provider=provider)
         
         if all_data.empty:
             return {
@@ -216,11 +219,14 @@ def get_database_info():
         if 'file_source' in all_data.columns:
             file_sources = all_data['file_source'].value_counts()
             for file_name, count in file_sources.items():
+                file_data = all_data[all_data['file_source'] == file_name]
+                provider_info = file_data['provider'].iloc[0] if 'provider' in file_data.columns else 'Unknown'
                 upload_history.append({
                     'file_name': file_name,
                     'records': count,
-                    'users': all_data[all_data['file_source'] == file_name]['user_id'].nunique(),
-                    'date_range': f"{all_data[all_data['file_source'] == file_name]['date'].min()} to {all_data[all_data['file_source'] == file_name]['date'].max()}"
+                    'users': file_data['user_id'].nunique(),
+                    'date_range': f"{file_data['date'].min()} to {file_data['date'].max()}",
+                    'provider': provider_info
                 })
         
         # Get date coverage
@@ -371,7 +377,7 @@ def display_admin_dashboard():
 
 def main():
     # Main header with version indicator
-    st.markdown('<h1 class="main-header">📊 OpenAI Usage Metrics Dashboard v2.1</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">📊 AI Usage Metrics Dashboard v3.0</h1>', unsafe_allow_html=True)
     
     # Create tabs for different views
     tab1, tab2 = st.tabs(["📊 Analytics Dashboard", "🔧 Database Management"])
@@ -384,12 +390,46 @@ def main():
         with st.sidebar:
             st.header("🔧 Controls")
             
+            # Provider Selection
+            st.subheader("🤖 Provider Selection")
+            
+            # Get available providers from database
+            available_providers = db.get_available_providers()
+            
+            # Add "All Providers" option if there are multiple providers
+            provider_options = config.SUPPORTED_PROVIDERS.copy()
+            if len(available_providers) > 1:
+                provider_options.insert(0, "All Providers")
+            
+            selected_provider = st.selectbox(
+                "Select AI Provider",
+                provider_options,
+                index=0 if "All Providers" in provider_options else provider_options.index("OpenAI") if "OpenAI" in provider_options else 0,
+                help="Choose the AI provider to analyze. This affects both data upload processing and analytics display."
+            )
+            
+            # Store selected provider in session state
+            if 'selected_provider' not in st.session_state or st.session_state.selected_provider != selected_provider:
+                st.session_state.selected_provider = selected_provider
+            
+            # Show provider info
+            if selected_provider != "All Providers" and selected_provider in config.PROVIDER_CONFIGS:
+                provider_config = config.PROVIDER_CONFIGS[selected_provider]
+                st.markdown(f"{provider_config['icon']} **{selected_provider}** selected")
+            
+            st.divider()
+            
             # Enhanced file upload section
             st.subheader("📁 Upload Monthly Data")
+            
+            # Update upload label based on selected provider
+            upload_label = f"Upload {selected_provider} Usage Metrics CSV" if selected_provider != "All Providers" else "Upload Usage Metrics CSV"
+            upload_help = f"Select your monthly {selected_provider} usage export file" if selected_provider != "All Providers" else "Select your monthly usage export file"
+            
             uploaded_file = st.file_uploader(
-                "Upload OpenAI Usage Metrics CSV",
+                upload_label,
                 type=['csv'],
-                help="Select your monthly OpenAI enterprise usage export file"
+                help=upload_help
             )
             
             # Show upload history if available
@@ -417,12 +457,15 @@ def main():
                 if st.button("Process Upload", type="primary"):
                     with st.spinner("Processing data..."):
                         try:
+                            # Determine which provider to use for processing
+                            processing_provider = selected_provider if selected_provider != "All Providers" else "OpenAI"
+                            
                             # Read uploaded file
                             stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
                             df = pd.read_csv(stringio)
                             
-                            # Process and store data
-                            success, message = processor.process_monthly_data(df, uploaded_file.name)
+                            # Process and store data with provider
+                            success, message = processor.process_monthly_data(df, uploaded_file.name, provider=processing_provider)
                             
                             if success:
                                 st.success(f"✅ {message}")
@@ -430,7 +473,7 @@ def main():
                                 if 'upload_history' not in st.session_state:
                                     st.session_state.upload_history = []
                                 st.session_state.upload_history.append(
-                                    f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
+                                    f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')}) - {processing_provider}"
                                 )
                                 st.rerun()
                             else:
@@ -442,7 +485,7 @@ def main():
             
             # Enhanced date range selector with validation
             st.subheader("📅 Date Range")
-            available_months = db.get_available_months()
+            available_months = db.get_available_months(provider=selected_provider if selected_provider != "All Providers" else None)
             
             if available_months:
                 default_end = max(available_months)
@@ -461,25 +504,26 @@ def main():
                 
                 # Validate date range
                 if len(date_range) == 2:
-                    coverage_ok, coverage_msg = check_date_coverage(db, date_range[0], date_range[1])
+                    coverage_ok, coverage_msg = check_date_coverage(db, date_range[0], date_range[1], provider=selected_provider if selected_provider != "All Providers" else None)
                     if not coverage_ok:
                         st.warning(f"⚠️ {coverage_msg}")
             else:
-                st.info("No data available. Please upload your first monthly export.")
+                provider_msg = f" for {selected_provider}" if selected_provider != "All Providers" else ""
+                st.info(f"No data available{provider_msg}. Please upload your first monthly export.")
                 return
             
             st.divider()
             
             # Enhanced filters with counts
             st.subheader("🔍 Filters")
-            users = db.get_unique_users()
+            users = db.get_unique_users(provider=selected_provider if selected_provider != "All Providers" else None)
             selected_users = st.multiselect(
                 f"Select Users (leave empty for all {len(users)} users)", 
                 users,
                 help=f"Filter by specific users. Currently {len(users)} users available."
             )
             
-            departments = db.get_unique_departments()
+            departments = db.get_unique_departments(provider=selected_provider if selected_provider != "All Providers" else None)
             selected_departments = st.multiselect(
                 f"Select Departments (leave empty for all {len(departments)} departments)", 
                 departments,
@@ -488,26 +532,35 @@ def main():
         
         # Main dashboard content
         if not available_months:
-            st.info("👋 Welcome! Please upload your first OpenAI usage metrics file using the sidebar.")
+            provider_msg = f" for {selected_provider}" if selected_provider != "All Providers" else ""
+            st.info(f"👋 Welcome! Please upload your first usage metrics file{provider_msg} using the sidebar.")
             
-            # Show sample data format
+            # Show sample data format based on selected provider
             st.subheader("📋 Expected Data Format")
-            sample_data = pd.DataFrame({
-                'user_id': ['user1@company.com', 'user2@company.com'],
-                'user_name': ['John Doe', 'Jane Smith'],
-                'department': ['Engineering', 'Marketing'],
-                'date': ['2024-01-15', '2024-01-16'],
-                'feature_used': ['ChatGPT', 'API'],
-                'usage_count': [25, 15],
-                'cost_usd': [12.50, 8.75]
-            })
-            st.dataframe(sample_data)
+            
+            if selected_provider != "All Providers" and selected_provider in config.PROVIDER_CONFIGS:
+                sample_format = config.PROVIDER_CONFIGS[selected_provider]['sample_format']
+                sample_data = pd.DataFrame([sample_format])
+                st.write(f"**{selected_provider} Format:**")
+                st.dataframe(sample_data)
+            else:
+                # Show generic format
+                sample_data = pd.DataFrame({
+                    'user_id': ['user1@company.com', 'user2@company.com'],
+                    'user_name': ['John Doe', 'Jane Smith'],
+                    'department': ['Engineering', 'Marketing'],
+                    'date': ['2024-01-15', '2024-01-16'],
+                    'feature_used': ['Feature A', 'Feature B'],
+                    'usage_count': [25, 15],
+                    'cost_usd': [12.50, 8.75]
+                })
+                st.dataframe(sample_data)
             return
         
         # Get filtered data with enhanced validation
         if len(date_range) == 2:
             start_date, end_date = date_range
-            coverage_ok, coverage_msg = check_date_coverage(db, start_date, end_date)
+            coverage_ok, coverage_msg = check_date_coverage(db, start_date, end_date, provider=selected_provider if selected_provider != "All Providers" else None)
             
             if not coverage_ok:
                 st.error(f"❌ Cannot load data: {coverage_msg}")
@@ -518,7 +571,8 @@ def main():
                 start_date=start_date,
                 end_date=end_date,
                 users=selected_users if selected_users else None,
-                departments=selected_departments if selected_departments else None
+                departments=selected_departments if selected_departments else None,
+                provider=selected_provider if selected_provider != "All Providers" else None
             )
         else:
             st.warning("Please select both start and end dates.")
@@ -584,8 +638,8 @@ def main():
             st.metric("Avg Cost per User", f"${avg_cost_per_user:.2f}", 
                      help="Total cost divided by number of active users")
         
-        # MVP2: Cost calculation transparency
-        display_cost_calculation_details(total_cost, total_users, data)
+        # MVP2: Cost calculation transparency with provider awareness
+        display_cost_calculation_details(total_cost, total_users, data, provider=selected_provider if selected_provider != "All Providers" else "OpenAI")
         
         # Usage Trends (enhanced)
         st.subheader("📊 Usage Trends")
@@ -725,7 +779,7 @@ def main():
                 st.download_button(
                     label="📥 Download Filtered Data as CSV",
                     data=csv,
-                    file_name=f"openai_metrics_filtered_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    file_name=f"ai_metrics_filtered_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
             
@@ -749,7 +803,7 @@ def main():
                 st.download_button(
                     label="📊 Download Summary Report",
                     data=summary_csv,
-                    file_name=f"openai_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    file_name=f"ai_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
 
