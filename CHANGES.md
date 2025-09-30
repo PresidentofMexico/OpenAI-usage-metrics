@@ -1,5 +1,38 @@
 # Dashboard Fix - Change Summary
 
+## Latest Fix: Cache Error Handling (2024)
+
+### Problem
+Users reported an `AttributeError` when calling `db.get_date_range()`:
+```
+AttributeError: 'DatabaseManager' object has no attribute 'get_date_range'
+```
+
+### Root Cause
+Streamlit's `@st.cache_resource` decorator caches the `DatabaseManager` instance. When code is updated while the app is running, the cached instance may be from an older version of the class that's missing newly added methods.
+
+### Solution
+Added error handling in `app.py` (line 406) to:
+1. Catch `AttributeError` when calling `db.get_date_range()`
+2. Display user-friendly error message explaining the cache issue
+3. Provide a "Clear Cache & Reload" button for automatic fix
+4. Include manual restart instructions as alternative
+
+### Changes Made
+- **app.py**: Added try-except block around `db.get_date_range()` with cache clearing functionality
+- **Testing**: Verified the method exists and works correctly in `database.py`
+- **Verification**: Confirmed fix handles the error scenario gracefully
+
+### Impact
+- Users can now resolve cache errors without technical knowledge
+- One-click fix with the "Clear Cache & Reload" button
+- Prevents app crashes from stale cache
+- Clear instructions for both automatic and manual resolution
+
+---
+
+## Previous Fix: Multi-Provider Removal
+
 ## Problem
 The dashboard was completely broken after implementing multi-provider support:
 - `AttributeError: 'DatabaseManager' object has no attribute 'get_available_providers'`
