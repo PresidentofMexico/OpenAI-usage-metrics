@@ -1,7 +1,7 @@
 """
-Database Manager for OpenAI Usage Metrics
+Database Manager for Multi-Tool AI Usage Metrics
 
-Simple, reliable database operations for OpenAI usage data.
+Handles database operations for OpenAI ChatGPT, BlueFlame AI, and other AI tool usage data.
 """
 import pandas as pd
 import sqlite3
@@ -16,22 +16,63 @@ class DatabaseManager:
     def init_database(self):
         """Initialize the database with required tables."""
         conn = sqlite3.connect(self.db_path)
+        
+        # Create main usage metrics table with new columns for multi-tool support
         conn.execute("""
             CREATE TABLE IF NOT EXISTS usage_metrics (
-                id INTEGER PRIMARY KEY,
-                user_id TEXT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
                 user_name TEXT,
+                email TEXT,
                 department TEXT,
-                date TEXT,
+                date TEXT NOT NULL,
                 feature_used TEXT,
                 usage_count INTEGER,
                 cost_usd REAL,
-                created_at TEXT,
-                file_source TEXT
+                tool_source TEXT DEFAULT 'ChatGPT',
+                file_source TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Create index for faster queries
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_date 
+            ON usage_metrics(user_id, date)
+        """)
+        
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tool_source 
+            ON usage_metrics(tool_source)
+        """)
+        
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_date 
+            ON usage_metrics(date)
+        """)
+        
         conn.commit()
+        
+        # Check if we need to migrate existing data (add email and tool_source columns)
+        cursor = conn.execute("PRAGMA table_info(usage_metrics)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'email' not in columns:
+            print("Migrating database: Adding 'email' column...")
+            conn.execute("ALTER TABLE usage_metrics ADD COLUMN email TEXT")
+            # Copy user_id to email for existing records (assuming user_id is email)
+            conn.execute("UPDATE usage_metrics SET email = user_id WHERE email IS NULL")
+            conn.commit()
+        
+        if 'tool_source' not in columns:
+            print("Migrating database: Adding 'tool_source' column...")
+            conn.execute("ALTER TABLE usage_metrics ADD COLUMN tool_source TEXT DEFAULT 'ChatGPT'")
+            # Set all existing records to ChatGPT
+            conn.execute("UPDATE usage_metrics SET tool_source = 'ChatGPT' WHERE tool_source IS NULL")
+            conn.commit()
+        
         conn.close()
+        print("Database initialized successfully")
     
     def get_available_months(self):
         """Get available months from data."""
@@ -76,7 +117,7 @@ class DatabaseManager:
         """Get unique users."""
         try:
             conn = sqlite3.connect(self.db_path)
-            df = pd.read_sql_query("SELECT DISTINCT user_name FROM usage_metrics WHERE user_name IS NOT NULL", conn)
+            df = pd.read_sql_query("SELECT DISTINCT user_name FROM usage_metrics WHERE user_name IS NOT NULL ORDER BY user_name", conn)
             conn.close()
             return df['user_name'].tolist() if not df.empty else []
         except Exception as e:
@@ -87,11 +128,22 @@ class DatabaseManager:
         """Get unique departments."""
         try:
             conn = sqlite3.connect(self.db_path)
-            df = pd.read_sql_query("SELECT DISTINCT department FROM usage_metrics WHERE department IS NOT NULL", conn)
+            df = pd.read_sql_query("SELECT DISTINCT department FROM usage_metrics WHERE department IS NOT NULL ORDER BY department", conn)
             conn.close()
             return df['department'].tolist() if not df.empty else []
         except Exception as e:
             print(f"Error getting departments: {e}")
+            return []
+    
+    def get_unique_tools(self):
+        """Get unique AI tools in the database."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            df = pd.read_sql_query("SELECT DISTINCT tool_source FROM usage_metrics WHERE tool_source IS NOT NULL ORDER BY tool_source", conn)
+            conn.close()
+            return df['tool_source'].tolist() if not df.empty else []
+        except Exception as e:
+            print(f"Error getting tools: {e}")
             return []
     
     def get_all_data(self):
@@ -105,26 +157,86 @@ class DatabaseManager:
             print(f"Error getting all data: {e}")
             return pd.DataFrame()
     
-    def get_filtered_data(self, start_date, end_date, users=None, departments=None):
-        """Get filtered data."""
+    def get_filtered_data(self, start_date=None, end_date=None, users=None, departments=None, tools=None):
+        """Get filtered data with support for multiple filter criteria."""
         try:
             conn = sqlite3.connect(self.db_path)
-            query = "SELECT * FROM usage_metrics WHERE date BETWEEN ? AND ?"
-            params = [str(start_date), str(end_date)]
+            
+            # Build query dynamically based on filters
+            query = "SELECT * FROM usage_metrics WHERE 1=1"
+            params = []
+            
+            if start_date and end_date:
+                query += " AND date BETWEEN ? AND ?"
+                params.extend([str(start_date), str(end_date)])
             
             if users:
-                query += " AND user_name IN ({})".format(','.join(['?' for _ in users]))
+                placeholders = ','.join(['?' for _ in users])
+                query += f" AND user_name IN ({placeholders})"
                 params.extend(users)
             
             if departments:
-                query += " AND department IN ({})".format(','.join(['?' for _ in departments]))
+                placeholders = ','.join(['?' for _ in departments])
+                query += f" AND department IN ({placeholders})"
                 params.extend(departments)
+            
+            if tools:
+                placeholders = ','.join(['?' for _ in tools])
+                query += f" AND tool_source IN ({placeholders})"
+                params.extend(tools)
+            
+            query += " ORDER BY date DESC"
             
             df = pd.read_sql_query(query, conn, params=params)
             conn.close()
             return df
         except Exception as e:
             print(f"Error getting filtered data: {e}")
+            return pd.DataFrame()
+    
+    def get_tool_comparison_data(self):
+        """Get aggregated data for tool comparison."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            query = """
+                SELECT 
+                    tool_source,
+                    COUNT(DISTINCT user_id) as unique_users,
+                    SUM(usage_count) as total_usage,
+                    SUM(cost_usd) as total_cost,
+                    AVG(usage_count) as avg_usage_per_record
+                FROM usage_metrics
+                GROUP BY tool_source
+                ORDER BY total_usage DESC
+            """
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            return df
+        except Exception as e:
+            print(f"Error getting tool comparison data: {e}")
+            return pd.DataFrame()
+    
+    def get_user_tool_overlap(self):
+        """Get users who use multiple tools."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            query = """
+                SELECT 
+                    user_id,
+                    user_name,
+                    email,
+                    COUNT(DISTINCT tool_source) as tool_count,
+                    GROUP_CONCAT(DISTINCT tool_source) as tools_used
+                FROM usage_metrics
+                GROUP BY user_id, user_name, email
+                HAVING COUNT(DISTINCT tool_source) > 1
+                ORDER BY tool_count DESC
+            """
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            return df
+        except Exception as e:
+            print(f"Error getting user tool overlap: {e}")
             return pd.DataFrame()
     
     def delete_all_data(self):
@@ -134,6 +246,7 @@ class DatabaseManager:
             conn.execute("DELETE FROM usage_metrics")
             conn.commit()
             conn.close()
+            print("All data deleted successfully")
             return True
         except Exception as e:
             print(f"Error deleting data: {e}")
@@ -143,10 +256,102 @@ class DatabaseManager:
         """Delete data from a specific file."""
         try:
             conn = sqlite3.connect(self.db_path)
-            conn.execute("DELETE FROM usage_metrics WHERE file_source = ?", (file_source,))
-            conn.commit()
+            cursor = conn.cursor()
+            
+            # Check how many records will be deleted
+            cursor.execute("SELECT COUNT(*) FROM usage_metrics WHERE file_source = ?", (file_source,))
+            count = cursor.fetchone()[0]
+            
+            if count > 0:
+                conn.execute("DELETE FROM usage_metrics WHERE file_source = ?", (file_source,))
+                conn.commit()
+                print(f"Deleted {count} records from {file_source}")
+            else:
+                print(f"No records found for {file_source}")
+            
             conn.close()
             return True
         except Exception as e:
             print(f"Error deleting file data: {e}")
             return False
+    
+    def delete_by_tool(self, tool_source):
+        """Delete all data from a specific tool."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Check how many records will be deleted
+            cursor.execute("SELECT COUNT(*) FROM usage_metrics WHERE tool_source = ?", (tool_source,))
+            count = cursor.fetchone()[0]
+            
+            if count > 0:
+                conn.execute("DELETE FROM usage_metrics WHERE tool_source = ?", (tool_source,))
+                conn.commit()
+                print(f"Deleted {count} records from {tool_source}")
+            else:
+                print(f"No records found for {tool_source}")
+            
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error deleting tool data: {e}")
+            return False
+    
+    def get_database_stats(self):
+        """Get comprehensive database statistics."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            
+            stats = {
+                'total_records': 0,
+                'unique_users': 0,
+                'unique_departments': 0,
+                'unique_tools': 0,
+                'total_cost': 0.0,
+                'date_range': None,
+                'records_by_tool': {},
+                'records_by_file': {}
+            }
+            
+            # Total records
+            cursor = conn.execute("SELECT COUNT(*) FROM usage_metrics")
+            stats['total_records'] = cursor.fetchone()[0]
+            
+            # Unique users
+            cursor = conn.execute("SELECT COUNT(DISTINCT user_id) FROM usage_metrics")
+            stats['unique_users'] = cursor.fetchone()[0]
+            
+            # Unique departments
+            cursor = conn.execute("SELECT COUNT(DISTINCT department) FROM usage_metrics")
+            stats['unique_departments'] = cursor.fetchone()[0]
+            
+            # Unique tools
+            cursor = conn.execute("SELECT COUNT(DISTINCT tool_source) FROM usage_metrics")
+            stats['unique_tools'] = cursor.fetchone()[0]
+            
+            # Total cost
+            cursor = conn.execute("SELECT SUM(cost_usd) FROM usage_metrics")
+            total_cost = cursor.fetchone()[0]
+            stats['total_cost'] = float(total_cost) if total_cost else 0.0
+            
+            # Date range
+            cursor = conn.execute("SELECT MIN(date), MAX(date) FROM usage_metrics")
+            min_date, max_date = cursor.fetchone()
+            if min_date and max_date:
+                stats['date_range'] = f"{min_date} to {max_date}"
+            
+            # Records by tool
+            cursor = conn.execute("SELECT tool_source, COUNT(*) FROM usage_metrics GROUP BY tool_source")
+            stats['records_by_tool'] = {row[0]: row[1] for row in cursor.fetchall()}
+            
+            # Records by file
+            cursor = conn.execute("SELECT file_source, COUNT(*) FROM usage_metrics GROUP BY file_source")
+            stats['records_by_file'] = {row[0]: row[1] for row in cursor.fetchall()}
+            
+            conn.close()
+            return stats
+            
+        except Exception as e:
+            print(f"Error getting database stats: {e}")
+            return None
