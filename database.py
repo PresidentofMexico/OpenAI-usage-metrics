@@ -35,25 +35,10 @@ class DatabaseManager:
             )
         """)
         
-        # Create index for faster queries
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_user_date 
-            ON usage_metrics(user_id, date)
-        """)
-        
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_tool_source 
-            ON usage_metrics(tool_source)
-        """)
-        
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_date 
-            ON usage_metrics(date)
-        """)
-        
         conn.commit()
         
         # Check if we need to migrate existing data (add email and tool_source columns)
+        # This MUST happen BEFORE creating indexes on these columns
         cursor = conn.execute("PRAGMA table_info(usage_metrics)")
         columns = [row[1] for row in cursor.fetchall()]
         
@@ -71,6 +56,23 @@ class DatabaseManager:
             conn.execute("UPDATE usage_metrics SET tool_source = 'ChatGPT' WHERE tool_source IS NULL")
             conn.commit()
         
+        # Create indexes for faster queries - AFTER ensuring columns exist
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_date 
+            ON usage_metrics(user_id, date)
+        """)
+        
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tool_source 
+            ON usage_metrics(tool_source)
+        """)
+        
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_date 
+            ON usage_metrics(date)
+        """)
+        
+        conn.commit()
         conn.close()
         print("Database initialized successfully")
     
