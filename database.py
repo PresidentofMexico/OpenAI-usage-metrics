@@ -15,66 +15,119 @@ class DatabaseManager:
     
     def init_database(self):
         """Initialize the database with required tables."""
-        conn = sqlite3.connect(self.db_path)
-        
-        # Create main usage metrics table with new columns for multi-tool support
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS usage_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                user_name TEXT,
-                email TEXT,
-                department TEXT,
-                date TEXT NOT NULL,
-                feature_used TEXT,
-                usage_count INTEGER,
-                cost_usd REAL,
-                tool_source TEXT DEFAULT 'ChatGPT',
-                file_source TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        conn.commit()
-        
-        # Check if we need to migrate existing data (add email and tool_source columns)
-        # This MUST happen BEFORE creating indexes on these columns
-        cursor = conn.execute("PRAGMA table_info(usage_metrics)")
-        columns = [row[1] for row in cursor.fetchall()]
-        
-        if 'email' not in columns:
-            print("Migrating database: Adding 'email' column...")
-            conn.execute("ALTER TABLE usage_metrics ADD COLUMN email TEXT")
-            # Copy user_id to email for existing records (assuming user_id is email)
-            conn.execute("UPDATE usage_metrics SET email = user_id WHERE email IS NULL")
+        try:
+            conn = sqlite3.connect(self.db_path)
+            
+            # Create main usage metrics table with new columns for multi-tool support
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS usage_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    user_name TEXT,
+                    email TEXT,
+                    department TEXT,
+                    date TEXT NOT NULL,
+                    feature_used TEXT,
+                    usage_count INTEGER,
+                    cost_usd REAL,
+                    tool_source TEXT DEFAULT 'ChatGPT',
+                    file_source TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             conn.commit()
-        
-        if 'tool_source' not in columns:
-            print("Migrating database: Adding 'tool_source' column...")
-            conn.execute("ALTER TABLE usage_metrics ADD COLUMN tool_source TEXT DEFAULT 'ChatGPT'")
-            # Set all existing records to ChatGPT
-            conn.execute("UPDATE usage_metrics SET tool_source = 'ChatGPT' WHERE tool_source IS NULL")
-            conn.commit()
-        
-        # Create indexes for faster queries - AFTER ensuring columns exist
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_user_date 
-            ON usage_metrics(user_id, date)
-        """)
-        
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_tool_source 
-            ON usage_metrics(tool_source)
-        """)
-        
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_date 
-            ON usage_metrics(date)
-        """)
-        
-        conn.commit()
-        conn.close()
-        print("Database initialized successfully")
+            
+            # Check if we need to migrate existing data (add email and tool_source columns)
+            # This MUST happen BEFORE creating indexes on these columns
+            try:
+                cursor = conn.execute("PRAGMA table_info(usage_metrics)")
+                columns = [row[1] for row in cursor.fetchall()]
+                print(f"Current columns in database: {columns}")
+            except Exception as e:
+                print(f"Error checking table columns: {e}")
+                conn.close()
+                raise
+            
+            # Migrate email column if needed
+            if 'email' not in columns:
+                try:
+                    print("Migrating database: Adding 'email' column...")
+                    conn.execute("ALTER TABLE usage_metrics ADD COLUMN email TEXT")
+                    # Copy user_id to email for existing records (assuming user_id is email)
+                    conn.execute("UPDATE usage_metrics SET email = user_id WHERE email IS NULL")
+                    conn.commit()
+                except Exception as e:
+                    print(f"Error adding email column: {e}")
+                    conn.close()
+                    raise
+            
+            # Migrate tool_source column if needed
+            if 'tool_source' not in columns:
+                try:
+                    print("Migrating database: Adding 'tool_source' column...")
+                    conn.execute("ALTER TABLE usage_metrics ADD COLUMN tool_source TEXT DEFAULT 'ChatGPT'")
+                    # Set all existing records to ChatGPT
+                    conn.execute("UPDATE usage_metrics SET tool_source = 'ChatGPT' WHERE tool_source IS NULL")
+                    conn.commit()
+                except Exception as e:
+                    print(f"Error adding tool_source column: {e}")
+                    conn.close()
+                    raise
+            
+            # Verify all required columns exist before creating indexes
+            try:
+                cursor = conn.execute("PRAGMA table_info(usage_metrics)")
+                final_columns = [row[1] for row in cursor.fetchall()]
+                print(f"Final columns after migration: {final_columns}")
+                
+                required_columns = ['user_id', 'email', 'tool_source', 'date']
+                missing_columns = [col for col in required_columns if col not in final_columns]
+                
+                if missing_columns:
+                    error_msg = f"Required columns missing after migration: {missing_columns}"
+                    print(f"ERROR: {error_msg}")
+                    conn.close()
+                    raise RuntimeError(error_msg)
+            except RuntimeError:
+                raise
+            except Exception as e:
+                print(f"Error verifying columns: {e}")
+                conn.close()
+                raise
+            
+            # Create indexes for faster queries - ONLY AFTER verifying columns exist
+            try:
+                print("Creating database indexes...")
+                
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_user_date 
+                    ON usage_metrics(user_id, date)
+                """)
+                
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_tool_source 
+                    ON usage_metrics(tool_source)
+                """)
+                
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_date 
+                    ON usage_metrics(date)
+                """)
+                
+                conn.commit()
+                print("Database indexes created successfully")
+            except Exception as e:
+                print(f"Error creating indexes: {e}")
+                conn.close()
+                raise
+            
+            conn.close()
+            print("Database initialized successfully")
+            
+        except Exception as e:
+            print(f"FATAL ERROR during database initialization: {e}")
+            raise
     
     def get_available_months(self):
         """Get available months from data."""
