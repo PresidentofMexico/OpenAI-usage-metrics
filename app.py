@@ -569,6 +569,24 @@ def calculate_power_users(data, threshold_percentile=95):
     
     return power_users
 
+def get_user_message_breakdown(data, email):
+    """Get message type breakdown for a specific user."""
+    user_data = data[data['email'] == email]
+    
+    breakdown = {
+        'ChatGPT Messages': 0,
+        'GPT Messages': 0,
+        'Tool Messages': 0,
+        'Project Messages': 0
+    }
+    
+    if not user_data.empty:
+        message_counts = user_data.groupby('feature_used')['usage_count'].sum().to_dict()
+        for msg_type in breakdown.keys():
+            breakdown[msg_type] = message_counts.get(msg_type, 0)
+    
+    return breakdown
+
 def display_tool_comparison(data):
     """Display side-by-side tool comparison."""
     st.subheader("🔄 Tool Comparison View")
@@ -997,7 +1015,7 @@ def main():
         
         with col2:
             total_usage = data['usage_count'].sum()
-            st.metric("Total Usage Events", f"{total_usage:,}", help="Total number of AI interactions")
+            st.metric("Total Usage Events", f"{total_usage:,}", help="Total number of AI interactions across all message types")
         
         with col3:
             total_cost = data['cost_usd'].sum()
@@ -1006,6 +1024,46 @@ def main():
         with col4:
             avg_cost = total_cost / max(total_users, 1)
             st.metric("Avg Cost per User", f"${avg_cost:.2f}", help="Average cost per active user")
+        
+        # Message Type Breakdown
+        st.markdown('<div class="section-header"><h3>💬 Message Type Breakdown</h3></div>', unsafe_allow_html=True)
+        
+        # Calculate metrics for each message type
+        message_types = data.groupby('feature_used')['usage_count'].sum().to_dict()
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            chatgpt_msgs = message_types.get('ChatGPT Messages', 0)
+            st.metric(
+                "ChatGPT Messages", 
+                f"{chatgpt_msgs:,}", 
+                help="Base model usage - standard ChatGPT conversations"
+            )
+        
+        with col2:
+            gpt_msgs = message_types.get('GPT Messages', 0)
+            st.metric(
+                "GPT Messages", 
+                f"{gpt_msgs:,}", 
+                help="Custom GPT usage - interactions with custom GPTs"
+            )
+        
+        with col3:
+            tool_msgs = message_types.get('Tool Messages', 0)
+            st.metric(
+                "Tool Messages", 
+                f"{tool_msgs:,}", 
+                help="Tool interactions - code interpreter, web browsing, etc."
+            )
+        
+        with col4:
+            project_msgs = message_types.get('Project Messages', 0)
+            st.metric(
+                "Project Messages", 
+                f"{project_msgs:,}", 
+                help="ChatGPT Projects usage - project-specific conversations"
+            )
         
         # Tool breakdown with enhanced styling
         if 'tool_source' in data.columns:
@@ -1159,6 +1217,10 @@ def main():
             
             # Enhanced table display with better formatting
             for idx, row in power_users.head(20).iterrows():
+                # Get message breakdown for this user
+                breakdown = get_user_message_breakdown(data, row['email'])
+                total_messages = sum(breakdown.values())
+                
                 # Create a card-like container for each power user
                 st.markdown(f"""
                 <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
@@ -1166,20 +1228,28 @@ def main():
                             border-left: 4px solid #667eea;">
                 """, unsafe_allow_html=True)
                 
-                col1, col2, col3, col4 = st.columns([3, 3, 2, 2])
+                col1, col2, col3 = st.columns([3, 4, 3])
                 
                 with col1:
                     st.write(f"**{row['user_name']}**")
                     st.caption(row['email'])
+                    st.caption(f"🏢 {row['department']}")
                 
                 with col2:
-                    st.write(f"🏢 {row['department']}")
+                    st.write("**Message Breakdown:**")
+                    # Display breakdown of message types
+                    if breakdown['ChatGPT Messages'] > 0:
+                        st.caption(f"💬 ChatGPT Messages: {breakdown['ChatGPT Messages']:,}")
+                    if breakdown['GPT Messages'] > 0:
+                        st.caption(f"🤖 GPT Messages: {breakdown['GPT Messages']:,}")
+                    if breakdown['Tool Messages'] > 0:
+                        st.caption(f"🔧 Tool Messages: {breakdown['Tool Messages']:,}")
+                    if breakdown['Project Messages'] > 0:
+                        st.caption(f"📁 Project Messages: {breakdown['Project Messages']:,}")
                 
                 with col3:
-                    st.write(f"📊 {row['usage_count']:,} messages")
-                    st.caption(f"${row['cost_usd']:.2f} cost")
-                
-                with col4:
+                    st.write(f"**Total: {total_messages:,}**")
+                    st.caption(f"💰 ${row['cost_usd']:.2f} cost")
                     st.markdown(f'<span class="power-user-badge">{row["tool_source"]}</span>', 
                               unsafe_allow_html=True)
                 
