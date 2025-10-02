@@ -18,6 +18,7 @@ import sqlite3
 
 from data_processor import DataProcessor
 from database import DatabaseManager
+from file_reader import read_file_robust, display_file_error
 
 # Page configuration
 st.set_page_config(
@@ -362,15 +363,18 @@ def main():
             if uploaded_file is not None:
                 # Show file preview
                 try:
-                    stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
-                    preview_df = pd.read_csv(stringio, nrows=5)
+                    preview_df, preview_error = read_file_robust(uploaded_file, nrows=5)
                     
-                    st.write("**File Preview:**")
-                    st.dataframe(preview_df.head(3), height=120)
-                    
-                    # Get full file info
-                    full_df = pd.read_csv(StringIO(uploaded_file.getvalue().decode('utf-8')))
-                    st.caption(f"📊 {len(full_df)} rows, {len(full_df.columns)} columns")
+                    if preview_error:
+                        display_file_error(preview_error)
+                    else:
+                        st.write("**File Preview:**")
+                        st.dataframe(preview_df.head(3), height=120)
+                        
+                        # Get full file info
+                        full_df, full_error = read_file_robust(uploaded_file)
+                        if not full_error:
+                            st.caption(f"📊 {len(full_df)} rows, {len(full_df.columns)} columns")
                     
                 except Exception as e:
                     st.error(f"Cannot preview file: {str(e)}")
@@ -379,23 +383,27 @@ def main():
                     with st.spinner("Processing data..."):
                         try:
                             # Read uploaded file
-                            stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
-                            df = pd.read_csv(stringio)
+                            df, read_error = read_file_robust(uploaded_file)
                             
-                            # Process and store data
-                            success, message = processor.process_monthly_data(df, uploaded_file.name)
-                            
-                            if success:
-                                st.success(f"✅ {message}")
-                                # Track upload history
-                                if 'upload_history' not in st.session_state:
-                                    st.session_state.upload_history = []
-                                st.session_state.upload_history.append(
-                                    f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
-                                )
-                                st.rerun()
+                            if read_error:
+                                display_file_error(read_error)
+                            elif df is not None and not df.empty:
+                                # Process and store data
+                                success, message = processor.process_monthly_data(df, uploaded_file.name)
+                                
+                                if success:
+                                    st.success(f"✅ {message}")
+                                    # Track upload history
+                                    if 'upload_history' not in st.session_state:
+                                        st.session_state.upload_history = []
+                                    st.session_state.upload_history.append(
+                                        f"{uploaded_file.name} ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
+                                    )
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {message}")
                             else:
-                                st.error(f"❌ {message}")
+                                st.error("❌ No data found in file")
                         except Exception as e:
                             st.error(f"Error processing file: {str(e)}")
             

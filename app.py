@@ -19,6 +19,7 @@ import json
 
 from data_processor import DataProcessor
 from database import DatabaseManager
+from file_reader import read_file_robust, display_file_error
 
 # Page configuration
 st.set_page_config(
@@ -727,28 +728,28 @@ def main():
             # Show file preview with better error handling
             try:
                 with st.spinner("🔍 Reading file preview..."):
-                    if uploaded_file.name.endswith('.csv'):
-                        preview_df = pd.read_csv(uploaded_file, nrows=5)
+                    preview_df, preview_error = read_file_robust(uploaded_file, nrows=5)
+                    
+                    if preview_error:
+                        display_file_error(preview_error)
                     else:
-                        preview_df = pd.read_excel(uploaded_file, nrows=5)
-                
-                st.write("**📊 File Preview:**")
-                st.dataframe(preview_df.head(3), height=120)
-                
-                # Enhanced file statistics
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Columns", len(preview_df.columns))
-                with col2:
-                    # Get full row count
-                    try:
-                        if uploaded_file.name.endswith('.csv'):
-                            full_df = pd.read_csv(uploaded_file)
-                        else:
-                            full_df = pd.read_excel(uploaded_file)
-                        st.metric("Rows", len(full_df))
-                    except:
-                        st.metric("Rows", "~")
+                        st.write("**📊 File Preview:**")
+                        st.dataframe(preview_df.head(3), height=120)
+                        
+                        # Enhanced file statistics
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Columns", len(preview_df.columns))
+                        with col2:
+                            # Get full row count
+                            try:
+                                full_df, full_error = read_file_robust(uploaded_file)
+                                if full_error:
+                                    st.metric("Rows", "~")
+                                else:
+                                    st.metric("Rows", len(full_df))
+                            except:
+                                st.metric("Rows", "~")
                 
             except Exception as e:
                 st.error(f"❌ Cannot preview file: {str(e)}")
@@ -764,10 +765,19 @@ def main():
                     status_text.text("📖 Reading file...")
                     progress_bar.progress(20)
                     
-                    if uploaded_file.name.endswith('.csv'):
-                        df = pd.read_csv(uploaded_file)
-                    else:
-                        df = pd.read_excel(uploaded_file)
+                    df, read_error = read_file_robust(uploaded_file)
+                    
+                    if read_error:
+                        progress_bar.empty()
+                        status_text.empty()
+                        display_file_error(read_error)
+                        return
+                    
+                    if df is None or df.empty:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.error("❌ The uploaded file contains no data")
+                        return
                     
                     # Step 2: Detecting data source
                     status_text.text("🔍 Detecting data source...")
