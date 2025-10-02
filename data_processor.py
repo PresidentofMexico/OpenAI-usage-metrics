@@ -386,13 +386,13 @@ class DataProcessor:
             print(f"Error calculating tool adoption metrics: {str(e)}")
             return pd.DataFrame()
     
-    def identify_power_users(self, df, threshold_percentile=80):
+    def identify_power_users(self, df, threshold_percentile=95):
         """
         Identify power users based on usage patterns.
         
         Args:
             df: DataFrame with usage data
-            threshold_percentile: Percentile threshold for power user classification
+            threshold_percentile: Percentile threshold for power user classification (default: 95 for top 5%)
             
         Returns:
             DataFrame with power user information
@@ -408,13 +408,12 @@ class DataProcessor:
                 'tool_source': lambda x: ', '.join(sorted(x.unique()))
             }).reset_index()
             
-            # Calculate threshold
+            # Calculate threshold (top 5% by default)
             threshold = user_usage['usage_count'].quantile(threshold_percentile / 100)
             
-            # Identify power users (top percentile OR anyone with 200+ messages)
+            # Identify power users (top 5% by usage)
             power_users = user_usage[
-                (user_usage['usage_count'] >= threshold) | 
-                (user_usage['usage_count'] >= 200)
+                user_usage['usage_count'] >= threshold
             ].sort_values('usage_count', ascending=False)
             
             # Add ranking

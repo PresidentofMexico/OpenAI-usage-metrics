@@ -547,7 +547,7 @@ def display_department_mapper():
     if mappings:
         st.info(f"📊 {len(mappings)} custom department mappings active")
 
-def calculate_power_users(data, threshold_percentile=80):
+def calculate_power_users(data, threshold_percentile=95):
     """Identify power users based on usage patterns."""
     if data.empty:
         return pd.DataFrame()
@@ -559,13 +559,12 @@ def calculate_power_users(data, threshold_percentile=80):
         'tool_source': lambda x: ', '.join(x.unique())
     }).reset_index()
     
-    # Calculate threshold (top 20% by default)
+    # Calculate threshold (top 5% by default)
     threshold = user_usage['usage_count'].quantile(threshold_percentile / 100)
     
-    # Also include anyone with 200+ messages
+    # Identify power users (top 5% by usage)
     power_users = user_usage[
-        (user_usage['usage_count'] >= threshold) | 
-        (user_usage['usage_count'] >= 200)
+        user_usage['usage_count'] >= threshold
     ].sort_values('usage_count', ascending=False)
     
     return power_users
@@ -1118,8 +1117,8 @@ def main():
         # Help text
         st.markdown("""
         <div class="help-tooltip">
-            💡 <strong>Power Users</strong> are identified as users in the top 20% of usage or with 200+ messages.
-            These users are ideal candidates for feedback, beta testing, and advocacy programs.
+            💡 <strong>Power Users</strong> are defined as the top 5% of users by total usage.
+            These elite users demonstrate exceptional engagement and are ideal candidates for feedback, beta testing, and advocacy programs.
         </div>
         """, unsafe_allow_html=True)
         
