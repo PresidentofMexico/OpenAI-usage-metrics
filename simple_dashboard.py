@@ -8,6 +8,8 @@ from datetime import datetime
 import sqlite3
 import os
 
+from file_reader import read_file_robust, display_file_error
+
 # Page config
 st.set_page_config(
     page_title="OpenAI Usage Analytics",
@@ -53,14 +55,17 @@ with st.sidebar:
     
     if uploaded_file is not None:
         try:
-            # Read the uploaded file
-            df = pd.read_csv(uploaded_file)
+            # Read the uploaded file using robust reader
+            df, error = read_file_robust(uploaded_file)
             
-            st.success(f"✅ File uploaded: {len(df)} rows")
-            
-            # Show preview
-            st.subheader("Data Preview")
-            st.dataframe(df.head())
+            if error:
+                display_file_error(error)
+            else:
+                st.success(f"✅ File uploaded: {len(df)} rows")
+                
+                # Show preview
+                st.subheader("Data Preview")
+                st.dataframe(df.head())
             
             # Process button
             if st.button("Process Data", type="primary"):
