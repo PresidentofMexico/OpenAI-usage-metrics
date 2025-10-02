@@ -143,6 +143,7 @@ st.markdown("""
         padding: 1.5rem;
         margin: 1rem 0;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        color: #1e293b;
     }
     
     /* Enhanced insight cards */
@@ -197,6 +198,7 @@ st.markdown("""
         margin: 0.5rem 0;
         font-size: 0.875rem;
         border: 1px solid #e2e8f0;
+        color: #1e293b;
     }
     
     /* Loading states */
