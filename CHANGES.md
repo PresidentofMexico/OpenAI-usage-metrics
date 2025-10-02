@@ -1,6 +1,48 @@
 # Dashboard Fix - Change Summary
 
-## Latest Fix: Cache Error Handling (2024)
+## Latest Fix: Date Calculation TypeError (2024)
+
+### Problem
+Dashboard was crashing with a `TypeError` on line 970 of `app.py`:
+```
+TypeError: unsupported operand type(s) for -: 'str' and 'str'
+```
+
+The error occurred when calculating date coverage in the data quality metrics:
+```python
+date_coverage = (data['date'].max() - data['date'].min()).days + 1
+```
+
+### Root Cause
+The `date` column in the SQLite database is stored as TEXT (strings), not datetime objects. When `max()` and `min()` are called on the date column, they return strings. Attempting to subtract two strings with the `-` operator causes a TypeError.
+
+### Solution
+Convert the string dates to pandas datetime objects before performing the subtraction:
+```python
+date_coverage = (pd.to_datetime(data['date']).max() - pd.to_datetime(data['date']).min()).days + 1
+```
+
+### Changes Made
+- **app.py line 970**: Added `pd.to_datetime()` conversion to date values before subtraction
+- This pattern was already correctly used elsewhere in the codebase (line 1323 in `get_database_info()`)
+- Only 1 line changed - surgical fix with minimal impact
+
+### Testing
+✅ Created test script to verify fix works correctly with string dates
+✅ Confirmed old method fails with TypeError as expected
+✅ Confirmed new method calculates dates correctly (tested with 31-day range)
+✅ Verified no other files have similar issues
+✅ Successfully imported app.py without errors
+
+### Impact
+- Dashboard now loads without errors
+- Date coverage calculation works correctly with string dates stored in SQLite
+- All existing functionality preserved
+- Fix aligns with existing patterns in the codebase
+
+---
+
+## Previous Fix: Cache Error Handling (2024)
 
 ### Problem
 Users reported an `AttributeError` when calling `db.get_date_range()`:
