@@ -967,7 +967,7 @@ def main():
         # Calculate data quality metrics
         completeness = (1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100
         unique_users = data['user_id'].nunique()
-        date_coverage = (data['date'].max() - data['date'].min()).days + 1
+        date_coverage = (pd.to_datetime(data['date']).max() - pd.to_datetime(data['date']).min()).days + 1
         
         with col1:
             quality_class = "quality-excellent" if completeness >= 95 else "quality-good" if completeness >= 80 else "quality-warning"
