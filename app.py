@@ -357,9 +357,15 @@ def normalize_openai_data(df, filename):
             else:
                 dept = dept_str
         
-        # Get period dates
-        period_start = pd.to_datetime(row.get('period_start', row.get('first_day_active_in_period', datetime.now())))
-        period_end = pd.to_datetime(row.get('period_end', row.get('last_day_active_in_period', datetime.now())))
+        # Get period dates with robust error handling
+        period_start = pd.to_datetime(row.get('period_start', row.get('first_day_active_in_period', datetime.now())), errors='coerce')
+        period_end = pd.to_datetime(row.get('period_end', row.get('last_day_active_in_period', datetime.now())), errors='coerce')
+        
+        # Fallback to current date if parsing fails
+        if pd.isna(period_start):
+            period_start = datetime.now()
+        if pd.isna(period_end):
+            period_end = datetime.now()
         
         # ChatGPT messages
         if row.get('messages', 0) > 0:
@@ -432,12 +438,17 @@ def normalize_blueflame_data(df, filename):
     
     # Adjust these column names based on actual BlueFlame export format
     for _, row in df.iterrows():
+        # Parse date with robust error handling
+        date_val = pd.to_datetime(row.get('date', row.get('month', datetime.now())), errors='coerce')
+        if pd.isna(date_val):
+            date_val = datetime.now()
+        
         normalized_records.append({
             'user_id': row.get('user_id', row.get('email', '')),
             'user_name': row.get('user_name', row.get('name', '')),
             'email': row.get('email', ''),
             'department': row.get('department', 'Unknown'),
-            'date': pd.to_datetime(row.get('date', row.get('month', datetime.now()))),
+            'date': date_val,
             'feature_used': 'BlueFlame Messages',
             'usage_count': row.get('total_messages', row.get('messages', 0)),
             'cost_usd': row.get('cost', row.get('total_messages', 0) * 0.015),  # Adjust pricing
@@ -996,7 +1007,17 @@ def main():
         # Calculate data quality metrics
         completeness = (1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100
         unique_users = data['user_id'].nunique()
-        date_coverage = (pd.to_datetime(data['date']).max() - pd.to_datetime(data['date']).min()).days + 1
+        
+        # Robust date handling - convert dates and filter out invalid values
+        try:
+            valid_dates = pd.to_datetime(data['date'], errors='coerce').dropna()
+            if len(valid_dates) > 0:
+                date_coverage = (valid_dates.max() - valid_dates.min()).days + 1
+            else:
+                date_coverage = 0
+        except Exception as e:
+            st.warning(f"⚠️ Date parsing issue: {str(e)}")
+            date_coverage = 0
         
         with col1:
             quality_class = "quality-excellent" if completeness >= 95 else "quality-good" if completeness >= 80 else "quality-warning"
@@ -1398,10 +1419,20 @@ def get_database_info():
     
     total_cost = all_data['cost_usd'].sum() if 'cost_usd' in all_data.columns else 0.0
     
+    # Calculate total days with robust date handling
+    try:
+        valid_dates = pd.to_datetime(all_data['date'], errors='coerce').dropna()
+        if len(valid_dates) > 0:
+            total_days = (valid_dates.max() - valid_dates.min()).days + 1
+        else:
+            total_days = 0
+    except Exception:
+        total_days = 0
+    
     total_stats = {
         'total_records': len(all_data),
         'total_users': all_data['user_id'].nunique(),
-        'total_days': (pd.to_datetime(all_data['date'].max()) - pd.to_datetime(all_data['date'].min())).days + 1,
+        'total_days': total_days,
         'total_cost': float(total_cost)
     }
     

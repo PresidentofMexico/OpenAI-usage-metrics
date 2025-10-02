@@ -136,7 +136,9 @@ class DatabaseManager:
             df = pd.read_sql_query("SELECT DISTINCT date FROM usage_metrics ORDER BY date", conn)
             conn.close()
             if not df.empty:
-                return pd.to_datetime(df['date']).dt.date.tolist()
+                # Use errors='coerce' to handle invalid dates gracefully
+                dates = pd.to_datetime(df['date'], errors='coerce').dropna().dt.date.tolist()
+                return dates
             return []
         except Exception as e:
             print(f"Error getting months: {e}")
@@ -156,8 +158,17 @@ class DatabaseManager:
             if df.empty or pd.isna(df['min_date'].iloc[0]):
                 return None, None
             
-            min_date = pd.to_datetime(df['min_date'].iloc[0]).date()
-            max_date = pd.to_datetime(df['max_date'].iloc[0]).date()
+            # Use errors='coerce' to handle invalid dates gracefully
+            min_date = pd.to_datetime(df['min_date'].iloc[0], errors='coerce')
+            max_date = pd.to_datetime(df['max_date'].iloc[0], errors='coerce')
+            
+            # Check if dates are valid
+            if pd.isna(min_date) or pd.isna(max_date):
+                print(f"Warning: Invalid dates in database - min: {df['min_date'].iloc[0]}, max: {df['max_date'].iloc[0]}")
+                return None, None
+            
+            min_date = min_date.date()
+            max_date = max_date.date()
             
             # For monthly data, extend max_date to end of month
             # This allows users to select any date within the month

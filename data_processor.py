@@ -116,10 +116,17 @@ class DataProcessor:
                 # Get date - use period_start or first_day_active_in_period
                 period_start = row.get('period_start', row.get('first_day_active_in_period', datetime.now().strftime('%Y-%m-%d')))
                 
-                # Ensure date is in proper format
+                # Ensure date is in proper format with robust error handling
                 try:
-                    period_start = pd.to_datetime(period_start).strftime('%Y-%m-%d')
-                except:
+                    # Use errors='coerce' to handle invalid dates gracefully
+                    parsed_date = pd.to_datetime(period_start, errors='coerce')
+                    if pd.isna(parsed_date):
+                        # If date is invalid, use current date
+                        period_start = datetime.now().strftime('%Y-%m-%d')
+                    else:
+                        period_start = parsed_date.strftime('%Y-%m-%d')
+                except Exception:
+                    # Fallback to current date if any other error occurs
                     period_start = datetime.now().strftime('%Y-%m-%d')
                 
                 messages = row.get('messages', 0)
@@ -274,10 +281,17 @@ class DataProcessor:
                 date = row.get(date_col, datetime.now().strftime('%Y-%m-%d')) if date_col else datetime.now().strftime('%Y-%m-%d')
                 usage_count = row.get(usage_col, 0)
                 
-                # Convert date to proper format
+                # Convert date to proper format with robust error handling
                 try:
-                    date = pd.to_datetime(date).strftime('%Y-%m-%d')
-                except:
+                    # Use errors='coerce' to handle invalid dates gracefully
+                    parsed_date = pd.to_datetime(date, errors='coerce')
+                    if pd.isna(parsed_date):
+                        # If date is invalid, use current date
+                        date = datetime.now().strftime('%Y-%m-%d')
+                    else:
+                        date = parsed_date.strftime('%Y-%m-%d')
+                except Exception:
+                    # Fallback to current date if any other error occurs
                     date = datetime.now().strftime('%Y-%m-%d')
                 
                 if usage_count > 0:
