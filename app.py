@@ -67,9 +67,10 @@ def apply_department_mappings(data, mappings):
     
     return data
 
-# Enhanced CSS
+# Enhanced CSS with micro UI improvements
 st.markdown("""
 <style>
+    /* Main header with improved typography */
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
@@ -77,62 +78,245 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         text-align: center;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
+        padding: 0.5rem 0;
     }
+    
+    /* Improved metric cards */
     .metric-card {
-        background: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
+        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+        padding: 1.5rem;
+        border-radius: 0.75rem;
         margin: 0.5rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid #e9ecef;
+        transition: all 0.3s ease;
     }
+    
+    .metric-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+    
+    /* Tool badges with better styling */
     .tool-badge {
         display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 1rem;
+        padding: 0.35rem 0.85rem;
+        border-radius: 1.25rem;
         font-size: 0.85rem;
         font-weight: 600;
         margin: 0.25rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: all 0.2s ease;
     }
+    
+    .tool-badge:hover {
+        transform: scale(1.05);
+    }
+    
     .tool-chatgpt {
-        background: #10a37f;
+        background: linear-gradient(135deg, #10a37f 0%, #0d8c6d 100%);
         color: white;
     }
+    
     .tool-blueflame {
-        background: #4f46e5;
+        background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
         color: white;
     }
+    
+    /* Enhanced power user badge */
     .power-user-badge {
         background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         color: white;
-        padding: 0.25rem 0.75rem;
-        border-radius: 1rem;
+        padding: 0.35rem 0.85rem;
+        border-radius: 1.25rem;
         font-size: 0.75rem;
         font-weight: 600;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
+    
+    /* Department mapper with improved styling */
     .dept-mapper-container {
-        background: #f8f9fa;
+        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
         border: 2px solid #e9ecef;
-        border-radius: 0.5rem;
-        padding: 1rem;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
         margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
+    
+    /* Enhanced insight cards */
     .insight-card {
         border-left: 4px solid;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border-radius: 0.25rem;
+        padding: 1.25rem;
+        margin: 1rem 0;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: all 0.3s ease;
     }
+    
+    .insight-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
     .insight-success {
         border-color: #10b981;
-        background: #d1fae5;
+        background: linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%);
     }
+    
     .insight-warning {
         border-color: #f59e0b;
-        background: #fef3c7;
+        background: linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%);
     }
+    
     .insight-info {
         border-color: #3b82f6;
+        background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+    }
+    
+    /* Enhanced file upload zone */
+    .upload-zone {
+        border: 2px dashed #cbd5e1;
+        border-radius: 0.75rem;
+        padding: 2rem;
+        text-align: center;
+        background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+        margin: 1rem 0;
+        transition: all 0.3s ease;
+    }
+    
+    .upload-zone:hover {
+        border-color: #667eea;
+        background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+    }
+    
+    .upload-requirements {
+        background: #f1f5f9;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        font-size: 0.875rem;
+        border: 1px solid #e2e8f0;
+    }
+    
+    /* Loading states */
+    .loading-skeleton {
+        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+        background-size: 200% 100%;
+        animation: loading 1.5s ease-in-out infinite;
+        border-radius: 0.5rem;
+        height: 200px;
+    }
+    
+    @keyframes loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    
+    /* Empty state styling */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 2rem;
+        background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+        border-radius: 0.75rem;
+        border: 2px dashed #cbd5e1;
+        margin: 2rem 0;
+    }
+    
+    .empty-state-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+    }
+    
+    .empty-state-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #475569;
+        margin-bottom: 0.5rem;
+    }
+    
+    .empty-state-text {
+        color: #64748b;
+        margin-bottom: 1.5rem;
+    }
+    
+    /* Data quality indicators */
+    .quality-indicator {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        font-weight: 600;
+        font-size: 0.875rem;
+        margin: 0.25rem;
+    }
+    
+    .quality-excellent {
+        background: #d1fae5;
+        color: #065f46;
+        border: 1px solid #10b981;
+    }
+    
+    .quality-good {
         background: #dbeafe;
+        color: #1e40af;
+        border: 1px solid #3b82f6;
+    }
+    
+    .quality-warning {
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #f59e0b;
+    }
+    
+    .quality-poor {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #ef4444;
+    }
+    
+    /* Enhanced buttons */
+    .stButton > button {
+        border-radius: 0.5rem;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    
+    /* Help tooltips */
+    .help-tooltip {
+        background: #eff6ff;
+        border: 1px solid #3b82f6;
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+        font-size: 0.875rem;
+        color: #1e40af;
+    }
+    
+    /* Better spacing */
+    .section-header {
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    
+    /* Responsive improvements */
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 1.75rem;
+        }
+        
+        .metric-card {
+            padding: 1rem;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -490,78 +674,161 @@ def main():
     with st.sidebar:
         st.header("🔧 Controls")
         
-        # File upload section
+        # Enhanced file upload section
         st.subheader("📁 Upload Data")
         
-        # Tool selector
+        # File requirements info box
+        st.markdown("""
+        <div class="upload-requirements">
+            <strong>📋 Accepted Formats:</strong><br>
+            • CSV files (.csv)<br>
+            • Excel files (.xlsx)<br>
+            <strong>📏 Max Size:</strong> 200MB
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Tool selector with enhanced help
         tool_type = st.selectbox(
             "Select AI Tool",
             options=['Auto-Detect', 'OpenAI ChatGPT', 'BlueFlame AI', 'Other'],
-            help="The system will try to auto-detect the data source"
+            help="💡 Auto-Detect will analyze your file and identify the data source automatically"
         )
         
         uploaded_file = st.file_uploader(
             "Upload Usage Data (CSV/Excel)",
             type=['csv', 'xlsx'],
-            help="Upload your AI tool usage export file"
+            help="🔼 Drag and drop your file here or click to browse"
         )
         
         if uploaded_file is not None:
-            # Show file preview
+            # Show file info with enhanced styling
+            file_size_mb = uploaded_file.size / (1024 * 1024)
+            st.success(f"✅ File loaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")
+            
+            # Show file preview with better error handling
             try:
-                if uploaded_file.name.endswith('.csv'):
-                    preview_df = pd.read_csv(uploaded_file, nrows=5)
-                else:
-                    preview_df = pd.read_excel(uploaded_file, nrows=5)
+                with st.spinner("🔍 Reading file preview..."):
+                    if uploaded_file.name.endswith('.csv'):
+                        preview_df = pd.read_csv(uploaded_file, nrows=5)
+                    else:
+                        preview_df = pd.read_excel(uploaded_file, nrows=5)
                 
-                st.write("**File Preview:**")
+                st.write("**📊 File Preview:**")
                 st.dataframe(preview_df.head(3), height=120)
-                st.caption(f"📊 {len(preview_df.columns)} columns detected")
+                
+                # Enhanced file statistics
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Columns", len(preview_df.columns))
+                with col2:
+                    # Get full row count
+                    try:
+                        if uploaded_file.name.endswith('.csv'):
+                            full_df = pd.read_csv(uploaded_file)
+                        else:
+                            full_df = pd.read_excel(uploaded_file)
+                        st.metric("Rows", len(full_df))
+                    except:
+                        st.metric("Rows", "~")
                 
             except Exception as e:
-                st.error(f"Cannot preview file: {str(e)}")
+                st.error(f"❌ Cannot preview file: {str(e)}")
+                st.info("💡 Please ensure your file is a valid CSV or Excel file")
             
-            if st.button("Process Upload", type="primary"):
-                with st.spinner("Processing data..."):
-                    try:
-                        # Read file
-                        if uploaded_file.name.endswith('.csv'):
-                            df = pd.read_csv(uploaded_file)
-                        else:
-                            df = pd.read_excel(uploaded_file)
+            if st.button("🚀 Process Upload", type="primary", use_container_width=True):
+                # Initialize progress tracking
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
+                    # Step 1: Reading file
+                    status_text.text("📖 Reading file...")
+                    progress_bar.progress(20)
+                    
+                    if uploaded_file.name.endswith('.csv'):
+                        df = pd.read_csv(uploaded_file)
+                    else:
+                        df = pd.read_excel(uploaded_file)
+                    
+                    # Step 2: Detecting data source
+                    status_text.text("🔍 Detecting data source...")
+                    progress_bar.progress(40)
+                    
+                    if tool_type == 'Auto-Detect':
+                        detected_tool = detect_data_source(df)
+                        st.info(f"📡 Detected: **{detected_tool}**")
+                    else:
+                        detected_tool = tool_type.replace('OpenAI ', '')
+                    
+                    # Step 3: Normalizing data
+                    status_text.text("⚙️ Normalizing data structure...")
+                    progress_bar.progress(60)
+                    
+                    if 'ChatGPT' in detected_tool:
+                        normalized_df = normalize_openai_data(df, uploaded_file.name)
+                    elif 'BlueFlame' in detected_tool:
+                        normalized_df = normalize_blueflame_data(df, uploaded_file.name)
+                    else:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.error("❌ Unknown data format. Please select the correct tool.")
+                        return
+                    
+                    # Step 4: Storing in database
+                    status_text.text("💾 Storing in database...")
+                    progress_bar.progress(80)
+                    
+                    if not normalized_df.empty:
+                        success = processor.process_monthly_data(normalized_df, uploaded_file.name)
                         
-                        # Detect or use specified tool
-                        if tool_type == 'Auto-Detect':
-                            detected_tool = detect_data_source(df)
-                            st.info(f"📡 Detected: {detected_tool}")
-                        else:
-                            detected_tool = tool_type.replace('OpenAI ', '')
+                        progress_bar.progress(100)
                         
-                        # Normalize based on tool
-                        if 'ChatGPT' in detected_tool:
-                            normalized_df = normalize_openai_data(df, uploaded_file.name)
-                        elif 'BlueFlame' in detected_tool:
-                            normalized_df = normalize_blueflame_data(df, uploaded_file.name)
-                        else:
-                            st.error("Unknown data format. Please select the correct tool.")
-                            return
-                        
-                        # Store in database
-                        if not normalized_df.empty:
-                            # Use existing processor or direct database insert
-                            success = processor.process_monthly_data(normalized_df, uploaded_file.name)
+                        if success:
+                            status_text.empty()
+                            progress_bar.empty()
                             
-                            if success:
-                                st.success(f"✅ Processed {len(normalized_df)} records from {detected_tool}")
-                                st.rerun()
-                            else:
-                                st.error("Error storing data")
-                        else:
-                            st.error("No data could be extracted from file")
+                            # Success message with details
+                            st.success(f"""
+                            ✅ **Upload Complete!**
+                            - Processed **{len(normalized_df)}** records
+                            - Source: **{detected_tool}**
+                            - File: {uploaded_file.name}
+                            """)
                             
-                    except Exception as e:
-                        st.error(f"Error processing file: {str(e)}")
-                        st.exception(e)
+                            # Show summary metrics
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Users Found", normalized_df['user_id'].nunique())
+                            with col2:
+                                st.metric("Total Usage", f"{normalized_df['usage_count'].sum():,}")
+                            
+                            st.balloons()
+                            st.rerun()
+                        else:
+                            progress_bar.empty()
+                            status_text.empty()
+                            st.error("❌ Error storing data in database")
+                    else:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.error("❌ No data could be extracted from file")
+                        st.info("💡 Please verify your file format matches the selected tool type")
+                        
+                except Exception as e:
+                    progress_bar.empty()
+                    status_text.empty()
+                    st.error(f"❌ **Error processing file:** {str(e)}")
+                    
+                    # Provide helpful error context
+                    with st.expander("🔧 Troubleshooting Tips"):
+                        st.markdown("""
+                        **Common issues:**
+                        - Ensure your CSV/Excel file is not corrupted
+                        - Check that column names match the expected format
+                        - Verify the file contains the required data fields
+                        - Try selecting the tool type manually instead of Auto-Detect
+                        """)
+                    st.exception(e)
         
         st.divider()
         
@@ -571,35 +838,76 @@ def main():
         try:
             min_date, max_date = db.get_date_range()
         except:
-            st.info("No data available. Upload your first file to begin.")
+            # Enhanced empty state for no data
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">📊</div>
+                <div class="empty-state-title">No Data Available</div>
+                <div class="empty-state-text">
+                    Upload your first AI usage export file to start analyzing data
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Helpful guidance
+            with st.expander("📚 Getting Started Guide"):
+                st.markdown("""
+                **To get started:**
+                1. Export your AI tool usage data (CSV or Excel)
+                2. Select the tool type or use Auto-Detect
+                3. Upload your file using the uploader above
+                4. Wait for processing to complete
+                
+                **Supported Tools:**
+                - OpenAI ChatGPT Enterprise exports
+                - BlueFlame AI usage reports
+                - Other AI platforms (manual mapping)
+                """)
             return
         
         if min_date and max_date:
-            st.info(f"📊 Data: {min_date} to {max_date}")
+            # Enhanced data availability indicator
+            date_diff = (max_date - min_date).days
+            st.markdown(f"""
+            <div class="help-tooltip">
+                📊 <strong>Data Available:</strong> {min_date} to {max_date} ({date_diff + 1} days)
+            </div>
+            """, unsafe_allow_html=True)
             
             date_range = st.date_input(
                 "Select date range",
                 value=(min_date, max_date),
                 min_value=min_date,
-                max_value=max_date
+                max_value=max_date,
+                help="📅 Filter data by date range for focused analysis"
             )
             
-            # Tool filter
+            # Tool filter with enhanced UI
             all_data = db.get_all_data()
             if not all_data.empty and 'tool_source' in all_data.columns:
                 available_tools = ['All Tools'] + list(all_data['tool_source'].unique())
-                selected_tool = st.selectbox("Filter by Tool", available_tools)
+                selected_tool = st.selectbox(
+                    "Filter by Tool", 
+                    available_tools,
+                    help="🔧 View data from specific AI tools or all combined"
+                )
             else:
                 selected_tool = 'All Tools'
             
-            # Department filter
+            # Department filter with count
             departments = db.get_unique_departments()
             selected_depts = st.multiselect(
                 f"Departments ({len(departments)} total)",
-                departments
+                departments,
+                help="🏢 Filter by specific departments (leave empty for all)"
             )
         else:
-            st.info("Upload data to begin analysis")
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">📁</div>
+                <div class="empty-state-title">Upload Data to Begin</div>
+            </div>
+            """, unsafe_allow_html=True)
             return
     
     # Load department mappings
@@ -624,35 +932,83 @@ def main():
         data = data[data['tool_source'] == selected_tool]
     
     if data.empty:
-        st.warning("No data found for selected filters.")
+        # Enhanced empty state for no filtered data
+        st.markdown("""
+        <div class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            <div class="empty-state-title">No Data Found</div>
+            <div class="empty-state-text">
+                No data matches your current filter selections.<br>
+                Try adjusting your date range, tool, or department filters.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Quick reset options
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Reset All Filters", type="secondary"):
+                st.rerun()
+        with col2:
+            if st.button("📊 View All Data", type="primary"):
+                st.session_state.clear()
+                st.rerun()
         return
     
     # TAB 1: Executive Overview
     with tab1:
         st.header("📊 Executive Overview")
         
-        # Key metrics
+        # Data Quality Dashboard
+        st.markdown('<div class="section-header"><h3>🛡️ Data Quality</h3></div>', unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        # Calculate data quality metrics
+        completeness = (1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100
+        unique_users = data['user_id'].nunique()
+        date_coverage = (data['date'].max() - data['date'].min()).days + 1
+        
+        with col1:
+            quality_class = "quality-excellent" if completeness >= 95 else "quality-good" if completeness >= 80 else "quality-warning"
+            st.markdown(f'<div class="{quality_class}" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{completeness:.1f}%</strong><br><small>Completeness</small></div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{unique_users}</strong><br><small>Active Users</small></div>', unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{date_coverage}</strong><br><small>Days Coverage</small></div>', unsafe_allow_html=True)
+        
+        with col4:
+            total_records = len(data)
+            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{total_records:,}</strong><br><small>Total Records</small></div>', unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Key metrics with enhanced styling
+        st.markdown('<div class="section-header"><h3>📈 Key Metrics</h3></div>', unsafe_allow_html=True)
+        
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             total_users = data['user_id'].nunique()
-            st.metric("Total Active Users", total_users)
+            st.metric("Total Active Users", total_users, help="Number of unique users in the selected period")
         
         with col2:
             total_usage = data['usage_count'].sum()
-            st.metric("Total Usage Events", f"{total_usage:,}")
+            st.metric("Total Usage Events", f"{total_usage:,}", help="Total number of AI interactions")
         
         with col3:
             total_cost = data['cost_usd'].sum()
-            st.metric("Total Cost", f"${total_cost:,.2f}")
+            st.metric("Total Cost", f"${total_cost:,.2f}", help="Estimated total cost based on usage")
         
         with col4:
             avg_cost = total_cost / max(total_users, 1)
-            st.metric("Avg Cost per User", f"${avg_cost:.2f}")
+            st.metric("Avg Cost per User", f"${avg_cost:.2f}", help="Average cost per active user")
         
-        # Tool breakdown
+        # Tool breakdown with enhanced styling
         if 'tool_source' in data.columns:
-            st.subheader("🔧 Tool Adoption")
+            st.markdown('<div class="section-header"><h3>🔧 Tool Adoption</h3></div>', unsafe_allow_html=True)
             
             tool_stats = data.groupby('tool_source').agg({
                 'user_id': 'nunique',
@@ -670,33 +1026,83 @@ def main():
                     )
         
         # Usage trends
-        st.subheader("📈 Usage Trends")
+        st.markdown('<div class="section-header"><h3>📈 Usage & Cost Trends</h3></div>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
         with col1:
             daily_usage = data.groupby('date')['usage_count'].sum().reset_index()
-            fig = px.line(daily_usage, x='date', y='usage_count', title='Daily Usage Trend')
+            fig = px.line(
+                daily_usage, 
+                x='date', 
+                y='usage_count', 
+                title='Daily Usage Trend',
+                labels={'date': 'Date', 'usage_count': 'Usage Count'}
+            )
+            fig.update_traces(line_color='#667eea', line_width=3)
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                hovermode='x unified'
+            )
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
             daily_cost = data.groupby('date')['cost_usd'].sum().reset_index()
-            fig = px.line(daily_cost, x='date', y='cost_usd', title='Daily Cost Trend')
+            fig = px.line(
+                daily_cost, 
+                x='date', 
+                y='cost_usd', 
+                title='Daily Cost Trend',
+                labels={'date': 'Date', 'cost_usd': 'Cost (USD)'}
+            )
+            fig.update_traces(line_color='#10b981', line_width=3)
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                hovermode='x unified'
+            )
             st.plotly_chart(fig, use_container_width=True)
         
         # Top users and departments
+        st.markdown('<div class="section-header"><h3>🏆 Top Performers & Department Analysis</h3></div>', unsafe_allow_html=True)
+        
         col1, col2 = st.columns(2)
         
         with col1:
             st.subheader("👥 Top 10 Users")
             top_users = data.groupby('user_name')['usage_count'].sum().nlargest(10).reset_index()
-            fig = px.bar(top_users, x='usage_count', y='user_name', orientation='h')
+            fig = px.bar(
+                top_users, 
+                x='usage_count', 
+                y='user_name', 
+                orientation='h',
+                labels={'usage_count': 'Usage Count', 'user_name': 'User'}
+            )
+            fig.update_traces(marker_color='#667eea')
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                showlegend=False
+            )
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
             st.subheader("🏢 Usage by Department")
             dept_usage = data.groupby('department')['usage_count'].sum().reset_index()
-            fig = px.pie(dept_usage, values='usage_count', names='department')
+            fig = px.pie(
+                dept_usage, 
+                values='usage_count', 
+                names='department',
+                hole=0.4
+            )
+            fig.update_traces(
+                textposition='inside',
+                textinfo='percent+label'
+            )
+            fig.update_layout(
+                showlegend=False
+            )
             st.plotly_chart(fig, use_container_width=True)
     
     # TAB 2: Tool Comparison
@@ -707,27 +1113,58 @@ def main():
     with tab3:
         st.header("⭐ Power Users & Champions")
         
+        # Help text
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Power Users</strong> are identified as users in the top 20% of usage or with 200+ messages.
+            These users are ideal candidates for feedback, beta testing, and advocacy programs.
+        </div>
+        """, unsafe_allow_html=True)
+        
         power_users = calculate_power_users(data)
         
         if not power_users.empty:
+            # Enhanced metrics row
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Total Power Users", len(power_users))
+                st.metric(
+                    "Total Power Users", 
+                    len(power_users),
+                    help="Number of users identified as power users"
+                )
             
             with col2:
                 pct = (len(power_users) / max(data['user_id'].nunique(), 1)) * 100
-                st.metric("% of Active Users", f"{pct:.1f}%")
+                st.metric(
+                    "% of Active Users", 
+                    f"{pct:.1f}%",
+                    help="Percentage of all users who are power users"
+                )
             
             with col3:
                 power_usage = power_users['usage_count'].sum()
-                st.metric("Power User Usage", f"{power_usage:,}")
+                total_usage_pct = (power_usage / data['usage_count'].sum()) * 100
+                st.metric(
+                    "Power User Usage", 
+                    f"{power_usage:,}",
+                    delta=f"{total_usage_pct:.1f}% of total",
+                    help="Total usage by power users"
+                )
             
+            st.divider()
             st.subheader("🏆 Power User Directory")
             st.caption("These users are ideal for feedback, beta testing, and advocacy programs")
             
-            # Display power users in a nice table
+            # Enhanced table display with better formatting
             for idx, row in power_users.head(20).iterrows():
+                # Create a card-like container for each power user
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
+                            padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0; 
+                            border-left: 4px solid #667eea;">
+                """, unsafe_allow_html=True)
+                
                 col1, col2, col3, col4 = st.columns([3, 3, 2, 2])
                 
                 with col1:
@@ -735,18 +1172,29 @@ def main():
                     st.caption(row['email'])
                 
                 with col2:
-                    st.write(row['department'])
+                    st.write(f"🏢 {row['department']}")
                 
                 with col3:
-                    st.write(f"{row['usage_count']:,} messages")
+                    st.write(f"📊 {row['usage_count']:,} messages")
+                    st.caption(f"${row['cost_usd']:.2f} cost")
                 
                 with col4:
                     st.markdown(f'<span class="power-user-badge">{row["tool_source"]}</span>', 
                               unsafe_allow_html=True)
                 
-                st.divider()
+                st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("No power users identified yet. Add more usage data.")
+            # Enhanced empty state for power users
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">⭐</div>
+                <div class="empty-state-title">No Power Users Yet</div>
+                <div class="empty-state-text">
+                    Power users will appear here once you have sufficient usage data.<br>
+                    Upload more monthly reports to identify your most active users.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
     
     # TAB 4: Department Mapper
     with tab4:
@@ -756,51 +1204,105 @@ def main():
     with tab5:
         st.header("🔧 Database Management")
         
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 Monitor your database health, manage uploads, and export data for external analysis
+        </div>
+        """, unsafe_allow_html=True)
+        
         db_info = get_database_info()
+        
+        # Enhanced database stats
+        st.markdown('<div class="section-header"><h3>📊 Database Statistics</h3></div>', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Records", db_info['total_stats']['total_records'])
+            st.metric(
+                "Total Records", 
+                f"{db_info['total_stats']['total_records']:,}",
+                help="Total number of records in database"
+            )
         with col2:
-            st.metric("Total Users", db_info['total_stats']['total_users'])
+            st.metric(
+                "Total Users", 
+                db_info['total_stats']['total_users'],
+                help="Unique users across all data"
+            )
         with col3:
-            st.metric("Date Range", f"{db_info['total_stats']['total_days']} days")
+            st.metric(
+                "Date Range", 
+                f"{db_info['total_stats']['total_days']} days",
+                help="Total days of data coverage"
+            )
         with col4:
-            st.metric("Total Cost", f"${db_info['total_stats']['total_cost']:,.2f}")
+            st.metric(
+                "Total Cost", 
+                f"${db_info['total_stats']['total_cost']:,.2f}",
+                help="Total estimated cost across all records"
+            )
         
-        # Upload history
-        st.subheader("📂 Upload History")
+        st.divider()
+        
+        # Upload history with better styling
+        st.markdown('<div class="section-header"><h3>📂 Upload History</h3></div>', unsafe_allow_html=True)
+        
         if db_info['upload_history']:
             upload_df = pd.DataFrame(db_info['upload_history'])
-            st.dataframe(upload_df, use_container_width=True)
+            st.dataframe(upload_df, use_container_width=True, hide_index=True)
         else:
-            st.info("No uploads yet")
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">📁</div>
+                <div class="empty-state-title">No Upload History</div>
+                <div class="empty-state-text">Upload your first file to see history here</div>
+            </div>
+            """, unsafe_allow_html=True)
         
-        # Database actions
-        st.subheader("🔧 Database Actions")
+        st.divider()
         
-        col1, col2 = st.columns(2)
+        # Database actions with better UX
+        st.markdown('<div class="section-header"><h3>⚙️ Database Actions</h3></div>', unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("🗑️ Clear All Data", type="secondary"):
-                if st.session_state.get('confirm_clear'):
-                    db.delete_all_data()
-                    st.success("Database cleared")
-                    st.rerun()
-                else:
-                    st.session_state.confirm_clear = True
-                    st.warning("Click again to confirm")
-        
-        with col2:
+            st.write("**Export Data**")
             all_data = db.get_all_data()
             if not all_data.empty:
                 csv = all_data.to_csv(index=False)
                 st.download_button(
-                    "📥 Export All Data",
+                    "📥 Download CSV",
                     csv,
                     f"ai_usage_export_{datetime.now().strftime('%Y%m%d')}.csv",
-                    "text/csv"
+                    "text/csv",
+                    use_container_width=True,
+                    help="Download all data as CSV for external analysis"
                 )
+            else:
+                st.button("📥 Download CSV", disabled=True, use_container_width=True)
+        
+        with col2:
+            st.write("**Refresh Data**")
+            if st.button("🔄 Refresh Dashboard", type="secondary", use_container_width=True):
+                st.cache_resource.clear()
+                st.success("Cache cleared!")
+                st.rerun()
+        
+        with col3:
+            st.write("**Clear Database**")
+            if st.button("🗑️ Clear All Data", type="secondary", use_container_width=True):
+                if st.session_state.get('confirm_clear'):
+                    db.delete_all_data()
+                    st.session_state.confirm_clear = False
+                    st.success("✅ Database cleared successfully")
+                    st.rerun()
+                else:
+                    st.session_state.confirm_clear = True
+                    st.warning("⚠️ Click again to confirm deletion")
+        
+        # Warning about clear action
+        if st.session_state.get('confirm_clear'):
+            st.error("⚠️ **Warning:** This action will permanently delete all data. Click the button again to confirm.")
 
 def get_database_info():
     """Get database information."""
