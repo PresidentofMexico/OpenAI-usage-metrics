@@ -5,6 +5,7 @@ and error handling specifically designed for Streamlit file uploads.
 
 import pandas as pd
 import io
+import os
 import chardet
 from typing import Tuple, Optional
 import streamlit as st
@@ -209,6 +210,101 @@ def read_file_robust(uploaded_file, nrows: Optional[int] = None) -> Tuple[Option
         return read_excel_robust(uploaded_file, nrows)
     else:
         return None, f"Unsupported file format: {filename}"
+
+
+def read_file_from_path(file_path: str, nrows: Optional[int] = None) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+    """
+    Read a CSV or Excel file directly from a filesystem path.
+    
+    This function is similar to read_file_robust but works with file paths
+    instead of Streamlit UploadedFile objects.
+    
+    Args:
+        file_path: Path to the file on the filesystem
+        nrows: Optional number of rows to read (for preview)
+        
+    Returns:
+        Tuple of (DataFrame or None, error_message or None)
+    """
+    if not os.path.exists(file_path):
+        return None, f"File not found: {file_path}"
+    
+    filename = file_path.lower()
+    
+    try:
+        if filename.endswith('.csv'):
+            # Read CSV with encoding detection
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
+            
+            # Validate file size (max 200MB)
+            file_size_mb = len(file_content) / (1024 * 1024)
+            if file_size_mb > 200:
+                return None, f"File too large: {file_size_mb:.2f} MB (max 200 MB)"
+            
+            # Check if file is empty
+            if len(file_content) == 0:
+                return None, "File is empty"
+            
+            # Detect encoding
+            detected_encoding = detect_encoding(file_content)
+            
+            # List of encodings to try
+            encodings = [detected_encoding, 'utf-8', 'utf-16', 'iso-8859-1', 'cp1252', 'latin1']
+            encodings = list(dict.fromkeys(encodings))
+            
+            # List of delimiters to try
+            delimiters = [',', ';', '\t', '|']
+            
+            last_error = None
+            
+            # Try each encoding and delimiter combination
+            for encoding in encodings:
+                try:
+                    text_content = file_content.decode(encoding)
+                    
+                    for delimiter in delimiters:
+                        try:
+                            string_buffer = io.StringIO(text_content)
+                            df = pd.read_csv(
+                                string_buffer,
+                                encoding=encoding,
+                                delimiter=delimiter,
+                                nrows=nrows,
+                                on_bad_lines='skip',
+                                encoding_errors='replace'
+                            )
+                            
+                            if df is not None and not df.empty and len(df.columns) > 1:
+                                return df, None
+                        
+                        except Exception as e:
+                            last_error = str(e)
+                            continue
+                
+                except UnicodeDecodeError as e:
+                    last_error = f"Encoding error with {encoding}: {str(e)}"
+                    continue
+                except Exception as e:
+                    last_error = f"Error with {encoding}: {str(e)}"
+                    continue
+            
+            return None, f"Cannot parse CSV file. Last error: {last_error}"
+        
+        elif filename.endswith('.xlsx') or filename.endswith('.xls'):
+            # Read Excel file
+            if nrows is not None:
+                df = pd.read_excel(file_path, nrows=nrows)
+            else:
+                df = pd.read_excel(file_path)
+            
+            return df, None
+        
+        else:
+            return None, f"Unsupported file format: {filename}"
+    
+    except Exception as e:
+        return None, f"Error reading file: {str(e)}"
 
 
 def display_file_error(error_msg: str):

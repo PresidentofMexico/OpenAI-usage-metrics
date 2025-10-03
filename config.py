@@ -10,6 +10,16 @@ DATABASE_PATH = "data/ai_metrics.db"
 DASHBOARD_TITLE = "AI Usage Metrics Dashboard"
 DASHBOARD_ICON = "🤖"
 
+# Auto-scan folder settings
+AUTO_SCAN_FOLDERS = [
+    "OpenAI User Data",
+    "BlueFlame User Data",
+    "data/uploads"  # Optional user upload folder
+]
+
+# File tracking settings
+FILE_TRACKING_PATH = "file_tracking.json"
+
 # Provider configurations
 PROVIDERS = {
     'OpenAI': {
