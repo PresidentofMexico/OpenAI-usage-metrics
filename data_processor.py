@@ -116,10 +116,17 @@ class DataProcessor:
                 # Get date - use period_start or first_day_active_in_period
                 period_start = row.get('period_start', row.get('first_day_active_in_period', datetime.now().strftime('%Y-%m-%d')))
                 
-                # Ensure date is in proper format
+                # Ensure date is in proper format with robust error handling
                 try:
-                    period_start = pd.to_datetime(period_start).strftime('%Y-%m-%d')
-                except:
+                    # Use errors='coerce' to handle invalid dates gracefully
+                    parsed_date = pd.to_datetime(period_start, errors='coerce')
+                    if pd.isna(parsed_date):
+                        # If date is invalid, use current date
+                        period_start = datetime.now().strftime('%Y-%m-%d')
+                    else:
+                        period_start = parsed_date.strftime('%Y-%m-%d')
+                except Exception:
+                    # Fallback to current date if any other error occurs
                     period_start = datetime.now().strftime('%Y-%m-%d')
                 
                 messages = row.get('messages', 0)
@@ -274,10 +281,17 @@ class DataProcessor:
                 date = row.get(date_col, datetime.now().strftime('%Y-%m-%d')) if date_col else datetime.now().strftime('%Y-%m-%d')
                 usage_count = row.get(usage_col, 0)
                 
-                # Convert date to proper format
+                # Convert date to proper format with robust error handling
                 try:
-                    date = pd.to_datetime(date).strftime('%Y-%m-%d')
-                except:
+                    # Use errors='coerce' to handle invalid dates gracefully
+                    parsed_date = pd.to_datetime(date, errors='coerce')
+                    if pd.isna(parsed_date):
+                        # If date is invalid, use current date
+                        date = datetime.now().strftime('%Y-%m-%d')
+                    else:
+                        date = parsed_date.strftime('%Y-%m-%d')
+                except Exception:
+                    # Fallback to current date if any other error occurs
                     date = datetime.now().strftime('%Y-%m-%d')
                 
                 if usage_count > 0:
@@ -386,13 +400,13 @@ class DataProcessor:
             print(f"Error calculating tool adoption metrics: {str(e)}")
             return pd.DataFrame()
     
-    def identify_power_users(self, df, threshold_percentile=80):
+    def identify_power_users(self, df, threshold_percentile=95):
         """
         Identify power users based on usage patterns.
         
         Args:
             df: DataFrame with usage data
-            threshold_percentile: Percentile threshold for power user classification
+            threshold_percentile: Percentile threshold for power user classification (default: 95 for top 5%)
             
         Returns:
             DataFrame with power user information
@@ -408,13 +422,12 @@ class DataProcessor:
                 'tool_source': lambda x: ', '.join(sorted(x.unique()))
             }).reset_index()
             
-            # Calculate threshold
+            # Calculate threshold (top 5% by default)
             threshold = user_usage['usage_count'].quantile(threshold_percentile / 100)
             
-            # Identify power users (top percentile OR anyone with 200+ messages)
+            # Identify power users (top 5% by usage)
             power_users = user_usage[
-                (user_usage['usage_count'] >= threshold) | 
-                (user_usage['usage_count'] >= 200)
+                user_usage['usage_count'] >= threshold
             ].sort_values('usage_count', ascending=False)
             
             # Add ranking

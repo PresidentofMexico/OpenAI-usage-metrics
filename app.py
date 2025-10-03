@@ -19,6 +19,7 @@ import json
 
 from data_processor import DataProcessor
 from database import DatabaseManager
+from file_reader import read_file_robust, display_file_error
 
 # Page configuration
 st.set_page_config(
@@ -143,6 +144,7 @@ st.markdown("""
         padding: 1.5rem;
         margin: 1rem 0;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        color: #1e293b;
     }
     
     /* Enhanced insight cards */
@@ -197,6 +199,7 @@ st.markdown("""
         margin: 0.5rem 0;
         font-size: 0.875rem;
         border: 1px solid #e2e8f0;
+        color: #1e293b;
     }
     
     /* Loading states */
@@ -354,9 +357,15 @@ def normalize_openai_data(df, filename):
             else:
                 dept = dept_str
         
-        # Get period dates
-        period_start = pd.to_datetime(row.get('period_start', row.get('first_day_active_in_period', datetime.now())))
-        period_end = pd.to_datetime(row.get('period_end', row.get('last_day_active_in_period', datetime.now())))
+        # Get period dates with robust error handling
+        period_start = pd.to_datetime(row.get('period_start', row.get('first_day_active_in_period', datetime.now())), errors='coerce')
+        period_end = pd.to_datetime(row.get('period_end', row.get('last_day_active_in_period', datetime.now())), errors='coerce')
+        
+        # Fallback to current date if parsing fails
+        if pd.isna(period_start):
+            period_start = datetime.now()
+        if pd.isna(period_end):
+            period_end = datetime.now()
         
         # ChatGPT messages
         if row.get('messages', 0) > 0:
@@ -429,12 +438,17 @@ def normalize_blueflame_data(df, filename):
     
     # Adjust these column names based on actual BlueFlame export format
     for _, row in df.iterrows():
+        # Parse date with robust error handling
+        date_val = pd.to_datetime(row.get('date', row.get('month', datetime.now())), errors='coerce')
+        if pd.isna(date_val):
+            date_val = datetime.now()
+        
         normalized_records.append({
             'user_id': row.get('user_id', row.get('email', '')),
             'user_name': row.get('user_name', row.get('name', '')),
             'email': row.get('email', ''),
             'department': row.get('department', 'Unknown'),
-            'date': pd.to_datetime(row.get('date', row.get('month', datetime.now()))),
+            'date': date_val,
             'feature_used': 'BlueFlame Messages',
             'usage_count': row.get('total_messages', row.get('messages', 0)),
             'cost_usd': row.get('cost', row.get('total_messages', 0) * 0.015),  # Adjust pricing
@@ -545,7 +559,7 @@ def display_department_mapper():
     if mappings:
         st.info(f"📊 {len(mappings)} custom department mappings active")
 
-def calculate_power_users(data, threshold_percentile=80):
+def calculate_power_users(data, threshold_percentile=95):
     """Identify power users based on usage patterns."""
     if data.empty:
         return pd.DataFrame()
@@ -557,16 +571,33 @@ def calculate_power_users(data, threshold_percentile=80):
         'tool_source': lambda x: ', '.join(x.unique())
     }).reset_index()
     
-    # Calculate threshold (top 20% by default)
+    # Calculate threshold (top 5% by default)
     threshold = user_usage['usage_count'].quantile(threshold_percentile / 100)
     
-    # Also include anyone with 200+ messages
+    # Identify power users (top 5% by usage)
     power_users = user_usage[
-        (user_usage['usage_count'] >= threshold) | 
-        (user_usage['usage_count'] >= 200)
+        user_usage['usage_count'] >= threshold
     ].sort_values('usage_count', ascending=False)
     
     return power_users
+
+def get_user_message_breakdown(data, email):
+    """Get message type breakdown for a specific user."""
+    user_data = data[data['email'] == email]
+    
+    breakdown = {
+        'ChatGPT Messages': 0,
+        'GPT Messages': 0,
+        'Tool Messages': 0,
+        'Project Messages': 0
+    }
+    
+    if not user_data.empty:
+        message_counts = user_data.groupby('feature_used')['usage_count'].sum().to_dict()
+        for msg_type in breakdown.keys():
+            breakdown[msg_type] = message_counts.get(msg_type, 0)
+    
+    return breakdown
 
 def display_tool_comparison(data):
     """Display side-by-side tool comparison."""
@@ -708,28 +739,28 @@ def main():
             # Show file preview with better error handling
             try:
                 with st.spinner("🔍 Reading file preview..."):
-                    if uploaded_file.name.endswith('.csv'):
-                        preview_df = pd.read_csv(uploaded_file, nrows=5)
+                    preview_df, preview_error = read_file_robust(uploaded_file, nrows=5)
+                    
+                    if preview_error:
+                        display_file_error(preview_error)
                     else:
-                        preview_df = pd.read_excel(uploaded_file, nrows=5)
-                
-                st.write("**📊 File Preview:**")
-                st.dataframe(preview_df.head(3), height=120)
-                
-                # Enhanced file statistics
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Columns", len(preview_df.columns))
-                with col2:
-                    # Get full row count
-                    try:
-                        if uploaded_file.name.endswith('.csv'):
-                            full_df = pd.read_csv(uploaded_file)
-                        else:
-                            full_df = pd.read_excel(uploaded_file)
-                        st.metric("Rows", len(full_df))
-                    except:
-                        st.metric("Rows", "~")
+                        st.write("**📊 File Preview:**")
+                        st.dataframe(preview_df.head(3), height=120)
+                        
+                        # Enhanced file statistics
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Columns", len(preview_df.columns))
+                        with col2:
+                            # Get full row count
+                            try:
+                                full_df, full_error = read_file_robust(uploaded_file)
+                                if full_error:
+                                    st.metric("Rows", "~")
+                                else:
+                                    st.metric("Rows", len(full_df))
+                            except:
+                                st.metric("Rows", "~")
                 
             except Exception as e:
                 st.error(f"❌ Cannot preview file: {str(e)}")
@@ -745,10 +776,19 @@ def main():
                     status_text.text("📖 Reading file...")
                     progress_bar.progress(20)
                     
-                    if uploaded_file.name.endswith('.csv'):
-                        df = pd.read_csv(uploaded_file)
-                    else:
-                        df = pd.read_excel(uploaded_file)
+                    df, read_error = read_file_robust(uploaded_file)
+                    
+                    if read_error:
+                        progress_bar.empty()
+                        status_text.empty()
+                        display_file_error(read_error)
+                        return
+                    
+                    if df is None or df.empty:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.error("❌ The uploaded file contains no data")
+                        return
                     
                     # Step 2: Detecting data source
                     status_text.text("🔍 Detecting data source...")
@@ -967,7 +1007,17 @@ def main():
         # Calculate data quality metrics
         completeness = (1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100
         unique_users = data['user_id'].nunique()
-        date_coverage = (data['date'].max() - data['date'].min()).days + 1
+        
+        # Robust date handling - convert dates and filter out invalid values
+        try:
+            valid_dates = pd.to_datetime(data['date'], errors='coerce').dropna()
+            if len(valid_dates) > 0:
+                date_coverage = (valid_dates.max() - valid_dates.min()).days + 1
+            else:
+                date_coverage = 0
+        except Exception as e:
+            st.warning(f"⚠️ Date parsing issue: {str(e)}")
+            date_coverage = 0
         
         with col1:
             quality_class = "quality-excellent" if completeness >= 95 else "quality-good" if completeness >= 80 else "quality-warning"
@@ -996,7 +1046,7 @@ def main():
         
         with col2:
             total_usage = data['usage_count'].sum()
-            st.metric("Total Usage Events", f"{total_usage:,}", help="Total number of AI interactions")
+            st.metric("Total Usage Events", f"{total_usage:,}", help="Total number of AI interactions across all message types")
         
         with col3:
             total_cost = data['cost_usd'].sum()
@@ -1005,6 +1055,46 @@ def main():
         with col4:
             avg_cost = total_cost / max(total_users, 1)
             st.metric("Avg Cost per User", f"${avg_cost:.2f}", help="Average cost per active user")
+        
+        # Message Type Breakdown
+        st.markdown('<div class="section-header"><h3>💬 Message Type Breakdown</h3></div>', unsafe_allow_html=True)
+        
+        # Calculate metrics for each message type
+        message_types = data.groupby('feature_used')['usage_count'].sum().to_dict()
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            chatgpt_msgs = message_types.get('ChatGPT Messages', 0)
+            st.metric(
+                "ChatGPT Messages", 
+                f"{chatgpt_msgs:,}", 
+                help="Base model usage - standard ChatGPT conversations"
+            )
+        
+        with col2:
+            gpt_msgs = message_types.get('GPT Messages', 0)
+            st.metric(
+                "GPT Messages", 
+                f"{gpt_msgs:,}", 
+                help="Custom GPT usage - interactions with custom GPTs"
+            )
+        
+        with col3:
+            tool_msgs = message_types.get('Tool Messages', 0)
+            st.metric(
+                "Tool Messages", 
+                f"{tool_msgs:,}", 
+                help="Tool interactions - code interpreter, web browsing, etc."
+            )
+        
+        with col4:
+            project_msgs = message_types.get('Project Messages', 0)
+            st.metric(
+                "Project Messages", 
+                f"{project_msgs:,}", 
+                help="ChatGPT Projects usage - project-specific conversations"
+            )
         
         # Tool breakdown with enhanced styling
         if 'tool_source' in data.columns:
@@ -1116,8 +1206,8 @@ def main():
         # Help text
         st.markdown("""
         <div class="help-tooltip">
-            💡 <strong>Power Users</strong> are identified as users in the top 20% of usage or with 200+ messages.
-            These users are ideal candidates for feedback, beta testing, and advocacy programs.
+            💡 <strong>Power Users</strong> are defined as the top 5% of users by total usage.
+            These elite users demonstrate exceptional engagement and are ideal candidates for feedback, beta testing, and advocacy programs.
         </div>
         """, unsafe_allow_html=True)
         
@@ -1158,6 +1248,10 @@ def main():
             
             # Enhanced table display with better formatting
             for idx, row in power_users.head(20).iterrows():
+                # Get message breakdown for this user
+                breakdown = get_user_message_breakdown(data, row['email'])
+                total_messages = sum(breakdown.values())
+                
                 # Create a card-like container for each power user
                 st.markdown(f"""
                 <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
@@ -1165,20 +1259,28 @@ def main():
                             border-left: 4px solid #667eea;">
                 """, unsafe_allow_html=True)
                 
-                col1, col2, col3, col4 = st.columns([3, 3, 2, 2])
+                col1, col2, col3 = st.columns([3, 4, 3])
                 
                 with col1:
                     st.write(f"**{row['user_name']}**")
                     st.caption(row['email'])
+                    st.caption(f"🏢 {row['department']}")
                 
                 with col2:
-                    st.write(f"🏢 {row['department']}")
+                    st.write("**Message Breakdown:**")
+                    # Display breakdown of message types
+                    if breakdown['ChatGPT Messages'] > 0:
+                        st.caption(f"💬 ChatGPT Messages: {breakdown['ChatGPT Messages']:,}")
+                    if breakdown['GPT Messages'] > 0:
+                        st.caption(f"🤖 GPT Messages: {breakdown['GPT Messages']:,}")
+                    if breakdown['Tool Messages'] > 0:
+                        st.caption(f"🔧 Tool Messages: {breakdown['Tool Messages']:,}")
+                    if breakdown['Project Messages'] > 0:
+                        st.caption(f"📁 Project Messages: {breakdown['Project Messages']:,}")
                 
                 with col3:
-                    st.write(f"📊 {row['usage_count']:,} messages")
-                    st.caption(f"${row['cost_usd']:.2f} cost")
-                
-                with col4:
+                    st.write(f"**Total: {total_messages:,}**")
+                    st.caption(f"💰 ${row['cost_usd']:.2f} cost")
                     st.markdown(f'<span class="power-user-badge">{row["tool_source"]}</span>', 
                               unsafe_allow_html=True)
                 
@@ -1317,10 +1419,20 @@ def get_database_info():
     
     total_cost = all_data['cost_usd'].sum() if 'cost_usd' in all_data.columns else 0.0
     
+    # Calculate total days with robust date handling
+    try:
+        valid_dates = pd.to_datetime(all_data['date'], errors='coerce').dropna()
+        if len(valid_dates) > 0:
+            total_days = (valid_dates.max() - valid_dates.min()).days + 1
+        else:
+            total_days = 0
+    except Exception:
+        total_days = 0
+    
     total_stats = {
         'total_records': len(all_data),
         'total_users': all_data['user_id'].nunique(),
-        'total_days': (pd.to_datetime(all_data['date'].max()) - pd.to_datetime(all_data['date'].min())).days + 1,
+        'total_days': total_days,
         'total_cost': float(total_cost)
     }
     
