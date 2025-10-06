@@ -19,7 +19,9 @@ import json
 
 from data_processor import DataProcessor
 from database import DatabaseManager
-from file_reader import read_file_robust, display_file_error
+from file_reader import read_file_robust, display_file_error, read_file_from_path
+from file_scanner import FileScanner
+from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH
 
 # Page configuration
 st.set_page_config(
@@ -34,9 +36,10 @@ st.set_page_config(
 def init_app():
     db = DatabaseManager()
     processor = DataProcessor(db)
-    return db, processor
+    scanner = FileScanner(FILE_TRACKING_PATH)
+    return db, processor, scanner
 
-db, processor = init_app()
+db, processor, scanner = init_app()
 
 # Department mapping storage file
 DEPT_MAPPING_FILE = "department_mappings.json"
@@ -559,6 +562,74 @@ def display_department_mapper():
     if mappings:
         st.info(f"📊 {len(mappings)} custom department mappings active")
 
+def process_auto_file(file_info, tool_type='Auto-Detect'):
+    """
+    Process a file from auto-scan folders.
+    
+    Args:
+        file_info: Dictionary with file information from FileScanner
+        tool_type: Type of AI tool (Auto-Detect, OpenAI ChatGPT, etc.)
+        
+    Returns:
+        tuple: (success: bool, message: str, records_count: int)
+    """
+    try:
+        file_path = file_info['path']
+        
+        # Read file from filesystem
+        df, read_error = read_file_from_path(file_path)
+        
+        if read_error:
+            return False, f"Error reading file: {read_error}", 0
+        
+        if df is None or df.empty:
+            return False, "File contains no data", 0
+        
+        # Detect data source
+        if tool_type == 'Auto-Detect':
+            detected_tool = detect_data_source(df)
+        else:
+            detected_tool = tool_type.replace('OpenAI ', '')
+        
+        # Normalize data based on detected tool
+        if 'ChatGPT' in detected_tool:
+            normalized_df = normalize_openai_data(df, file_info['filename'])
+        elif 'BlueFlame' in detected_tool:
+            normalized_df = normalize_blueflame_data(df, file_info['filename'])
+        else:
+            return False, f"Unknown data format: {detected_tool}", 0
+        
+        # Process the normalized data
+        if not normalized_df.empty:
+            success, message = processor.process_monthly_data(normalized_df, file_info['filename'])
+            
+            if success:
+                # Mark file as processed
+                scanner.mark_processed(
+                    file_path, 
+                    success=True, 
+                    records_count=len(normalized_df)
+                )
+                return True, f"Successfully processed {len(normalized_df)} records", len(normalized_df)
+            else:
+                scanner.mark_processed(
+                    file_path, 
+                    success=False, 
+                    error=message
+                )
+                return False, message, 0
+        else:
+            return False, "No valid data found after normalization", 0
+    
+    except Exception as e:
+        error_msg = f"Error processing file: {str(e)}"
+        scanner.mark_processed(
+            file_info['path'], 
+            success=False, 
+            error=error_msg
+        )
+        return False, error_msg, 0
+
 def calculate_power_users(data, threshold_percentile=95):
     """Identify power users based on usage patterns."""
     if data.empty:
@@ -869,6 +940,115 @@ def main():
                         - Try selecting the tool type manually instead of Auto-Detect
                         """)
                     st.exception(e)
+        
+        st.divider()
+        
+        # Auto-scan section for files in folders
+        st.subheader("📂 Auto-Detect Files")
+        
+        # Scan for files
+        detected_files = scanner.scan_folders(AUTO_SCAN_FOLDERS)
+        
+        if detected_files:
+            # Show summary stats
+            new_files = [f for f in detected_files if f['status'] in ['new', 'modified']]
+            processed_files = [f for f in detected_files if f['status'] == 'processed']
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("📁 Total Files", len(detected_files))
+            with col2:
+                st.metric("🆕 New Files", len(new_files))
+            
+            # Refresh button
+            if st.button("🔄 Refresh Files", use_container_width=True):
+                st.rerun()
+            
+            # Show new/unprocessed files
+            if new_files:
+                with st.expander(f"🆕 New Files ({len(new_files)})", expanded=True):
+                    for file_info in new_files:
+                        st.markdown(f"""
+                        **{file_info['filename']}**  
+                        📁 Folder: {file_info['folder']} | 📊 {file_info['size_mb']} MB
+                        """)
+                        
+                        # Process button for individual file
+                        if st.button(f"▶️ Process", key=f"process_{file_info['path']}", use_container_width=True):
+                            with st.spinner(f"Processing {file_info['filename']}..."):
+                                success, message, records = process_auto_file(file_info, tool_type)
+                                
+                                if success:
+                                    st.success(f"✅ {message}")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {message}")
+                        
+                        st.divider()
+                
+                # Batch process button for all new files
+                if len(new_files) > 1:
+                    if st.button(f"⚡ Process All {len(new_files)} New Files", type="primary", use_container_width=True):
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        processed_count = 0
+                        total_records = 0
+                        errors = []
+                        
+                        for i, file_info in enumerate(new_files):
+                            status_text.text(f"Processing {file_info['filename']}...")
+                            progress_bar.progress((i + 1) / len(new_files))
+                            
+                            success, message, records = process_auto_file(file_info, tool_type)
+                            
+                            if success:
+                                processed_count += 1
+                                total_records += records
+                            else:
+                                errors.append(f"{file_info['filename']}: {message}")
+                        
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                        if processed_count > 0:
+                            st.success(f"""
+                            ✅ **Batch Processing Complete!**
+                            - Processed: {processed_count}/{len(new_files)} files
+                            - Total Records: {total_records:,}
+                            """)
+                            
+                            if errors:
+                                with st.expander(f"⚠️ {len(errors)} Errors"):
+                                    for error in errors:
+                                        st.error(error)
+                            
+                            st.balloons()
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to process any files")
+                            for error in errors:
+                                st.error(error)
+            
+            # Show processed files
+            if processed_files:
+                with st.expander(f"✅ Processed Files ({len(processed_files)})"):
+                    for file_info in processed_files:
+                        st.markdown(f"""
+                        **{file_info['filename']}**  
+                        📁 {file_info['folder']} | 📊 {file_info['size_mb']} MB | ✅ {file_info.get('last_processed', 'Unknown')}
+                        """)
+        else:
+            st.info("""
+            📂 **No files detected in scan folders**
+            
+            Place your CSV files in these folders:
+            - `OpenAI User Data/`
+            - `BlueFlame User Data/`
+            - `data/uploads/`
+            
+            Then click Refresh to detect them.
+            """)
         
         st.divider()
         
