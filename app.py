@@ -335,8 +335,16 @@ def detect_data_source(df):
     if 'gpt_messages' in columns or 'tool_messages' in columns:
         return 'ChatGPT'
     
-    # BlueFlame AI detection (adjust based on actual column names when you get the data)
-    if 'blueflame_usage' in columns or 'bf_messages' in columns:
+    # BlueFlame AI detection - updated for all formats
+    # Check for month columns in format 'Mon-YY' (e.g., 'Sep-24', 'Oct-25')
+    has_month_cols = any(col for col in columns if len(col.split('-')) == 2 and 
+                        col.split('-')[0] in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                                             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
+    
+    if ('Metric' in columns and any(col.startswith('MoM Var') for col in columns)) or \
+       ('Total Messages' in df.values if not df.empty else False) or \
+       ('User ID' in columns and has_month_cols) or \
+       ('Table' in columns and has_month_cols):
         return 'BlueFlame AI'
     
     # Default or ask user
@@ -434,30 +442,292 @@ def normalize_openai_data(df, filename):
 
 def normalize_blueflame_data(df, filename):
     """Normalize BlueFlame AI data to standard schema."""
-    # This will need to be updated once you share the BlueFlame data format
-    # For now, creating a placeholder structure
-    
     normalized_records = []
     
-    # Adjust these column names based on actual BlueFlame export format
-    for _, row in df.iterrows():
-        # Parse date with robust error handling
-        date_val = pd.to_datetime(row.get('date', row.get('month', datetime.now())), errors='coerce')
-        if pd.isna(date_val):
-            date_val = datetime.now()
+    # Check if this is the combined format with 'Table' column
+    if 'Table' in df.columns:
+        # Split the dataframe by table type
+        monthly_trends = df[df['Table'] == 'Overall Monthly Trends']
+        user_data = df[(df['Table'] == 'Top 20 Users Total') | 
+                      (df['Table'] == 'Top 10 Increasing Users') | 
+                      (df['Table'] == 'Top 10 Decreasing Users')]
         
-        normalized_records.append({
-            'user_id': row.get('user_id', row.get('email', '')),
-            'user_name': row.get('user_name', row.get('name', '')),
-            'email': row.get('email', ''),
-            'department': row.get('department', 'Unknown'),
-            'date': date_val,
-            'feature_used': 'BlueFlame Messages',
-            'usage_count': row.get('total_messages', row.get('messages', 0)),
-            'cost_usd': row.get('cost', row.get('total_messages', 0) * 0.015),  # Adjust pricing
-            'tool_source': 'BlueFlame AI',
-            'file_source': filename
-        })
+        # Process monthly trends (aggregate metrics)
+        if not monthly_trends.empty:
+            # Get month columns (excluding MoM variance columns)
+            month_cols = [col for col in monthly_trends.columns if col not in ['Table', 'Metric', 'User ID'] 
+                         and not col.startswith('MoM Var')]
+            
+            # Process each month that has data
+            for month_col in month_cols:
+                try:
+                    # Parse month to a datetime
+                    month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                    if pd.isna(month_date):
+                        continue
+                    
+                    # Extract values, handling formatting and missing data
+                    total_messages_row = monthly_trends[monthly_trends['Metric'] == 'Total Messages']
+                    maus_row = monthly_trends[monthly_trends['Metric'] == 'Monthly Active Users (MAUs)']
+                    
+                    if total_messages_row.empty or maus_row.empty:
+                        continue
+                    
+                    # Get values and clean them
+                    total_messages = total_messages_row[month_col].iloc[0]
+                    maus = maus_row[month_col].iloc[0]
+                    
+                    # Handle dash placeholders and formatting
+                    if isinstance(total_messages, str):
+                        if total_messages in ['–', '-', '—', 'N/A']:
+                            continue
+                        total_messages = int(total_messages.replace(',', ''))
+                    
+                    if isinstance(maus, str):
+                        if maus in ['–', '-', '—', 'N/A']:
+                            maus = 0
+                        else:
+                            maus = int(maus.replace(',', ''))
+                    
+                    # Skip months with no meaningful data
+                    if pd.isna(total_messages) or total_messages == 0:
+                        continue
+                    
+                    # Create aggregate record for the month
+                    normalized_records.append({
+                        'user_id': 'blueflame-aggregate',
+                        'user_name': 'BlueFlame Aggregate',
+                        'email': 'blueflame-metrics@company.com',
+                        'department': 'All Departments',
+                        'date': month_date,
+                        'feature_used': 'BlueFlame Messages',
+                        'usage_count': total_messages,
+                        'cost_usd': float(total_messages) * 0.015,  # Adjust pricing as needed
+                        'tool_source': 'BlueFlame AI',
+                        'file_source': filename
+                    })
+                    
+                    # If we have MAU data, create synthetic user-level records
+                    if maus > 0:
+                        avg_messages_per_user = total_messages / maus
+                        for i in range(maus):
+                            normalized_records.append({
+                                'user_id': f'blueflame-user-{i+1}',
+                                'user_name': f'BlueFlame User {i+1}',
+                                'email': f'blueflame-user-{i+1}@company.com',
+                                'department': 'BlueFlame Users',
+                                'date': month_date,
+                                'feature_used': 'BlueFlame Messages',
+                                'usage_count': round(avg_messages_per_user),
+                                'cost_usd': float(avg_messages_per_user) * 0.015,  # Adjust pricing
+                                'tool_source': 'BlueFlame AI',
+                                'file_source': filename
+                            })
+                except Exception as e:
+                    print(f"Error processing month {month_col}: {str(e)}")
+        
+        # Process user data (from Top 20 Users, Top 10 Increasing, etc.)
+        if not user_data.empty:
+            # Get month columns (excluding MoM variance columns)
+            month_cols = [col for col in user_data.columns if col not in ['Table', 'Metric', 'User ID'] 
+                         and not col.startswith('MoM Var')]
+            
+            # Process each user
+            for _, row in user_data.iterrows():
+                user_email = row['User ID']
+                user_name = user_email.split('@')[0].replace('.', ' ').title()
+                
+                # Process each month for this user
+                for month_col in month_cols:
+                    try:
+                        # Parse month to a datetime
+                        month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                        if pd.isna(month_date):
+                            continue
+                        
+                        # Get message count for this month
+                        message_count = row[month_col]
+                        
+                        # Handle dash placeholders and formatting
+                        if isinstance(message_count, str):
+                            if message_count in ['–', '-', '—', 'N/A']:
+                                continue
+                            message_count = int(message_count.replace(',', ''))
+                        
+                        # Skip months with no meaningful data
+                        if pd.isna(message_count) or message_count == 0:
+                            continue
+                        
+                        # Create user record for this month
+                        normalized_records.append({
+                            'user_id': user_email,
+                            'user_name': user_name,
+                            'email': user_email,
+                            'department': 'BlueFlame Users',  # Default department, can be updated later
+                            'date': month_date,
+                            'feature_used': 'BlueFlame Messages',
+                            'usage_count': message_count,
+                            'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
+                            'tool_source': 'BlueFlame AI',
+                            'file_source': filename
+                        })
+                    except Exception as e:
+                        print(f"Error processing month {month_col} for user {user_email}: {str(e)}")
+    
+    # Check if this is the summary report format with 'Metric' column (but no Table column)
+    elif 'Metric' in df.columns:
+        # Get month columns (excluding MoM variance columns)
+        month_cols = [col for col in df.columns if col not in ['Metric'] and not col.startswith('MoM Var')]
+        
+        # Process each month that has data
+        for month_col in month_cols:
+            try:
+                # Parse month to a datetime
+                month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                if pd.isna(month_date):
+                    continue
+                
+                # Extract values, handling formatting and missing data
+                total_messages_row = df[df['Metric'] == 'Total Messages']
+                maus_row = df[df['Metric'] == 'Monthly Active Users (MAUs)']
+                
+                if total_messages_row.empty or maus_row.empty:
+                    continue
+                
+                # Get values and clean them
+                total_messages = total_messages_row[month_col].iloc[0]
+                maus = maus_row[month_col].iloc[0]
+                
+                # Handle dash placeholders and formatting
+                if isinstance(total_messages, str):
+                    if total_messages in ['–', '-', '—', 'N/A']:
+                        continue
+                    total_messages = int(total_messages.replace(',', ''))
+                
+                if isinstance(maus, str):
+                    if maus in ['–', '-', '—', 'N/A']:
+                        maus = 0
+                    else:
+                        maus = int(maus.replace(',', ''))
+                
+                # Skip months with no meaningful data
+                if pd.isna(total_messages) or total_messages == 0:
+                    continue
+                
+                # Create aggregate record for the month
+                normalized_records.append({
+                    'user_id': 'blueflame-aggregate',
+                    'user_name': 'BlueFlame Aggregate',
+                    'email': 'blueflame-metrics@company.com',
+                    'department': 'All Departments',
+                    'date': month_date,
+                    'feature_used': 'BlueFlame Messages',
+                    'usage_count': total_messages,
+                    'cost_usd': float(total_messages) * 0.015,  # Adjust pricing as needed
+                    'tool_source': 'BlueFlame AI',
+                    'file_source': filename
+                })
+                
+                # If we have MAU data, create synthetic user-level records to match dashboard expectations
+                if maus > 0:
+                    avg_messages_per_user = total_messages / maus
+                    for i in range(maus):
+                        normalized_records.append({
+                            'user_id': f'blueflame-user-{i+1}',
+                            'user_name': f'BlueFlame User {i+1}',
+                            'email': f'blueflame-user-{i+1}@company.com',
+                            'department': 'BlueFlame Users',
+                            'date': month_date,
+                            'feature_used': 'BlueFlame Messages',
+                            'usage_count': round(avg_messages_per_user),
+                            'cost_usd': float(avg_messages_per_user) * 0.015,  # Adjust pricing
+                            'tool_source': 'BlueFlame AI',
+                            'file_source': filename
+                        })
+            
+            except Exception as e:
+                print(f"Error processing month {month_col}: {str(e)}")
+    
+    # If we have the top users file format with User ID column
+    elif 'User ID' in df.columns:
+        # Get month columns (excluding MoM variance columns)
+        month_cols = [col for col in df.columns if col not in ['User ID'] and not col.startswith('MoM Var')]
+        
+        # Process each user record
+        for _, row in df.iterrows():
+            user_email = row['User ID']
+            user_name = user_email.split('@')[0].replace('.', ' ').title()
+            
+            # Process each month for this user
+            for month_col in month_cols:
+                try:
+                    # Parse month to a datetime
+                    month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                    if pd.isna(month_date):
+                        continue
+                    
+                    # Get message count for this month
+                    message_count = row[month_col]
+                    
+                    # Handle dash placeholders and formatting
+                    if isinstance(message_count, str):
+                        if message_count in ['–', '-', '—', 'N/A']:
+                            continue
+                        message_count = int(message_count.replace(',', ''))
+                    
+                    # Skip months with no meaningful data
+                    if pd.isna(message_count) or message_count == 0:
+                        continue
+                    
+                    # Create user record for this month
+                    normalized_records.append({
+                        'user_id': user_email,
+                        'user_name': user_name,
+                        'email': user_email,
+                        'department': 'BlueFlame Users',  # Default department, can be updated later
+                        'date': month_date,
+                        'feature_used': 'BlueFlame Messages',
+                        'usage_count': message_count,
+                        'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
+                        'tool_source': 'BlueFlame AI',
+                        'file_source': filename
+                    })
+                
+                except Exception as e:
+                    print(f"Error processing month {month_col} for user {user_email}: {str(e)}")
+    
+    # Other formats (possibly old BlueFlame format or future formats)
+    else:
+        # Process each user record using best effort detection
+        for idx, row in df.iterrows():
+            user = row.get('User', row.get('Email', f'blueflame-user-{idx}'))
+            email = row.get('Email', f'{user.lower().replace(" ", ".")}@company.com')
+            messages = row.get('Messages', row.get('Usage', 0))
+            date_col = next((col for col in df.columns if 'Date' in col or 'Month' in col), None)
+            
+            if date_col:
+                try:
+                    date = pd.to_datetime(row[date_col], errors='coerce')
+                    if pd.isna(date):
+                        date = datetime.now()
+                except:
+                    date = datetime.now()
+            else:
+                date = datetime.now()
+            
+            if messages > 0:
+                normalized_records.append({
+                    'user_id': email,
+                    'user_name': user,
+                    'email': email,
+                    'department': row.get('Department', 'BlueFlame Users'),
+                    'date': date,
+                    'feature_used': 'BlueFlame Messages',
+                    'usage_count': messages,
+                    'cost_usd': float(messages) * 0.015,
+                    'tool_source': 'BlueFlame AI',
+                    'file_source': filename
+                })
     
     return pd.DataFrame(normalized_records)
 
