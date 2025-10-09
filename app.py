@@ -664,7 +664,7 @@ def display_department_mapper():
     st.divider()
     
     # Show only first 20 users to avoid overwhelming the interface
-    for idx, row in users_df.head(20).iterrows():
+    for position, (idx, row) in enumerate(users_df.head(20).iterrows()):
         col1, col2, col3, col4 = st.columns([3, 3, 3, 1])
         
         with col1:
@@ -679,7 +679,7 @@ def display_department_mapper():
                 "Dept",
                 options=dept_options,
                 index=dept_options.index(current_dept) if current_dept in dept_options else dept_options.index('Unknown'),
-                key=f"dept_{row['email']}",
+                key=f"dept_{position}_{row['email']}",
                 label_visibility="collapsed"
             )
             
@@ -688,7 +688,7 @@ def display_department_mapper():
                 changes_made = True
         
         with col4:
-            if st.button("✓", key=f"save_{row['email']}", help="Save changes"):
+            if st.button("✓", key=f"save_{position}_{row['email']}", help="Save changes"):
                 changes_made = True
     
     if len(users_df) > 20:
