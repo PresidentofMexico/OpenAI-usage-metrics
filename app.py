@@ -452,96 +452,40 @@ def normalize_blueflame_data(df, filename):
                       (df['Table'] == 'Top 10 Increasing Users') | 
                       (df['Table'] == 'Top 10 Decreasing Users')]
         
-        # Process monthly trends (aggregate metrics)
-        if not monthly_trends.empty:
-            # Get month columns (excluding MoM variance columns)
-            month_cols = [col for col in monthly_trends.columns if col not in ['Table', 'Metric', 'User ID'] 
-                         and not col.startswith('MoM Var')]
-            
-            # Process each month that has data
-            for month_col in month_cols:
-                try:
-                    # Parse month to a datetime
-                    month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
-                    if pd.isna(month_date):
-                        continue
-                    
-                    # Extract values, handling formatting and missing data
-                    total_messages_row = monthly_trends[monthly_trends['Metric'] == 'Total Messages']
-                    maus_row = monthly_trends[monthly_trends['Metric'] == 'Monthly Active Users (MAUs)']
-                    
-                    if total_messages_row.empty or maus_row.empty:
-                        continue
-                    
-                    # Get values and clean them
-                    total_messages = total_messages_row[month_col].iloc[0]
-                    maus = maus_row[month_col].iloc[0]
-                    
-                    # Handle dash placeholders and formatting
-                    if isinstance(total_messages, str):
-                        if total_messages in ['–', '-', '—', 'N/A']:
-                            continue
-                        total_messages = int(total_messages.replace(',', ''))
-                    
-                    if isinstance(maus, str):
-                        if maus in ['–', '-', '—', 'N/A']:
-                            maus = 0
-                        else:
-                            maus = int(maus.replace(',', ''))
-                    
-                    # Skip months with no meaningful data
-                    if pd.isna(total_messages) or total_messages == 0:
-                        continue
-                    
-                    # Create aggregate record for the month
-                    normalized_records.append({
-                        'user_id': 'blueflame-aggregate',
-                        'user_name': 'BlueFlame Aggregate',
-                        'email': 'blueflame-metrics@company.com',
-                        'department': 'All Departments',
-                        'date': month_date,
-                        'feature_used': 'BlueFlame Messages',
-                        'usage_count': total_messages,
-                        'cost_usd': float(total_messages) * 0.015,  # Adjust pricing as needed
-                        'tool_source': 'BlueFlame AI',
-                        'file_source': filename
-                    })
-                    
-                    # If we have MAU data, create synthetic user-level records
-                    if maus > 0:
-                        avg_messages_per_user = total_messages / maus
-                        for i in range(maus):
-                            normalized_records.append({
-                                'user_id': f'blueflame-user-{i+1}',
-                                'user_name': f'BlueFlame User {i+1}',
-                                'email': f'blueflame-user-{i+1}@company.com',
-                                'department': 'BlueFlame Users',
-                                'date': month_date,
-                                'feature_used': 'BlueFlame Messages',
-                                'usage_count': round(avg_messages_per_user),
-                                'cost_usd': float(avg_messages_per_user) * 0.015,  # Adjust pricing
-                                'tool_source': 'BlueFlame AI',
-                                'file_source': filename
-                            })
-                except Exception as e:
-                    print(f"Error processing month {month_col}: {str(e)}")
+        # Note: We skip processing monthly trends/aggregate metrics in favor of real user data
+        # The user data from Top 20/Top 10 tables provides the actual usage information
         
         # Process user data (from Top 20 Users, Top 10 Increasing, etc.)
         if not user_data.empty:
-            # Get month columns (excluding MoM variance columns)
-            month_cols = [col for col in user_data.columns if col not in ['Table', 'Metric', 'User ID'] 
+            # Get month columns (excluding MoM variance columns and non-month columns)
+            month_cols = [col for col in user_data.columns if col not in ['Table', 'Rank', 'Metric', 'User ID'] 
                          and not col.startswith('MoM Var')]
             
+            # Deduplicate user data - same user may appear in multiple tables (e.g., Top 20 AND Top 10 Increasing)
+            # Keep first occurrence for each user
+            user_data_deduped = user_data.drop_duplicates(subset=['User ID'], keep='first')
+            
             # Process each user
-            for _, row in user_data.iterrows():
+            for _, row in user_data_deduped.iterrows():
                 user_email = row['User ID']
+                if pd.isna(user_email) or not user_email:
+                    continue
+                    
                 user_name = user_email.split('@')[0].replace('.', ' ').title()
                 
                 # Process each month for this user
                 for month_col in month_cols:
                     try:
-                        # Parse month to a datetime
-                        month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                        # Parse month to a datetime (format like '25-Sep' or 'Sep-25')
+                        month_date = None
+                        for fmt in ['%y-%b', '%b-%y', '%Y-%b', '%b-%Y']:
+                            try:
+                                month_date = pd.to_datetime(month_col, format=fmt, errors='coerce')
+                                if not pd.isna(month_date):
+                                    break
+                            except:
+                                continue
+                        
                         if pd.isna(month_date):
                             continue
                         
@@ -550,7 +494,7 @@ def normalize_blueflame_data(df, filename):
                         
                         # Handle dash placeholders and formatting
                         if isinstance(message_count, str):
-                            if message_count in ['–', '-', '—', 'N/A']:
+                            if message_count in ['–', '-', '—', 'N/A', '']:
                                 continue
                             message_count = int(message_count.replace(',', ''))
                         
@@ -566,7 +510,7 @@ def normalize_blueflame_data(df, filename):
                             'department': 'BlueFlame Users',  # Default department, can be updated later
                             'date': month_date,
                             'feature_used': 'BlueFlame Messages',
-                            'usage_count': message_count,
+                            'usage_count': int(message_count),
                             'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
                             'tool_source': 'BlueFlame AI',
                             'file_source': filename
@@ -575,78 +519,10 @@ def normalize_blueflame_data(df, filename):
                         print(f"Error processing month {month_col} for user {user_email}: {str(e)}")
     
     # Check if this is the summary report format with 'Metric' column (but no Table column)
-    elif 'Metric' in df.columns:
-        # Get month columns (excluding MoM variance columns)
-        month_cols = [col for col in df.columns if col not in ['Metric'] and not col.startswith('MoM Var')]
-        
-        # Process each month that has data
-        for month_col in month_cols:
-            try:
-                # Parse month to a datetime
-                month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
-                if pd.isna(month_date):
-                    continue
-                
-                # Extract values, handling formatting and missing data
-                total_messages_row = df[df['Metric'] == 'Total Messages']
-                maus_row = df[df['Metric'] == 'Monthly Active Users (MAUs)']
-                
-                if total_messages_row.empty or maus_row.empty:
-                    continue
-                
-                # Get values and clean them
-                total_messages = total_messages_row[month_col].iloc[0]
-                maus = maus_row[month_col].iloc[0]
-                
-                # Handle dash placeholders and formatting
-                if isinstance(total_messages, str):
-                    if total_messages in ['–', '-', '—', 'N/A']:
-                        continue
-                    total_messages = int(total_messages.replace(',', ''))
-                
-                if isinstance(maus, str):
-                    if maus in ['–', '-', '—', 'N/A']:
-                        maus = 0
-                    else:
-                        maus = int(maus.replace(',', ''))
-                
-                # Skip months with no meaningful data
-                if pd.isna(total_messages) or total_messages == 0:
-                    continue
-                
-                # Create aggregate record for the month
-                normalized_records.append({
-                    'user_id': 'blueflame-aggregate',
-                    'user_name': 'BlueFlame Aggregate',
-                    'email': 'blueflame-metrics@company.com',
-                    'department': 'All Departments',
-                    'date': month_date,
-                    'feature_used': 'BlueFlame Messages',
-                    'usage_count': total_messages,
-                    'cost_usd': float(total_messages) * 0.015,  # Adjust pricing as needed
-                    'tool_source': 'BlueFlame AI',
-                    'file_source': filename
-                })
-                
-                # If we have MAU data, create synthetic user-level records to match dashboard expectations
-                if maus > 0:
-                    avg_messages_per_user = total_messages / maus
-                    for i in range(maus):
-                        normalized_records.append({
-                            'user_id': f'blueflame-user-{i+1}',
-                            'user_name': f'BlueFlame User {i+1}',
-                            'email': f'blueflame-user-{i+1}@company.com',
-                            'department': 'BlueFlame Users',
-                            'date': month_date,
-                            'feature_used': 'BlueFlame Messages',
-                            'usage_count': round(avg_messages_per_user),
-                            'cost_usd': float(avg_messages_per_user) * 0.015,  # Adjust pricing
-                            'tool_source': 'BlueFlame AI',
-                            'file_source': filename
-                        })
-            
-            except Exception as e:
-                print(f"Error processing month {month_col}: {str(e)}")
+    elif 'Metric' in df.columns and 'User ID' not in df.columns:
+        # This format only has aggregate metrics, no individual user data
+        # Skip processing as we prefer real user data from other formats
+        print("Skipping aggregate-only format without user data")
     
     # If we have the top users file format with User ID column
     elif 'User ID' in df.columns:
@@ -792,7 +668,7 @@ def display_department_mapper():
     st.divider()
     
     # Show only first 20 users to avoid overwhelming the interface
-    for idx, row in users_df.head(20).iterrows():
+    for position, (idx, row) in enumerate(users_df.head(20).iterrows()):
         col1, col2, col3, col4 = st.columns([3, 3, 3, 1])
         
         with col1:
@@ -807,7 +683,7 @@ def display_department_mapper():
                 "Dept",
                 options=dept_options,
                 index=dept_options.index(current_dept) if current_dept in dept_options else dept_options.index('Unknown'),
-                key=f"dept_{row['email']}",
+                key=f"dept_{position}_{row['email']}",
                 label_visibility="collapsed"
             )
             
@@ -816,7 +692,7 @@ def display_department_mapper():
                 changes_made = True
         
         with col4:
-            if st.button("✓", key=f"save_{row['email']}", help="Save changes"):
+            if st.button("✓", key=f"save_{position}_{row['email']}", help="Save changes"):
                 changes_made = True
     
     if len(users_df) > 20:
@@ -1372,15 +1248,33 @@ def main():
                 help="📅 Filter data by date range for focused analysis"
             )
             
-            # Tool filter with enhanced UI
+            # Enhanced data provider selector
+            st.markdown("""
+            <div class="help-tooltip">
+                🔧 <strong>Data Provider Filter:</strong> Toggle between AI platforms to analyze specific tool usage
+            </div>
+            """, unsafe_allow_html=True)
+            
             all_data = db.get_all_data()
             if not all_data.empty and 'tool_source' in all_data.columns:
-                available_tools = ['All Tools'] + list(all_data['tool_source'].unique())
-                selected_tool = st.selectbox(
-                    "Filter by Tool", 
-                    available_tools,
-                    help="🔧 View data from specific AI tools or all combined"
+                available_tools = list(all_data['tool_source'].unique())
+                
+                # Create toggle buttons for providers
+                st.write("**Select Data Provider:**")
+                
+                # Use radio buttons for clear selection
+                selected_tool = st.radio(
+                    "Provider",
+                    options=['All Tools'] + available_tools,
+                    index=0,
+                    help="📊 Filter dashboard to show data from specific AI platform",
+                    label_visibility="collapsed"
                 )
+                
+                # Show provider-specific stats
+                if selected_tool != 'All Tools':
+                    tool_data = all_data[all_data['tool_source'] == selected_tool]
+                    st.info(f"📈 {selected_tool}: {tool_data['user_id'].nunique()} users, {len(tool_data):,} records")
             else:
                 selected_tool = 'All Tools'
             
@@ -1795,12 +1689,49 @@ def main():
         
         st.divider()
         
-        # Upload history with better styling
-        st.markdown('<div class="section-header"><h3>📂 Upload History</h3></div>', unsafe_allow_html=True)
+        # Upload history with better styling and file management
+        st.markdown('<div class="section-header"><h3>📂 Upload History & File Management</h3></div>', unsafe_allow_html=True)
         
         if db_info['upload_history']:
             upload_df = pd.DataFrame(db_info['upload_history'])
-            st.dataframe(upload_df, use_container_width=True, hide_index=True)
+            
+            # Display upload history with delete option
+            for idx, row in upload_df.iterrows():
+                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+                
+                with col1:
+                    st.write(f"**📄 {row['filename']}**")
+                
+                with col2:
+                    st.write(f"📅 {row['date_range']}")
+                
+                with col3:
+                    st.write(f"📊 {row['records']:,} records")
+                
+                with col4:
+                    # Delete button for individual file
+                    if st.button("🗑️", key=f"delete_file_{idx}", help=f"Delete {row['filename']}"):
+                        confirm_key = f"confirm_delete_{idx}"
+                        if st.session_state.get(confirm_key, False):
+                            # Actually delete the file
+                            success = db.delete_by_file(row['filename'])
+                            if success:
+                                st.success(f"✅ Deleted {row['filename']}")
+                                st.session_state[confirm_key] = False
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Error deleting {row['filename']}")
+                        else:
+                            # Set confirmation flag
+                            st.session_state[confirm_key] = True
+                            st.warning(f"⚠️ Click again to confirm deletion of {row['filename']}")
+                
+                # Show confirmation warning if needed
+                confirm_key = f"confirm_delete_{idx}"
+                if st.session_state.get(confirm_key, False):
+                    st.error(f"⚠️ **Confirm deletion:** Click 🗑️ again to permanently delete {row['filename']} ({row['records']:,} records)")
+                
+                st.divider()
         else:
             st.markdown("""
             <div class="empty-state">
