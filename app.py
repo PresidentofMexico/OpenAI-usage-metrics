@@ -461,8 +461,12 @@ def normalize_blueflame_data(df, filename):
             month_cols = [col for col in user_data.columns if col not in ['Table', 'Rank', 'Metric', 'User ID'] 
                          and not col.startswith('MoM Var')]
             
+            # Deduplicate user data - same user may appear in multiple tables (e.g., Top 20 AND Top 10 Increasing)
+            # Keep first occurrence for each user
+            user_data_deduped = user_data.drop_duplicates(subset=['User ID'], keep='first')
+            
             # Process each user
-            for _, row in user_data.iterrows():
+            for _, row in user_data_deduped.iterrows():
                 user_email = row['User ID']
                 if pd.isna(user_email) or not user_email:
                     continue
