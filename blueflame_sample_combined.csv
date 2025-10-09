@@ -1,0 +1,10 @@
+Table,Metric,User ID,Aug-24,Sep-24,Oct-24,MoM Var Aug-24,MoM Var Sep-24
+Overall Monthly Trends,Total Messages,,15000,18000,22000,–,20%
+Overall Monthly Trends,Monthly Active Users (MAUs),,60,65,72,–,11%
+Top 20 Users Total,,alice.johnson@company.com,850,920,1050,–,14%
+Top 20 Users Total,,bob.wilson@company.com,720,780,850,–,9%
+Top 20 Users Total,,carol.davis@company.com,650,710,800,–,13%
+Top 10 Increasing Users,,david.martinez@company.com,200,350,520,–,49%
+Top 10 Increasing Users,,emma.rodriguez@company.com,180,290,420,–,45%
+Top 10 Decreasing Users,,frank.garcia@company.com,920,850,720,–,-15%
+Top 10 Decreasing Users,,grace.lopez@company.com,780,680,590,–,-13%
