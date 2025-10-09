@@ -781,11 +781,13 @@ def calculate_power_users(data, threshold_percentile=95):
     if data.empty:
         return pd.DataFrame()
     
-    # Group by user and calculate total usage
-    user_usage = data.groupby(['user_name', 'email', 'department']).agg({
+    # Group by email only to avoid duplicates across different departments/tools
+    user_usage = data.groupby('email').agg({
+        'user_name': 'first',  # Take first user_name (should be same for same email)
         'usage_count': 'sum',
         'cost_usd': 'sum',
-        'tool_source': lambda x: ', '.join(x.unique())
+        'tool_source': lambda x: ', '.join(sorted(x.unique())),
+        'department': lambda x: _select_primary_department(x)
     }).reset_index()
     
     # Calculate threshold (top 5% by default)
@@ -798,21 +800,49 @@ def calculate_power_users(data, threshold_percentile=95):
     
     return power_users
 
+def _select_primary_department(departments):
+    """Select the most appropriate department from a list.
+    
+    Prefers non-'BlueFlame Users' departments. If multiple non-BlueFlame
+    departments exist, returns the first one. Returns 'BlueFlame Users' 
+    only if that's the only department available.
+    """
+    unique_depts = list(departments.unique())
+    
+    # Filter out 'BlueFlame Users' if other departments exist
+    non_blueflame = [d for d in unique_depts if d != 'BlueFlame Users']
+    
+    if non_blueflame:
+        return non_blueflame[0]  # Return first non-BlueFlame department
+    
+    return unique_depts[0] if unique_depts else 'Unknown'
+
 def get_user_message_breakdown(data, email):
-    """Get message type breakdown for a specific user."""
+    """Get message type breakdown for a specific user, organized by tool source."""
     user_data = data[data['email'] == email]
     
     breakdown = {
-        'ChatGPT Messages': 0,
-        'GPT Messages': 0,
-        'Tool Messages': 0,
-        'Project Messages': 0
+        'openai': {
+            'ChatGPT Messages': 0,
+            'GPT Messages': 0,
+            'Tool Messages': 0,
+            'Project Messages': 0
+        },
+        'blueflame': {
+            'BlueFlame Messages': 0
+        }
     }
     
     if not user_data.empty:
+        # Get counts grouped by feature type
         message_counts = user_data.groupby('feature_used')['usage_count'].sum().to_dict()
-        for msg_type in breakdown.keys():
-            breakdown[msg_type] = message_counts.get(msg_type, 0)
+        
+        # Map to breakdown structure
+        for msg_type, count in message_counts.items():
+            if msg_type in breakdown['openai']:
+                breakdown['openai'][msg_type] = count
+            elif msg_type == 'BlueFlame Messages':
+                breakdown['blueflame']['BlueFlame Messages'] = count
     
     return breakdown
 
@@ -1594,7 +1624,11 @@ def main():
             for idx, row in power_users.head(20).iterrows():
                 # Get message breakdown for this user
                 breakdown = get_user_message_breakdown(data, row['email'])
-                total_messages = sum(breakdown.values())
+                
+                # Calculate totals
+                openai_total = sum(breakdown['openai'].values())
+                blueflame_total = sum(breakdown['blueflame'].values())
+                total_messages = openai_total + blueflame_total
                 
                 # Create a card-like container for each power user
                 st.markdown(f"""
@@ -1612,15 +1646,22 @@ def main():
                 
                 with col2:
                     st.write("**Message Breakdown:**")
-                    # Display breakdown of message types
-                    if breakdown['ChatGPT Messages'] > 0:
-                        st.caption(f"💬 ChatGPT Messages: {breakdown['ChatGPT Messages']:,}")
-                    if breakdown['GPT Messages'] > 0:
-                        st.caption(f"🤖 GPT Messages: {breakdown['GPT Messages']:,}")
-                    if breakdown['Tool Messages'] > 0:
-                        st.caption(f"🔧 Tool Messages: {breakdown['Tool Messages']:,}")
-                    if breakdown['Project Messages'] > 0:
-                        st.caption(f"📁 Project Messages: {breakdown['Project Messages']:,}")
+                    
+                    # OpenAI Messages Section
+                    if openai_total > 0:
+                        st.caption(f"**OpenAI Data:** {openai_total:,} messages")
+                        if breakdown['openai']['ChatGPT Messages'] > 0:
+                            st.caption(f"  💬 ChatGPT: {breakdown['openai']['ChatGPT Messages']:,}")
+                        if breakdown['openai']['GPT Messages'] > 0:
+                            st.caption(f"  🤖 GPTs: {breakdown['openai']['GPT Messages']:,}")
+                        if breakdown['openai']['Tool Messages'] > 0:
+                            st.caption(f"  🔧 Tools: {breakdown['openai']['Tool Messages']:,}")
+                        if breakdown['openai']['Project Messages'] > 0:
+                            st.caption(f"  📁 Projects: {breakdown['openai']['Project Messages']:,}")
+                    
+                    # BlueFlame Messages Section
+                    if blueflame_total > 0:
+                        st.caption(f"**BlueFlame Data:** {blueflame_total:,} messages")
                 
                 with col3:
                     st.write(f"**Total: {total_messages:,}**")
