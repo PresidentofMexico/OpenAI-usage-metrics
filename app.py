@@ -22,6 +22,7 @@ from database import DatabaseManager
 from file_reader import read_file_robust, display_file_error, read_file_from_path
 from file_scanner import FileScanner
 from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH
+from export_utils import generate_excel_export, generate_pdf_report_html
 
 # Page configuration
 st.set_page_config(
@@ -1327,16 +1328,17 @@ def main():
     # Load department mappings
     dept_mappings = load_department_mappings()
     
-    # Get filtered data
-    if len(date_range) == 2:
-        start_date, end_date = date_range
-        data = db.get_filtered_data(
-            start_date=start_date,
-            end_date=end_date,
-            departments=selected_depts if selected_depts else None
-        )
-    else:
-        data = db.get_all_data()
+    # Get filtered data with loading indicator
+    with st.spinner("📊 Loading data..."):
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            data = db.get_filtered_data(
+                start_date=start_date,
+                end_date=end_date,
+                departments=selected_depts if selected_depts else None
+            )
+        else:
+            data = db.get_all_data()
     
     # Apply department mappings
     data = apply_department_mappings(data, dept_mappings)
@@ -1371,10 +1373,218 @@ def main():
     
     # TAB 1: Executive Overview
     with tab1:
-        st.header("📊 Executive Overview")
+        st.header("📊 Executive Summary Dashboard")
+        
+        # Executive Actions Bar
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col2:
+            # PDF Export (HTML version for now)
+            if st.button("📄 Export PDF Report", use_container_width=True, help="Generate executive PDF report"):
+                try:
+                    html_content = generate_pdf_report_html(data, "AI Usage Executive Report")
+                    st.download_button(
+                        label="📥 Download HTML Report",
+                        data=html_content,
+                        file_name=f"ai_usage_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
+                        mime="text/html",
+                        use_container_width=True,
+                        help="Download as HTML (can be printed to PDF from browser)"
+                    )
+                except Exception as e:
+                    st.error(f"Error generating report: {str(e)}")
+        
+        with col3:
+            # Excel Export with pivot tables
+            try:
+                excel_file = generate_excel_export(data, include_pivots=True)
+                st.download_button(
+                    label="📊 Export to Excel",
+                    data=excel_file,
+                    file_name=f"ai_usage_executive_report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    help="Download Excel with pivot tables and summaries"
+                )
+            except Exception as e:
+                st.error(f"Error generating Excel: {str(e)}")
+        
+        st.divider()
+        
+        # Calculate key financial metrics
+        total_cost = data['cost_usd'].sum()
+        total_users = data['user_id'].nunique()
+        total_usage = data['usage_count'].sum()
+        
+        # Calculate YTD and projections
+        try:
+            data_with_dates = data.copy()
+            data_with_dates['date'] = pd.to_datetime(data_with_dates['date'], errors='coerce')
+            data_with_dates = data_with_dates.dropna(subset=['date'])
+            
+            # Get current year data
+            current_year = datetime.now().year
+            ytd_data = data_with_dates[data_with_dates['date'].dt.year == current_year]
+            ytd_cost = ytd_data['cost_usd'].sum()
+            
+            # Calculate months of data for projection
+            if not ytd_data.empty:
+                min_month = ytd_data['date'].min().month
+                max_month = ytd_data['date'].max().month
+                months_of_data = max_month - min_month + 1
+                projected_annual_cost = (ytd_cost / months_of_data) * 12 if months_of_data > 0 else ytd_cost * 12
+            else:
+                ytd_cost = total_cost
+                projected_annual_cost = total_cost * 12
+        except:
+            ytd_cost = total_cost
+            projected_annual_cost = total_cost * 12
+        
+        # Executive Summary Cards
+        st.markdown('<div class="section-header"><h3>💼 Executive Summary</h3></div>', unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "YTD Spending", 
+                f"${ytd_cost:,.2f}", 
+                help="Year-to-date total spending on AI tools"
+            )
+        
+        with col2:
+            st.metric(
+                "Projected Annual Cost", 
+                f"${projected_annual_cost:,.2f}", 
+                delta=f"{((projected_annual_cost - ytd_cost) / max(ytd_cost, 1) * 100):.0f}% vs YTD",
+                help="Projected full-year cost based on current usage trends"
+            )
+        
+        with col3:
+            avg_cost_per_user = total_cost / max(total_users, 1)
+            st.metric(
+                "Cost per User", 
+                f"${avg_cost_per_user:.2f}", 
+                help="Average cost per active user"
+            )
+        
+        with col4:
+            cost_per_interaction = total_cost / max(total_usage, 1)
+            st.metric(
+                "Cost Efficiency", 
+                f"${cost_per_interaction:.3f}/msg", 
+                help="Average cost per message/interaction"
+            )
+        
+        st.divider()
+        
+        # Month-over-Month Trends
+        st.markdown('<div class="section-header"><h3>📈 Month-over-Month Adoption Trends</h3></div>', unsafe_allow_html=True)
+        
+        try:
+            # Prepare monthly data
+            monthly_data = data.copy()
+            monthly_data['date'] = pd.to_datetime(monthly_data['date'], errors='coerce')
+            monthly_data = monthly_data.dropna(subset=['date'])
+            monthly_data['month'] = monthly_data['date'].dt.to_period('M').astype(str)
+            
+            # Calculate monthly metrics
+            monthly_metrics = monthly_data.groupby('month').agg({
+                'user_id': 'nunique',
+                'usage_count': 'sum',
+                'cost_usd': 'sum'
+            }).reset_index()
+            monthly_metrics.columns = ['Month', 'Active Users', 'Total Usage', 'Total Cost']
+            
+            # Calculate MoM changes
+            if len(monthly_metrics) > 1:
+                monthly_metrics['User Growth %'] = monthly_metrics['Active Users'].pct_change() * 100
+                monthly_metrics['Usage Growth %'] = monthly_metrics['Total Usage'].pct_change() * 100
+                monthly_metrics['Cost Growth %'] = monthly_metrics['Total Cost'].pct_change() * 100
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # User adoption trend
+                fig = px.line(
+                    monthly_metrics, 
+                    x='Month', 
+                    y='Active Users',
+                    title='Monthly Active Users Trend',
+                    markers=True
+                )
+                fig.update_traces(line_color='#667eea', line_width=3, marker=dict(size=10))
+                fig.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                # Cost trend
+                fig = px.bar(
+                    monthly_metrics, 
+                    x='Month', 
+                    y='Total Cost',
+                    title='Monthly Cost Trend',
+                    color='Total Cost',
+                    color_continuous_scale='Blues'
+                )
+                fig.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # MoM Summary Table
+            if len(monthly_metrics) > 1:
+                st.markdown("**Month-over-Month Growth Summary:**")
+                display_cols = ['Month', 'Active Users', 'User Growth %', 'Total Usage', 'Usage Growth %', 'Total Cost', 'Cost Growth %']
+                st.dataframe(
+                    monthly_metrics[display_cols].tail(6).style.format({
+                        'Active Users': '{:,.0f}',
+                        'User Growth %': '{:+.1f}%',
+                        'Total Usage': '{:,.0f}',
+                        'Usage Growth %': '{:+.1f}%',
+                        'Total Cost': '${:,.2f}',
+                        'Cost Growth %': '{:+.1f}%'
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+        except Exception as e:
+            st.warning(f"Unable to calculate monthly trends: {str(e)}")
+        
+        st.divider()
+        
+        # Top 3 Departments
+        st.markdown('<div class="section-header"><h3>🏆 Top 3 Departments by Usage</h3></div>', unsafe_allow_html=True)
+        
+        dept_stats = data.groupby('department').agg({
+            'user_id': 'nunique',
+            'usage_count': 'sum',
+            'cost_usd': 'sum'
+        }).reset_index()
+        dept_stats.columns = ['Department', 'Active Users', 'Total Usage', 'Total Cost']
+        dept_stats = dept_stats.sort_values('Total Usage', ascending=False).head(3)
+        
+        cols = st.columns(3)
+        for idx, row in dept_stats.iterrows():
+            with cols[idx if idx < 3 else 2]:
+                st.markdown(f"""
+                <div class="metric-card" style="text-align: center;">
+                    <h3 style="color: #667eea; margin: 0;">#{idx + 1} {row['Department']}</h3>
+                    <p style="font-size: 2rem; font-weight: bold; margin: 0.5rem 0;">{row['Total Usage']:,}</p>
+                    <p style="color: #64748b; margin: 0;">messages from {row['Active Users']} users</p>
+                    <p style="color: #10b981; font-weight: 600; margin: 0;">${row['Total Cost']:,.2f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.divider()
         
         # Data Quality Dashboard
-        st.markdown('<div class="section-header"><h3>🛡️ Data Quality</h3></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"><h3>🛡️ Data Quality Metrics</h3></div>', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -1406,168 +1616,6 @@ def main():
         with col4:
             total_records = len(data)
             st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{total_records:,}</strong><br><small>Total Records</small></div>', unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # Key metrics with enhanced styling
-        st.markdown('<div class="section-header"><h3>📈 Key Metrics</h3></div>', unsafe_allow_html=True)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            total_users = data['user_id'].nunique()
-            st.metric("Total Active Users", total_users, help="Number of unique users in the selected period")
-        
-        with col2:
-            total_usage = data['usage_count'].sum()
-            st.metric("Total Usage Events", f"{total_usage:,}", help="Total number of AI interactions across all message types")
-        
-        with col3:
-            total_cost = data['cost_usd'].sum()
-            st.metric("Total Cost", f"${total_cost:,.2f}", help="Estimated total cost based on usage")
-        
-        with col4:
-            avg_cost = total_cost / max(total_users, 1)
-            st.metric("Avg Cost per User", f"${avg_cost:.2f}", help="Average cost per active user")
-        
-        # Message Type Breakdown
-        st.markdown('<div class="section-header"><h3>💬 Message Type Breakdown</h3></div>', unsafe_allow_html=True)
-        
-        # Calculate metrics for each message type
-        message_types = data.groupby('feature_used')['usage_count'].sum().to_dict()
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            chatgpt_msgs = message_types.get('ChatGPT Messages', 0)
-            st.metric(
-                "ChatGPT Messages", 
-                f"{chatgpt_msgs:,}", 
-                help="Base model usage - standard ChatGPT conversations"
-            )
-        
-        with col2:
-            gpt_msgs = message_types.get('GPT Messages', 0)
-            st.metric(
-                "GPT Messages", 
-                f"{gpt_msgs:,}", 
-                help="Custom GPT usage - interactions with custom GPTs"
-            )
-        
-        with col3:
-            tool_msgs = message_types.get('Tool Messages', 0)
-            st.metric(
-                "Tool Messages", 
-                f"{tool_msgs:,}", 
-                help="Tool interactions - code interpreter, web browsing, etc."
-            )
-        
-        with col4:
-            project_msgs = message_types.get('Project Messages', 0)
-            st.metric(
-                "Project Messages", 
-                f"{project_msgs:,}", 
-                help="ChatGPT Projects usage - project-specific conversations"
-            )
-        
-        # Tool breakdown with enhanced styling
-        if 'tool_source' in data.columns:
-            st.markdown('<div class="section-header"><h3>🔧 Tool Adoption</h3></div>', unsafe_allow_html=True)
-            
-            tool_stats = data.groupby('tool_source').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum',
-                'cost_usd': 'sum'
-            }).reset_index()
-            
-            cols = st.columns(len(tool_stats))
-            for idx, row in tool_stats.iterrows():
-                with cols[idx]:
-                    st.metric(
-                        f"{row['tool_source']}",
-                        f"{row['user_id']} users",
-                        f"${row['cost_usd']:,.2f}"
-                    )
-        
-        # Usage trends
-        st.markdown('<div class="section-header"><h3>📈 Usage & Cost Trends</h3></div>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            daily_usage = data.groupby('date')['usage_count'].sum().reset_index()
-            fig = px.line(
-                daily_usage, 
-                x='date', 
-                y='usage_count', 
-                title='Daily Usage Trend',
-                labels={'date': 'Date', 'usage_count': 'Usage Count'}
-            )
-            fig.update_traces(line_color='#667eea', line_width=3)
-            fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            daily_cost = data.groupby('date')['cost_usd'].sum().reset_index()
-            fig = px.line(
-                daily_cost, 
-                x='date', 
-                y='cost_usd', 
-                title='Daily Cost Trend',
-                labels={'date': 'Date', 'cost_usd': 'Cost (USD)'}
-            )
-            fig.update_traces(line_color='#10b981', line_width=3)
-            fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Top users and departments
-        st.markdown('<div class="section-header"><h3>🏆 Top Performers & Department Analysis</h3></div>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("👥 Top 10 Users")
-            top_users = data.groupby('user_name')['usage_count'].sum().nlargest(10).reset_index()
-            fig = px.bar(
-                top_users, 
-                x='usage_count', 
-                y='user_name', 
-                orientation='h',
-                labels={'usage_count': 'Usage Count', 'user_name': 'User'}
-            )
-            fig.update_traces(marker_color='#667eea')
-            fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                showlegend=False
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("🏢 Usage by Department")
-            dept_usage = data.groupby('department')['usage_count'].sum().reset_index()
-            fig = px.pie(
-                dept_usage, 
-                values='usage_count', 
-                names='department',
-                hole=0.4
-            )
-            fig.update_traces(
-                textposition='inside',
-                textinfo='percent+label'
-            )
-            fig.update_layout(
-                showlegend=False
-            )
-            st.plotly_chart(fig, use_container_width=True)
     
     # TAB 2: Tool Comparison
     with tab2:
