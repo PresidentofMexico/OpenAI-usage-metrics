@@ -53,8 +53,8 @@ if ', ' in row['tool_source']:  # User has multiple AI tools
     user_display = f"🔗 {user_display}"
 st.write(user_display)
 
-# Show email with tool sources on hover
-st.write(row['email'], help=f"Tools: {row['tool_source']}")
+# Show email with tool sources on hover (using st.text for help parameter support)
+st.text(row['email'], help=f"Tools: {row['tool_source']}")
 ```
 
 ## Smart Department Selection Logic
