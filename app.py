@@ -283,6 +283,80 @@ st.markdown("""
         border: 1px solid #ef4444;
     }
     
+    /* Mobile responsiveness */
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 1.75rem;
+        }
+        
+        .metric-card {
+            padding: 1rem;
+        }
+        
+        .metrics-grid {
+            grid-template-columns: 1fr !important;
+        }
+        
+        /* Stack columns on mobile */
+        [data-testid="column"] {
+            width: 100% !important;
+            flex: 100% !important;
+            max-width: 100% !important;
+        }
+    }
+    
+    @media (max-width: 480px) {
+        .main-header {
+            font-size: 1.5rem;
+        }
+        
+        body {
+            font-size: 14px;
+        }
+    }
+    
+    /* Enhanced tooltips */
+    .help-tooltip {
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+        border-left: 4px solid #3b82f6;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        font-size: 0.875rem;
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+    }
+    
+    .help-tooltip strong {
+        color: #1e3a8a;
+    }
+    
+    /* Info cards with icons */
+    .info-card {
+        background: white;
+        border: 2px solid #e5e7eb;
+        border-radius: 0.75rem;
+        padding: 1.25rem;
+        margin: 1rem 0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .info-card-icon {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Responsive tables */
+    @media (max-width: 768px) {
+        .data-table {
+            font-size: 0.875rem;
+        }
+        
+        .data-table th, .data-table td {
+            padding: 0.5rem;
+        }
+    }
+    
     /* Enhanced buttons */
     .stButton > button {
         border-radius: 0.5rem;
@@ -1225,6 +1299,56 @@ def main():
             - `data/uploads/`
             
             Then click Refresh to detect them.
+            """)
+        
+        # Help Section
+        with st.expander("❓ Metrics Guide", expanded=False):
+            st.markdown("""
+            ### 📊 Understanding Key Metrics
+            
+            **YTD Spending**
+            - Total cost spent on AI tools this year
+            - Based on usage counts and estimated per-message rates
+            
+            **Projected Annual Cost**
+            - Estimated full-year spending based on current trends
+            - Calculated from months of available data
+            
+            **Cost per User**
+            - Average spending per active user
+            - Helps identify cost efficiency
+            
+            **Cost Efficiency**
+            - Average cost per message/interaction
+            - Lower values indicate better efficiency
+            
+            **Power Users**
+            - Top 5% of users by total usage
+            - Key candidates for feedback and beta testing
+            
+            **Month-over-Month Growth**
+            - % change in users, usage, or cost vs previous month
+            - Positive values show adoption growth
+            
+            ### 📁 Data Sources
+            
+            **OpenAI ChatGPT**
+            - Enterprise usage exports
+            - Includes: ChatGPT Messages, Tool Messages, Project Messages, GPT Messages
+            
+            **BlueFlame AI**
+            - Custom AI platform usage
+            - Monthly message counts per user
+            
+            ### 🔄 Export Options
+            
+            **PDF Report (HTML)**
+            - Executive summary with key metrics
+            - Download and print to PDF from browser
+            
+            **Excel with Pivots**
+            - Multiple sheets with analysis
+            - User, Department, Monthly, and Feature summaries
             """)
         
         st.divider()
