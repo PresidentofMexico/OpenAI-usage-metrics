@@ -683,7 +683,7 @@ def normalize_blueflame_data(df, filename):
     return pd.DataFrame(normalized_records)
 
 def display_department_mapper():
-    """Display department mapping interface."""
+    """Display department mapping interface with improved user deduplication."""
     st.subheader("🏢 Department Mapping Tool")
     
     st.markdown("""
@@ -702,8 +702,13 @@ def display_department_mapper():
         st.info("No data available. Upload data first to use department mapping.")
         return
     
-    # Get unique users
-    users_df = all_data[['email', 'user_name', 'department']].drop_duplicates()
+    # Deduplicate users by email only, using smart department selection
+    # This prevents users who appear in both OpenAI and BlueFlame from showing as duplicates
+    users_df = all_data.groupby('email').agg({
+        'user_name': 'first',
+        'department': lambda x: _select_primary_department(x),
+        'tool_source': lambda x: ', '.join(sorted(x.unique()))
+    }).reset_index()
     users_df = users_df.sort_values('user_name')
     
     # Department options
@@ -747,10 +752,16 @@ def display_department_mapper():
         col1, col2, col3, col4 = st.columns([3, 3, 3, 1])
         
         with col1:
-            st.write(row['user_name'])
+            # Show user name with multi-tool indicator
+            user_display = row['user_name']
+            if ', ' in row['tool_source']:  # User has multiple AI tools
+                user_display = f"🔗 {user_display}"
+            st.write(user_display)
         
         with col2:
-            st.write(row['email'])
+            # Show email with tool sources on hover
+            email_display = row['email']
+            st.write(email_display, help=f"Tools: {row['tool_source']}")
         
         with col3:
             current_dept = mappings.get(row['email'], row['department'])
