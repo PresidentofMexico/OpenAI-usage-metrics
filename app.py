@@ -815,18 +815,37 @@ def display_department_mapper():
                 col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
                 
                 with col1:
-                    st.write(f"**{row['user_name']}**")
-                    st.caption(row['email'])
+                    # Handle NULL/empty user_name
+                    display_name = row['user_name'] if pd.notna(row['user_name']) and row['user_name'] else 'Unknown User'
+                    st.write(f"**{display_name}**")
+                    # Handle NULL/empty email
+                    display_email = row['email'] if pd.notna(row['email']) and row['email'] else 'No email'
+                    st.caption(display_email)
                 
                 with col2:
-                    st.write(f"🔧 {row['tools_used']}")
+                    # Handle NULL tools_used
+                    display_tools = row['tools_used'] if pd.notna(row['tools_used']) and row['tools_used'] else 'Unknown'
+                    st.write(f"🔧 {display_tools}")
                 
                 with col3:
-                    st.write(f"📊 {int(row['total_usage']):,} messages")
-                    st.caption(f"${row['total_cost']:.2f}")
+                    # Handle NaN/NULL total_usage
+                    if pd.notna(row['total_usage']):
+                        st.write(f"📊 {int(row['total_usage']):,} messages")
+                    else:
+                        st.write("📊 0 messages")
+                    
+                    # Handle NaN/NULL total_cost
+                    if pd.notna(row['total_cost']):
+                        st.caption(f"${row['total_cost']:.2f}")
+                    else:
+                        st.caption("$0.00")
                 
                 with col4:
-                    st.caption(f"{int(row['days_active'])} days")
+                    # Handle NaN/NULL days_active
+                    if pd.notna(row['days_active']):
+                        st.caption(f"{int(row['days_active'])} days")
+                    else:
+                        st.caption("0 days")
                 
                 st.divider()
         
@@ -954,14 +973,20 @@ def display_department_mapper():
         
         with col1:
             # Show user name with multi-tool indicator
-            user_display = row['user_name']
-            if ', ' in row['tool_source']:  # User has multiple AI tools
+            # Handle NULL/empty user_name
+            user_display = row['user_name'] if pd.notna(row['user_name']) and row['user_name'] else 'Unknown User'
+            # Handle NULL/empty tool_source
+            tool_source = row['tool_source'] if pd.notna(row['tool_source']) and row['tool_source'] else ''
+            if ', ' in tool_source:  # User has multiple AI tools
                 user_display = f"🔗 {user_display}"
             st.write(user_display)
         
         with col2:
             # Show email with tool sources on hover
-            st.text(row['email'], help=f"Tools: {row['tool_source']}")
+            # Handle NULL/empty email and tool_source
+            display_email = row['email'] if pd.notna(row['email']) and row['email'] else 'No email'
+            display_tool_help = tool_source if tool_source else 'Unknown'
+            st.text(display_email, help=f"Tools: {display_tool_help}")
         
         with col3:
             # Show if employee or unidentified
@@ -976,10 +1001,12 @@ def display_department_mapper():
             # If employee, show department as read-only
             if row['is_employee']:
                 employee = get_employee_for_user(row['email'], row['user_name'])
-                if employee:
+                if employee and employee.get('department'):
                     st.write(f"🔒 {employee['department']}")
                 else:
-                    st.write(current_dept)
+                    # Handle NULL/empty department
+                    display_dept = current_dept if pd.notna(current_dept) and current_dept else 'Unknown'
+                    st.write(display_dept)
             else:
                 # For unidentified users, allow editing
                 new_dept = st.selectbox(
@@ -2048,9 +2075,15 @@ def main():
                 col1, col2, col3 = st.columns([3, 4, 3])
                 
                 with col1:
-                    st.write(f"**{row['user_name']}**")
-                    st.caption(row['email'])
-                    st.caption(f"🏢 {row['department']}")
+                    # Handle NULL/empty user_name
+                    display_name = row['user_name'] if pd.notna(row['user_name']) and row['user_name'] else 'Unknown User'
+                    st.write(f"**{display_name}**")
+                    # Handle NULL/empty email
+                    display_email = row['email'] if pd.notna(row['email']) and row['email'] else 'No email'
+                    st.caption(display_email)
+                    # Handle NULL/empty department
+                    display_dept = row['department'] if pd.notna(row['department']) and row['department'] else 'Unknown'
+                    st.caption(f"🏢 {display_dept}")
                 
                 with col2:
                     st.write("**Message Breakdown:**")
@@ -2073,8 +2106,14 @@ def main():
                 
                 with col3:
                     st.write(f"**Total: {total_messages:,}**")
-                    st.caption(f"💰 ${row['cost_usd']:.2f} cost")
-                    st.markdown(f'<span class="power-user-badge">{row["tool_source"]}</span>', 
+                    # Handle NaN/NULL cost_usd
+                    if pd.notna(row['cost_usd']):
+                        st.caption(f"💰 ${row['cost_usd']:.2f} cost")
+                    else:
+                        st.caption("💰 $0.00 cost")
+                    # Handle NULL/empty tool_source
+                    display_tools = row['tool_source'] if pd.notna(row['tool_source']) and row['tool_source'] else 'Unknown'
+                    st.markdown(f'<span class="power-user-badge">{display_tools}</span>', 
                               unsafe_allow_html=True)
                 
                 st.markdown('</div>', unsafe_allow_html=True)
