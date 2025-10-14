@@ -179,8 +179,8 @@ users_df = all_data.groupby('email').agg({
 if ', ' in row['tool_source']:  # User has multiple AI tools
     user_display = f"🔗 {user_display}"
 
-# Tool information on hover
-st.write(email_display, help=f"Tools: {row['tool_source']}")
+# Tool information on hover (using st.text for help parameter support)
+st.text(row['email'], help=f"Tools: {row['tool_source']}")
 ```
 
 ---

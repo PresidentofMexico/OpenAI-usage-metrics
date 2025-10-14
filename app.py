@@ -760,8 +760,7 @@ def display_department_mapper():
         
         with col2:
             # Show email with tool sources on hover
-            email_display = row['email']
-            st.markdown(f'<span title="Tools: {row["tool_source"]}">{email_display}</span>', unsafe_allow_html=True)
+            st.text(row['email'], help=f"Tools: {row['tool_source']}")
         
         with col3:
             current_dept = mappings.get(row['email'], row['department'])
