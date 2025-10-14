@@ -467,17 +467,21 @@ class DatabaseManager:
             updated = 0
             
             for _, row in df.iterrows():
-                first_name = row.get('first_name', '').strip()
-                last_name = row.get('last_name', '').strip()
-                email = row.get('email', '').strip().lower() if row.get('email') else None
+                # Handle potential NaN/float values by converting to string and stripping
+                first_name = str(row.get('first_name', '')).strip() if pd.notna(row.get('first_name')) else ''
+                last_name = str(row.get('last_name', '')).strip() if pd.notna(row.get('last_name')) else ''
+                email = str(row.get('email', '')).strip().lower() if pd.notna(row.get('email')) and row.get('email') else None
+                title = str(row.get('title', '')).strip() if pd.notna(row.get('title')) else ''
+                department = str(row.get('department', '')).strip() if pd.notna(row.get('department')) else ''
+                status = str(row.get('status', '')).strip() if pd.notna(row.get('status')) else ''
                 
                 # Skip if we don't have at least first and last name
-                if not first_name or not last_name:
+                if not first_name or not last_name or first_name == 'nan' or last_name == 'nan':
                     continue
                 
                 # Check if employee exists - first by email if available, then by name
                 existing = None
-                if email:
+                if email and email != 'none':
                     cursor.execute("SELECT employee_id FROM employees WHERE LOWER(email) = ?", (email,))
                     existing = cursor.fetchone()
                 
@@ -498,10 +502,10 @@ class DatabaseManager:
                     """, (
                         first_name,
                         last_name,
-                        email,
-                        row.get('title', ''),
-                        row.get('department', ''),
-                        row.get('status', ''),
+                        email if email and email != 'none' else None,
+                        title,
+                        department,
+                        status,
                         datetime.now().isoformat(),
                         existing[0]
                     ))
@@ -514,10 +518,10 @@ class DatabaseManager:
                     """, (
                         first_name,
                         last_name,
-                        email,
-                        row.get('title', ''),
-                        row.get('department', ''),
-                        row.get('status', ''),
+                        email if email and email != 'none' else None,
+                        title,
+                        department,
+                        status,
                         datetime.now().isoformat(),
                         datetime.now().isoformat()
                     ))
@@ -533,6 +537,8 @@ class DatabaseManager:
             
         except Exception as e:
             print(f"Error loading employees: {e}")
+            import traceback
+            traceback.print_exc()
             return False, f"Error loading employees: {str(e)}", 0
     
     def get_employee_by_email(self, email):
