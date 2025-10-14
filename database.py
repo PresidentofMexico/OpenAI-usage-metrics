@@ -42,7 +42,7 @@ class DatabaseManager:
                     employee_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     first_name TEXT,
                     last_name TEXT,
-                    email TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE,
                     title TEXT,
                     department TEXT,
                     status TEXT,
@@ -451,6 +451,7 @@ class DatabaseManager:
     def load_employees(self, df):
         """
         Load or update employee records from a DataFrame.
+        Supports files with or without email column - uses name-based matching as fallback.
         
         Args:
             df: DataFrame with employee data
@@ -466,28 +467,43 @@ class DatabaseManager:
             updated = 0
             
             for _, row in df.iterrows():
-                email = row.get('email', '').strip().lower()
-                if not email:
+                first_name = row.get('first_name', '').strip()
+                last_name = row.get('last_name', '').strip()
+                email = row.get('email', '').strip().lower() if row.get('email') else None
+                
+                # Skip if we don't have at least first and last name
+                if not first_name or not last_name:
                     continue
                 
-                # Check if employee exists
-                cursor.execute("SELECT employee_id FROM employees WHERE email = ?", (email,))
-                existing = cursor.fetchone()
+                # Check if employee exists - first by email if available, then by name
+                existing = None
+                if email:
+                    cursor.execute("SELECT employee_id FROM employees WHERE LOWER(email) = ?", (email,))
+                    existing = cursor.fetchone()
+                
+                if not existing:
+                    # Try to find by name
+                    cursor.execute(
+                        "SELECT employee_id FROM employees WHERE LOWER(first_name) = ? AND LOWER(last_name) = ?",
+                        (first_name.lower(), last_name.lower())
+                    )
+                    existing = cursor.fetchone()
                 
                 if existing:
                     # Update existing employee
                     cursor.execute("""
                         UPDATE employees 
-                        SET first_name = ?, last_name = ?, title = ?, department = ?, status = ?, updated_at = ?
-                        WHERE email = ?
+                        SET first_name = ?, last_name = ?, email = ?, title = ?, department = ?, status = ?, updated_at = ?
+                        WHERE employee_id = ?
                     """, (
-                        row.get('first_name', ''),
-                        row.get('last_name', ''),
+                        first_name,
+                        last_name,
+                        email,
                         row.get('title', ''),
                         row.get('department', ''),
                         row.get('status', ''),
                         datetime.now().isoformat(),
-                        email
+                        existing[0]
                     ))
                     updated += 1
                 else:
@@ -496,8 +512,8 @@ class DatabaseManager:
                         INSERT INTO employees (first_name, last_name, email, title, department, status, created_at, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
-                        row.get('first_name', ''),
-                        row.get('last_name', ''),
+                        first_name,
+                        last_name,
                         email,
                         row.get('title', ''),
                         row.get('department', ''),
@@ -530,9 +546,12 @@ class DatabaseManager:
             dict or None: Employee record
         """
         try:
+            if not email or not email.strip():
+                return None
+                
             conn = sqlite3.connect(self.db_path)
             cursor = conn.execute(
-                "SELECT employee_id, first_name, last_name, email, title, department, status FROM employees WHERE email = ?",
+                "SELECT employee_id, first_name, last_name, email, title, department, status FROM employees WHERE LOWER(email) = ?",
                 (email.strip().lower(),)
             )
             row = cursor.fetchone()
@@ -552,6 +571,45 @@ class DatabaseManager:
             
         except Exception as e:
             print(f"Error getting employee: {e}")
+            return None
+    
+    def get_employee_by_name(self, first_name, last_name):
+        """
+        Get employee record by first and last name.
+        
+        Args:
+            first_name: Employee first name
+            last_name: Employee last name
+            
+        Returns:
+            dict or None: Employee record
+        """
+        try:
+            if not first_name or not last_name:
+                return None
+                
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.execute(
+                "SELECT employee_id, first_name, last_name, email, title, department, status FROM employees WHERE LOWER(first_name) = ? AND LOWER(last_name) = ?",
+                (first_name.strip().lower(), last_name.strip().lower())
+            )
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return {
+                    'employee_id': row[0],
+                    'first_name': row[1],
+                    'last_name': row[2],
+                    'email': row[3],
+                    'title': row[4],
+                    'department': row[5],
+                    'status': row[6]
+                }
+            return None
+            
+        except Exception as e:
+            print(f"Error getting employee by name: {e}")
             return None
     
     def get_all_employees(self):
@@ -585,6 +643,7 @@ class DatabaseManager:
     def get_unidentified_users(self):
         """
         Get users from usage_metrics who are not in the employees table.
+        Checks both email and name-based matching.
         
         Returns:
             DataFrame with unidentified users and their usage stats
@@ -600,8 +659,14 @@ class DatabaseManager:
                     SUM(um.cost_usd) as total_cost,
                     COUNT(DISTINCT um.date) as days_active
                 FROM usage_metrics um
-                LEFT JOIN employees e ON LOWER(um.email) = LOWER(e.email)
-                WHERE e.email IS NULL AND um.email IS NOT NULL AND um.email != ''
+                LEFT JOIN employees e ON (
+                    LOWER(um.email) = LOWER(e.email) 
+                    OR (
+                        LOWER(SUBSTR(um.user_name, 1, INSTR(um.user_name || ' ', ' ') - 1)) = LOWER(e.first_name)
+                        AND LOWER(SUBSTR(um.user_name, INSTR(um.user_name, ' ') + 1)) = LOWER(e.last_name)
+                    )
+                )
+                WHERE e.employee_id IS NULL AND um.email IS NOT NULL AND um.email != ''
                 GROUP BY um.email, um.user_name
                 ORDER BY total_usage DESC
             """
