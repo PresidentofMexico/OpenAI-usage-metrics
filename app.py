@@ -72,6 +72,64 @@ def apply_department_mappings(data, mappings):
     
     return data
 
+def is_employee_user(email, user_name):
+    """
+    Check if a user is an employee by email or name.
+    
+    Args:
+        email: User email address
+        user_name: User full name
+        
+    Returns:
+        bool: True if user is an employee, False otherwise
+    """
+    # First try by email
+    if email:
+        employee = db.get_employee_by_email(email)
+        if employee:
+            return True
+    
+    # Try by name if email lookup fails
+    if user_name:
+        name_parts = user_name.strip().split()
+        if len(name_parts) >= 2:
+            first_name = name_parts[0]
+            last_name = ' '.join(name_parts[1:])
+            employee = db.get_employee_by_name(first_name, last_name)
+            if employee:
+                return True
+    
+    return False
+
+def get_employee_for_user(email, user_name):
+    """
+    Get employee record for a user by email or name.
+    
+    Args:
+        email: User email address
+        user_name: User full name
+        
+    Returns:
+        dict or None: Employee record if found
+    """
+    # First try by email
+    if email:
+        employee = db.get_employee_by_email(email)
+        if employee:
+            return employee
+    
+    # Try by name if email lookup fails
+    if user_name:
+        name_parts = user_name.strip().split()
+        if len(name_parts) >= 2:
+            first_name = name_parts[0]
+            last_name = ' '.join(name_parts[1:])
+            employee = db.get_employee_by_name(first_name, last_name)
+            if employee:
+                return employee
+    
+    return None
+
 # Enhanced CSS with micro UI improvements
 st.markdown("""
 <style>
@@ -430,11 +488,23 @@ def normalize_openai_data(df, filename):
     normalized_records = []
     
     for _, row in df.iterrows():
-        # Get user email
+        # Get user email and name
         user_email = row.get('email', '')
+        user_name = row.get('name', '')
         
         # Look up employee by email to get authoritative department
-        employee = db.get_employee_by_email(user_email) if user_email else None
+        employee = None
+        if user_email:
+            employee = db.get_employee_by_email(user_email)
+        
+        # If no match by email, try matching by name
+        if not employee and user_name:
+            # Try to parse name into first and last
+            name_parts = user_name.strip().split()
+            if len(name_parts) >= 2:
+                first_name = name_parts[0]
+                last_name = ' '.join(name_parts[1:])  # Handle multi-part last names
+                employee = db.get_employee_by_name(first_name, last_name)
         
         if employee:
             # Use employee data as source of truth
@@ -552,7 +622,17 @@ def normalize_blueflame_data(df, filename):
                     continue
                 
                 # Look up employee by email to get authoritative department
-                employee = db.get_employee_by_email(user_email)
+                employee = db.get_employee_by_email(user_email) if user_email else None
+                
+                # If no match by email, try to extract name from email and match
+                if not employee and user_email:
+                    # Try to parse name from email (e.g., john.doe@company.com -> John Doe)
+                    email_name = user_email.split('@')[0].replace('.', ' ').strip()
+                    name_parts = email_name.split()
+                    if len(name_parts) >= 2:
+                        first_name = name_parts[0]
+                        last_name = ' '.join(name_parts[1:])
+                        employee = db.get_employee_by_name(first_name, last_name)
                 
                 if employee:
                     # Use employee data as source of truth
@@ -769,8 +849,8 @@ def display_department_mapper():
     }).reset_index()
     users_df = users_df.sort_values('user_name')
     
-    # Check which users are employees
-    users_df['is_employee'] = users_df['email'].apply(lambda e: db.get_employee_by_email(e) is not None if e else False)
+    # Check which users are employees (by email or name)
+    users_df['is_employee'] = users_df.apply(lambda row: is_employee_user(row['email'], row['user_name']), axis=1)
     
     st.markdown('<div class="section-header"><h3>📋 All Users</h3></div>', unsafe_allow_html=True)
     st.write(f"**Total Users:** {len(users_df)} ({users_df['is_employee'].sum()} employees, {(~users_df['is_employee']).sum()} unidentified)")
@@ -895,7 +975,7 @@ def display_department_mapper():
             
             # If employee, show department as read-only
             if row['is_employee']:
-                employee = db.get_employee_by_email(row['email'])
+                employee = get_employee_for_user(row['email'], row['user_name'])
                 if employee:
                     st.write(f"🔒 {employee['department']}")
                 else:
@@ -2105,6 +2185,7 @@ def main():
                 
                 # Map columns
                 st.write("**Column Mapping:**")
+                st.info("ℹ️ Email column is optional. If your file doesn't have email addresses, employees will be matched by name.")
                 col_map_col1, col_map_col2 = st.columns(2)
                 
                 with col_map_col1:
@@ -2112,8 +2193,10 @@ def main():
                                                   index=next((i for i, c in enumerate(emp_df.columns) if 'first' in c.lower()), 0))
                     last_name_col = st.selectbox("Last Name Column", emp_df.columns,
                                                 index=next((i for i, c in enumerate(emp_df.columns) if 'last' in c.lower()), 1))
-                    email_col = st.selectbox("Email Column", emp_df.columns,
-                                           index=next((i for i, c in enumerate(emp_df.columns) if 'email' in c.lower()), 2))
+                    # Make email optional
+                    email_col_options = ['[No Email Column]'] + list(emp_df.columns)
+                    email_col_idx = next((i+1 for i, c in enumerate(emp_df.columns) if 'email' in c.lower()), 0)
+                    email_col_selection = st.selectbox("Email Column (Optional)", email_col_options, index=email_col_idx)
                 
                 with col_map_col2:
                     title_col = st.selectbox("Title Column", emp_df.columns,
@@ -2128,7 +2211,7 @@ def main():
                     normalized_emp_df = pd.DataFrame({
                         'first_name': emp_df[first_name_col],
                         'last_name': emp_df[last_name_col],
-                        'email': emp_df[email_col],
+                        'email': emp_df[email_col_selection] if email_col_selection != '[No Email Column]' else None,
                         'title': emp_df[title_col],
                         'department': emp_df[dept_col],
                         'status': emp_df[status_col]
