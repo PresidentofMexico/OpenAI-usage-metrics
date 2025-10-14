@@ -83,23 +83,28 @@ def is_employee_user(email, user_name):
     Returns:
         bool: True if user is an employee, False otherwise
     """
-    # First try by email
-    if email:
-        employee = db.get_employee_by_email(email)
-        if employee:
-            return True
-    
-    # Try by name if email lookup fails
-    if user_name:
-        name_parts = user_name.strip().split()
-        if len(name_parts) >= 2:
-            first_name = name_parts[0]
-            last_name = ' '.join(name_parts[1:])
-            employee = db.get_employee_by_name(first_name, last_name)
+    try:
+        # First try by email
+        if email:
+            employee = db.get_employee_by_email(email)
             if employee:
                 return True
-    
-    return False
+        
+        # Try by name if email lookup fails
+        if user_name:
+            name_parts = user_name.strip().split()
+            if len(name_parts) >= 2:
+                first_name = name_parts[0]
+                last_name = ' '.join(name_parts[1:])
+                employee = db.get_employee_by_name(first_name, last_name)
+                if employee:
+                    return True
+        
+        return False
+    except AttributeError:
+        # Handle cache error - database object missing methods
+        # This happens when code is updated while app is running
+        return False
 
 def get_employee_for_user(email, user_name):
     """
@@ -112,23 +117,28 @@ def get_employee_for_user(email, user_name):
     Returns:
         dict or None: Employee record if found
     """
-    # First try by email
-    if email:
-        employee = db.get_employee_by_email(email)
-        if employee:
-            return employee
-    
-    # Try by name if email lookup fails
-    if user_name:
-        name_parts = user_name.strip().split()
-        if len(name_parts) >= 2:
-            first_name = name_parts[0]
-            last_name = ' '.join(name_parts[1:])
-            employee = db.get_employee_by_name(first_name, last_name)
+    try:
+        # First try by email
+        if email:
+            employee = db.get_employee_by_email(email)
             if employee:
                 return employee
-    
-    return None
+        
+        # Try by name if email lookup fails
+        if user_name:
+            name_parts = user_name.strip().split()
+            if len(name_parts) >= 2:
+                first_name = name_parts[0]
+                last_name = ' '.join(name_parts[1:])
+                employee = db.get_employee_by_name(first_name, last_name)
+                if employee:
+                    return employee
+        
+        return None
+    except AttributeError:
+        # Handle cache error - database object missing methods
+        # This happens when code is updated while app is running
+        return None
 
 # Enhanced CSS with micro UI improvements
 st.markdown("""
@@ -494,17 +504,21 @@ def normalize_openai_data(df, filename):
         
         # Look up employee by email to get authoritative department
         employee = None
-        if user_email:
-            employee = db.get_employee_by_email(user_email)
-        
-        # If no match by email, try matching by name
-        if not employee and user_name:
-            # Try to parse name into first and last
-            name_parts = user_name.strip().split()
-            if len(name_parts) >= 2:
-                first_name = name_parts[0]
-                last_name = ' '.join(name_parts[1:])  # Handle multi-part last names
-                employee = db.get_employee_by_name(first_name, last_name)
+        try:
+            if user_email:
+                employee = db.get_employee_by_email(user_email)
+            
+            # If no match by email, try matching by name
+            if not employee and user_name:
+                # Try to parse name into first and last
+                name_parts = user_name.strip().split()
+                if len(name_parts) >= 2:
+                    first_name = name_parts[0]
+                    last_name = ' '.join(name_parts[1:])  # Handle multi-part last names
+                    employee = db.get_employee_by_name(first_name, last_name)
+        except AttributeError:
+            # Handle cache error - database object missing methods
+            employee = None
         
         if employee:
             # Use employee data as source of truth
@@ -622,17 +636,22 @@ def normalize_blueflame_data(df, filename):
                     continue
                 
                 # Look up employee by email to get authoritative department
-                employee = db.get_employee_by_email(user_email) if user_email else None
-                
-                # If no match by email, try to extract name from email and match
-                if not employee and user_email:
-                    # Try to parse name from email (e.g., john.doe@company.com -> John Doe)
-                    email_name = user_email.split('@')[0].replace('.', ' ').strip()
-                    name_parts = email_name.split()
-                    if len(name_parts) >= 2:
-                        first_name = name_parts[0]
-                        last_name = ' '.join(name_parts[1:])
-                        employee = db.get_employee_by_name(first_name, last_name)
+                employee = None
+                try:
+                    employee = db.get_employee_by_email(user_email) if user_email else None
+                    
+                    # If no match by email, try to extract name from email and match
+                    if not employee and user_email:
+                        # Try to parse name from email (e.g., john.doe@company.com -> John Doe)
+                        email_name = user_email.split('@')[0].replace('.', ' ').strip()
+                        name_parts = email_name.split()
+                        if len(name_parts) >= 2:
+                            first_name = name_parts[0]
+                            last_name = ' '.join(name_parts[1:])
+                            employee = db.get_employee_by_name(first_name, last_name)
+                except AttributeError:
+                    # Handle cache error - database object missing methods
+                    employee = None
                 
                 if employee:
                     # Use employee data as source of truth
@@ -852,7 +871,11 @@ def display_department_mapper():
         st.divider()
     
     # Department options from employee table
-    employee_depts = db.get_employee_departments()
+    try:
+        employee_depts = db.get_employee_departments()
+    except AttributeError:
+        # Handle cache error - database object missing methods
+        employee_depts = []
     
     # Add standard options for unidentified users
     dept_options = sorted(employee_depts) if employee_depts else []
@@ -2185,7 +2208,11 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        employee_count = db.get_employee_count()
+        try:
+            employee_count = db.get_employee_count()
+        except AttributeError:
+            # Handle cache error - database object missing methods
+            employee_count = 0
         col1, col2 = st.columns([2, 1])
         
         with col1:
@@ -2197,7 +2224,12 @@ def main():
         
         # Show employee table if requested
         if st.session_state.get('show_employees', False):
-            employees_df = db.get_all_employees()
+            try:
+                employees_df = db.get_all_employees()
+            except AttributeError:
+                # Handle cache error - database object missing methods
+                employees_df = pd.DataFrame()
+            
             if not employees_df.empty:
                 st.dataframe(employees_df, use_container_width=True)
             else:
