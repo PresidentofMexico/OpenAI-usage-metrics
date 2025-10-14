@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import sqlite3
 import json
+import random
 
 from data_processor import DataProcessor
 from database import DatabaseManager
@@ -683,7 +684,7 @@ def normalize_blueflame_data(df, filename):
     return pd.DataFrame(normalized_records)
 
 def display_department_mapper():
-    """Display department mapping interface with improved user deduplication."""
+    """Display department mapping interface with improved user deduplication and pagination."""
     st.subheader("🏢 Department Mapping Tool")
     
     st.markdown("""
@@ -723,11 +724,66 @@ def display_department_mapper():
     # Search filter
     search = st.text_input("🔍 Search users by name or email", "")
     
+    # Initialize pagination state if not exists
+    if 'dept_mapper_page' not in st.session_state:
+        st.session_state.dept_mapper_page = 0
+    
+    # Users per page
+    users_per_page = 20
+    
+    # Apply search filter if provided
     if search:
         users_df = users_df[
             users_df['user_name'].str.contains(search, case=False, na=False) | 
             users_df['email'].str.contains(search, case=False, na=False)
         ]
+        # Reset pagination when searching
+        st.session_state.dept_mapper_page = 0
+    
+    # Calculate total pages
+    total_pages = max(1, (len(users_df) + users_per_page - 1) // users_per_page)
+    
+    # Ensure current page is valid
+    st.session_state.dept_mapper_page = min(st.session_state.dept_mapper_page, total_pages - 1)
+    st.session_state.dept_mapper_page = max(0, st.session_state.dept_mapper_page)
+    
+    # Pagination controls - place them at top and bottom
+    def pagination_controls():
+        col1, col2, col3, col4, col5 = st.columns([2, 1, 3, 1, 2])
+        
+        with col1:
+            if st.button("◀️ Previous", key=f"prev_{random.randint(1, 10000)}", 
+                         disabled=(st.session_state.dept_mapper_page <= 0)):
+                st.session_state.dept_mapper_page -= 1
+                st.rerun()
+        
+        with col3:
+            # Show page selector with page numbers
+            page_options = [f"Page {i+1} of {total_pages}" for i in range(total_pages)]
+            selected_page = st.selectbox(
+                "Page",
+                options=page_options,
+                index=st.session_state.dept_mapper_page,
+                key=f"page_select_{random.randint(1, 10000)}",
+                label_visibility="collapsed"
+            )
+            if page_options.index(selected_page) != st.session_state.dept_mapper_page:
+                st.session_state.dept_mapper_page = page_options.index(selected_page)
+                st.rerun()
+        
+        with col5:
+            if st.button("Next ▶️", key=f"next_{random.randint(1, 10000)}", 
+                         disabled=(st.session_state.dept_mapper_page >= total_pages - 1)):
+                st.session_state.dept_mapper_page += 1
+                st.rerun()
+    
+    # Display pagination at top
+    pagination_controls()
+    
+    # Get current page of users
+    start_idx = st.session_state.dept_mapper_page * users_per_page
+    end_idx = start_idx + users_per_page
+    current_page_users = users_df.iloc[start_idx:end_idx]
     
     # Display in a clean table format with editable departments
     st.write("**Update Department Assignments:**")
@@ -747,8 +803,8 @@ def display_department_mapper():
     
     st.divider()
     
-    # Show only first 20 users to avoid overwhelming the interface
-    for position, (idx, row) in enumerate(users_df.head(20).iterrows()):
+    # Show current page of users
+    for position, (idx, row) in enumerate(current_page_users.iterrows()):
         col1, col2, col3, col4 = st.columns([3, 3, 3, 1])
         
         with col1:
@@ -768,7 +824,7 @@ def display_department_mapper():
                 "Dept",
                 options=dept_options,
                 index=dept_options.index(current_dept) if current_dept in dept_options else dept_options.index('Unknown'),
-                key=f"dept_{position}_{row['email']}",
+                key=f"dept_{start_idx + position}_{row['email']}",
                 label_visibility="collapsed"
             )
             
@@ -777,11 +833,19 @@ def display_department_mapper():
                 changes_made = True
         
         with col4:
-            if st.button("✓", key=f"save_{position}_{row['email']}", help="Save changes"):
+            if st.button("✓", key=f"save_{start_idx + position}_{row['email']}", help="Save changes"):
                 changes_made = True
+        
+        st.divider()
     
-    if len(users_df) > 20:
-        st.info(f"Showing 20 of {len(users_df)} users. Use search to find specific users.")
+    # Display pagination at bottom too
+    pagination_controls()
+    
+    # User info message
+    showing_text = f"Showing users {start_idx + 1}-{min(end_idx, len(users_df))} of {len(users_df)}"
+    if search:
+        showing_text += f" (filtered by '{search}')"
+    st.info(showing_text)
     
     # Save button
     if changes_made or st.button("💾 Save All Department Mappings", type="primary"):
