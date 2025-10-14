@@ -659,16 +659,21 @@ class DatabaseManager:
             query = """
                 SELECT 
                     um.email,
-                    um.user_name,
-                    GROUP_CONCAT(DISTINCT um.tool_source) as tools_used,
-                    SUM(um.usage_count) as total_usage,
-                    SUM(um.cost_usd) as total_cost,
+                    CASE 
+                        WHEN um.user_name IS NULL OR TRIM(um.user_name) = '' THEN 'Unknown User'
+                        ELSE um.user_name
+                    END as user_name,
+                    COALESCE(GROUP_CONCAT(DISTINCT um.tool_source), 'Unknown') as tools_used,
+                    COALESCE(SUM(um.usage_count), 0) as total_usage,
+                    COALESCE(SUM(um.cost_usd), 0.0) as total_cost,
                     COUNT(DISTINCT um.date) as days_active
                 FROM usage_metrics um
                 LEFT JOIN employees e ON (
                     LOWER(um.email) = LOWER(e.email) 
                     OR (
-                        LOWER(SUBSTR(um.user_name, 1, INSTR(um.user_name || ' ', ' ') - 1)) = LOWER(e.first_name)
+                        um.user_name IS NOT NULL 
+                        AND um.user_name != ''
+                        AND LOWER(SUBSTR(um.user_name, 1, INSTR(um.user_name || ' ', ' ') - 1)) = LOWER(e.first_name)
                         AND LOWER(SUBSTR(um.user_name, INSTR(um.user_name, ' ') + 1)) = LOWER(e.last_name)
                     )
                 )
