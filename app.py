@@ -529,7 +529,7 @@ def normalize_openai_data(df, filename):
         else:
             # User not in employee roster - flag as unidentified
             # Parse department - OpenAI exports it as a JSON array string
-            dept = 'Unidentified User'
+            dept = 'Unknown'
             user_name = row.get('name', '')
         
         # Get period dates with robust error handling
@@ -661,7 +661,7 @@ def normalize_blueflame_data(df, filename):
                         user_name = user_email.split('@')[0].replace('.', ' ').title()
                 else:
                     # User not in employee roster - flag as unidentified
-                    dept = 'Unidentified User'
+                    dept = 'Unknown'
                     user_name = user_email.split('@')[0].replace('.', ' ').title()
                 
                 # Process each month for this user
@@ -870,17 +870,68 @@ def display_department_mapper():
         
         st.divider()
     
-    # Department options from employee table
-    try:
-        employee_depts = db.get_employee_departments()
-    except AttributeError:
-        # Handle cache error - database object missing methods
-        employee_depts = []
-    
-    # Add standard options for unidentified users
-    dept_options = sorted(employee_depts) if employee_depts else []
-    dept_options.extend(['Unidentified User', 'External', 'Contractor', 'Unknown'])
-    dept_options = sorted(list(set(dept_options)))  # Remove duplicates and sort
+    # Department options - hardcoded list of 59 departments
+    dept_options = [
+        'Administrative - Capital Formation',
+        'Administrative - Communications',
+        'Administrative - Corporate Credit',
+        'Administrative - Events & Premises',
+        'Administrative - Finance',
+        'Administrative - GPS',
+        'Administrative - Investments',
+        'Administrative - Legal',
+        'Administrative - President',
+        'Administrative - TBO',
+        'Administrative - TMO',
+        'Adminstrative - Investments',
+        'CEO Office',
+        'Capital Formation',
+        'Communications',
+        'Compliance',
+        'Corporate Credit - Asset Based',
+        'Corporate Credit - Asset Management',
+        'Corporate Credit - Capital Markets',
+        'Corporate Credit - Consumer',
+        'Corporate Credit - Credit',
+        'Corporate Credit - Diversified Credit',
+        'Corporate Credit - Healthcare',
+        'Corporate Credit - Industrials',
+        'Corporate Credit - Manufacturing',
+        'Corporate Credit - Media',
+        'Corporate Credit - Middle Market',
+        'Corporate Credit - Origination',
+        'Corporate Credit - Risk & Restructuring',
+        'Corporate Credit - Technology',
+        'Corporate Credit - Trading',
+        'Corporate Credit -Industrials',
+        'Cross Asset Specialists',
+        'Cross Platform Solutions',
+        'Events',
+        'Executive',
+        'Finance',
+        'Finance - Capital Markets',
+        'Finance - Controllership',
+        'Finance - Diversified Credit',
+        'Finance - FP&A',
+        'Finance - Tax',
+        'GP Solutions',
+        'Human Capital ',
+        'Investments',
+        'Legal',
+        'Operations',
+        'Operations - Project Management',
+        'Ops - Client Service & Invest. Ops ',
+        'Ops - Portfolio & Fund Ops',
+        'Premises',
+        'Private Wealth',
+        'Product Development',
+        'Real Estate Credit',
+        'Real Estate Credit - Portfolio Management',
+        'SME',
+        'Structured Credit',
+        'Technology',
+        'Unknown'
+    ]
     
     # Deduplicate users by email only, using smart department selection
     # This prevents users who appear in both OpenAI and BlueFlame from showing as duplicates
@@ -1035,7 +1086,7 @@ def display_department_mapper():
                 new_dept = st.selectbox(
                     "Dept",
                     options=dept_options,
-                    index=dept_options.index(current_dept) if current_dept in dept_options else dept_options.index('Unidentified User'),
+                    index=dept_options.index(current_dept) if current_dept in dept_options else dept_options.index('Unknown'),
                     key=f"dept_{start_idx + position}_{row['email']}",
                     label_visibility="collapsed"
                 )
