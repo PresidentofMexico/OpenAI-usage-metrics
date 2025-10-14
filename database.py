@@ -468,20 +468,56 @@ class DatabaseManager:
             
             for _, row in df.iterrows():
                 # Handle potential NaN/float values by converting to string and stripping
-                first_name = str(row.get('first_name', '')).strip() if pd.notna(row.get('first_name')) else ''
-                last_name = str(row.get('last_name', '')).strip() if pd.notna(row.get('last_name')) else ''
-                email = str(row.get('email', '')).strip().lower() if pd.notna(row.get('email')) and row.get('email') else None
-                title = str(row.get('title', '')).strip() if pd.notna(row.get('title')) else ''
-                department = str(row.get('department', '')).strip() if pd.notna(row.get('department')) else ''
-                status = str(row.get('status', '')).strip() if pd.notna(row.get('status')) else ''
+                # Defensive None checking: ensure value is not None before calling str() and strip()
+                def safe_str_strip(value):
+                    """Safely convert value to string and strip, handling None/NaN/empty"""
+                    if value is None or pd.isna(value):
+                        return ''
+                    if isinstance(value, str):
+                        stripped = value.strip()
+                        # Return empty string if it's just whitespace or common null representations
+                        if not stripped or stripped.lower() in ('none', 'nan', 'null', 'n/a'):
+                            return ''
+                        return stripped
+                    # For non-string types, convert to string
+                    str_val = str(value).strip()
+                    if str_val.lower() in ('none', 'nan', 'null', 'n/a'):
+                        return ''
+                    return str_val
                 
-                # Skip if we don't have at least first and last name
-                if not first_name or not last_name or first_name == 'nan' or last_name == 'nan':
+                first_name = safe_str_strip(row.get('first_name', ''))
+                last_name = safe_str_strip(row.get('last_name', ''))
+                
+                # Email requires special handling - should be None if not valid
+                email_raw = row.get('email')
+                if email_raw is None or pd.isna(email_raw):
+                    email = None
+                elif isinstance(email_raw, str):
+                    email_stripped = email_raw.strip().lower()
+                    # Check for empty, whitespace-only, or common null string representations
+                    if not email_stripped or email_stripped in ('none', 'nan', 'null', 'n/a'):
+                        email = None
+                    else:
+                        email = email_stripped
+                else:
+                    # Handle non-string types (e.g., float nan)
+                    email_str = str(email_raw).strip().lower()
+                    if not email_str or email_str in ('none', 'nan', 'null', 'n/a'):
+                        email = None
+                    else:
+                        email = email_str
+                
+                title = safe_str_strip(row.get('title', ''))
+                department = safe_str_strip(row.get('department', ''))
+                status = safe_str_strip(row.get('status', ''))
+                
+                # Skip if we don't have valid first and last names
+                if not first_name or not last_name:
                     continue
                 
                 # Check if employee exists - first by email if available, then by name
                 existing = None
-                if email and email != 'none':
+                if email:
                     cursor.execute("SELECT employee_id FROM employees WHERE LOWER(email) = ?", (email,))
                     existing = cursor.fetchone()
                 
@@ -502,7 +538,7 @@ class DatabaseManager:
                     """, (
                         first_name,
                         last_name,
-                        email if email and email != 'none' else None,
+                        email,
                         title,
                         department,
                         status,
@@ -518,7 +554,7 @@ class DatabaseManager:
                     """, (
                         first_name,
                         last_name,
-                        email if email and email != 'none' else None,
+                        email,
                         title,
                         department,
                         status,
