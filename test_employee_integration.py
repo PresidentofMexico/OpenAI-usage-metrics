@@ -79,7 +79,7 @@ def test_employee_integration():
             dept = employee['department']
             user_name = f"{employee['first_name']} {employee['last_name']}"
         else:
-            dept = 'Unidentified User'
+            dept = 'Unknown'
             user_name = row['name']
         
         # Create record
@@ -112,7 +112,7 @@ def test_employee_integration():
             assert dept == employee['department'], f"Department mismatch for {email}"
             print(f"   ✅ {email}: {dept} (from employee roster)")
         else:
-            assert dept == 'Unidentified User', f"Expected 'Unidentified User' for {email}, got {dept}"
+            assert dept == 'Unknown', f"Expected 'Unknown' for {email}, got {dept}"
             print(f"   ⚠️  {email}: {dept} (not in employee roster)")
     
     print("✅ All department assignments verified")
