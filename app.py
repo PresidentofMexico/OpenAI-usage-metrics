@@ -754,7 +754,6 @@ def display_department_mapper():
             if st.button("◀️ Previous", key=f"prev_{position}", 
                          disabled=(st.session_state.dept_mapper_page <= 0)):
                 st.session_state.dept_mapper_page -= 1
-                st.rerun()
         
         with col3:
             # Show page selector with page numbers
@@ -768,13 +767,11 @@ def display_department_mapper():
             )
             if page_options.index(selected_page) != st.session_state.dept_mapper_page:
                 st.session_state.dept_mapper_page = page_options.index(selected_page)
-                st.rerun()
         
         with col5:
             if st.button("Next ▶️", key=f"next_{position}", 
                          disabled=(st.session_state.dept_mapper_page >= total_pages - 1)):
                 st.session_state.dept_mapper_page += 1
-                st.rerun()
     
     # Display pagination at top
     pagination_controls("top")
@@ -850,7 +847,6 @@ def display_department_mapper():
     if changes_made or st.button("💾 Save All Department Mappings", type="primary"):
         save_department_mappings(mappings)
         st.success(f"✅ Saved department mappings for {len(mappings)} users")
-        st.rerun()
     
     # Show current mappings count
     if mappings:
