@@ -44,6 +44,7 @@ The app stores uploaded data in SQLite database (`openai_metrics.db`). Both auto
 
 ## Features
 
+- **👥 Employee Master File Integration** - Load employee roster for automatic department assignment ([Guide](EMPLOYEE_INTEGRATION_GUIDE.md))
 - **🔄 Automatic File Detection** - Scan folders for CSV files automatically
 - **📊 Multi-Platform Support** - OpenAI ChatGPT, BlueFlame AI, and more
 - **📈 Executive Overview** - Key metrics, trends, and data quality indicators

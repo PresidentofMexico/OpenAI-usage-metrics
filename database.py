@@ -36,6 +36,21 @@ class DatabaseManager:
                 )
             """)
             
+            # Create employees table for master employee list
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS employees (
+                    employee_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    email TEXT UNIQUE NOT NULL,
+                    title TEXT,
+                    department TEXT,
+                    status TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             conn.commit()
             
             # Check if we need to migrate existing data (add email and tool_source columns)
@@ -113,6 +128,17 @@ class DatabaseManager:
                 conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_date 
                     ON usage_metrics(date)
+                """)
+                
+                # Create indexes for employees table
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_employee_email 
+                    ON employees(email)
+                """)
+                
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_employee_department 
+                    ON employees(department)
                 """)
                 
                 conn.commit()
@@ -421,3 +447,179 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error getting database stats: {e}")
             return None
+    
+    def load_employees(self, df):
+        """
+        Load or update employee records from a DataFrame.
+        
+        Args:
+            df: DataFrame with employee data
+            
+        Returns:
+            tuple: (success: bool, message: str, count: int)
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            inserted = 0
+            updated = 0
+            
+            for _, row in df.iterrows():
+                email = row.get('email', '').strip().lower()
+                if not email:
+                    continue
+                
+                # Check if employee exists
+                cursor.execute("SELECT employee_id FROM employees WHERE email = ?", (email,))
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # Update existing employee
+                    cursor.execute("""
+                        UPDATE employees 
+                        SET first_name = ?, last_name = ?, title = ?, department = ?, status = ?, updated_at = ?
+                        WHERE email = ?
+                    """, (
+                        row.get('first_name', ''),
+                        row.get('last_name', ''),
+                        row.get('title', ''),
+                        row.get('department', ''),
+                        row.get('status', ''),
+                        datetime.now().isoformat(),
+                        email
+                    ))
+                    updated += 1
+                else:
+                    # Insert new employee
+                    cursor.execute("""
+                        INSERT INTO employees (first_name, last_name, email, title, department, status, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        row.get('first_name', ''),
+                        row.get('last_name', ''),
+                        email,
+                        row.get('title', ''),
+                        row.get('department', ''),
+                        row.get('status', ''),
+                        datetime.now().isoformat(),
+                        datetime.now().isoformat()
+                    ))
+                    inserted += 1
+            
+            conn.commit()
+            conn.close()
+            
+            total = inserted + updated
+            message = f"Loaded {total} employees ({inserted} new, {updated} updated)"
+            print(message)
+            return True, message, total
+            
+        except Exception as e:
+            print(f"Error loading employees: {e}")
+            return False, f"Error loading employees: {str(e)}", 0
+    
+    def get_employee_by_email(self, email):
+        """
+        Get employee record by email.
+        
+        Args:
+            email: Employee email address
+            
+        Returns:
+            dict or None: Employee record
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.execute(
+                "SELECT employee_id, first_name, last_name, email, title, department, status FROM employees WHERE email = ?",
+                (email.strip().lower(),)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return {
+                    'employee_id': row[0],
+                    'first_name': row[1],
+                    'last_name': row[2],
+                    'email': row[3],
+                    'title': row[4],
+                    'department': row[5],
+                    'status': row[6]
+                }
+            return None
+            
+        except Exception as e:
+            print(f"Error getting employee: {e}")
+            return None
+    
+    def get_all_employees(self):
+        """Get all employee records."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            df = pd.read_sql_query(
+                "SELECT employee_id, first_name, last_name, email, title, department, status FROM employees ORDER BY last_name, first_name",
+                conn
+            )
+            conn.close()
+            return df
+        except Exception as e:
+            print(f"Error getting employees: {e}")
+            return pd.DataFrame()
+    
+    def get_employee_departments(self):
+        """Get unique departments from employee table."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            df = pd.read_sql_query(
+                "SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department != '' ORDER BY department",
+                conn
+            )
+            conn.close()
+            return df['department'].tolist() if not df.empty else []
+        except Exception as e:
+            print(f"Error getting employee departments: {e}")
+            return []
+    
+    def get_unidentified_users(self):
+        """
+        Get users from usage_metrics who are not in the employees table.
+        
+        Returns:
+            DataFrame with unidentified users and their usage stats
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            query = """
+                SELECT 
+                    um.email,
+                    um.user_name,
+                    GROUP_CONCAT(DISTINCT um.tool_source) as tools_used,
+                    SUM(um.usage_count) as total_usage,
+                    SUM(um.cost_usd) as total_cost,
+                    COUNT(DISTINCT um.date) as days_active
+                FROM usage_metrics um
+                LEFT JOIN employees e ON LOWER(um.email) = LOWER(e.email)
+                WHERE e.email IS NULL AND um.email IS NOT NULL AND um.email != ''
+                GROUP BY um.email, um.user_name
+                ORDER BY total_usage DESC
+            """
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            return df
+        except Exception as e:
+            print(f"Error getting unidentified users: {e}")
+            return pd.DataFrame()
+    
+    def get_employee_count(self):
+        """Get count of employees in the database."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.execute("SELECT COUNT(*) FROM employees")
+            count = cursor.fetchone()[0]
+            conn.close()
+            return count
+        except Exception as e:
+            print(f"Error getting employee count: {e}")
+            return 0
