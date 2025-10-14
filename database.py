@@ -552,13 +552,19 @@ class DatabaseManager:
             dict or None: Employee record
         """
         try:
-            if not email or not email.strip():
+            # Check if email is None or empty before calling strip()
+            if not email:
+                return None
+            
+            # Strip and check if empty
+            email_stripped = email.strip() if isinstance(email, str) else str(email).strip()
+            if not email_stripped:
                 return None
                 
             conn = sqlite3.connect(self.db_path)
             cursor = conn.execute(
                 "SELECT employee_id, first_name, last_name, email, title, department, status FROM employees WHERE LOWER(email) = ?",
-                (email.strip().lower(),)
+                (email_stripped.lower(),)
             )
             row = cursor.fetchone()
             conn.close()
@@ -591,13 +597,21 @@ class DatabaseManager:
             dict or None: Employee record
         """
         try:
+            # Check if either name is None or empty
             if not first_name or not last_name:
+                return None
+            
+            # Strip and check - handle both string and other types
+            first_name_stripped = first_name.strip() if isinstance(first_name, str) else str(first_name).strip()
+            last_name_stripped = last_name.strip() if isinstance(last_name, str) else str(last_name).strip()
+            
+            if not first_name_stripped or not last_name_stripped:
                 return None
                 
             conn = sqlite3.connect(self.db_path)
             cursor = conn.execute(
                 "SELECT employee_id, first_name, last_name, email, title, department, status FROM employees WHERE LOWER(first_name) = ? AND LOWER(last_name) = ?",
-                (first_name.strip().lower(), last_name.strip().lower())
+                (first_name_stripped.lower(), last_name_stripped.lower())
             )
             row = cursor.fetchone()
             conn.close()
