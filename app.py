@@ -2298,7 +2298,7 @@ def main():
             try:
                 # Read the file
                 if employee_file.name.endswith('.csv'):
-                    emp_df = pd.read_csv(employee_file)
+                    emp_df = pd.read_csv(employee_file, low_memory=False)
                 else:
                     emp_df = pd.read_excel(employee_file)
                 
