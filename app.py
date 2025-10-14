@@ -430,18 +430,23 @@ def normalize_openai_data(df, filename):
     normalized_records = []
     
     for _, row in df.iterrows():
-        # Parse department - OpenAI exports it as a JSON array string
-        dept = 'Unknown'
-        if pd.notna(row.get('department', '')):
-            dept_str = str(row['department'])
-            if dept_str.startswith('['):
-                try:
-                    dept_list = json.loads(dept_str.replace("'", '"'))
-                    dept = dept_list[0] if dept_list else 'Unknown'
-                except:
-                    dept = dept_str.strip('[]"\'')
-            else:
-                dept = dept_str
+        # Get user email
+        user_email = row.get('email', '')
+        
+        # Look up employee by email to get authoritative department
+        employee = db.get_employee_by_email(user_email) if user_email else None
+        
+        if employee:
+            # Use employee data as source of truth
+            dept = employee['department'] if employee['department'] else 'Unknown'
+            user_name = f"{employee['first_name']} {employee['last_name']}".strip()
+            if not user_name:
+                user_name = row.get('name', '')
+        else:
+            # User not in employee roster - flag as unidentified
+            # Parse department - OpenAI exports it as a JSON array string
+            dept = 'Unidentified User'
+            user_name = row.get('name', '')
         
         # Get period dates with robust error handling
         period_start = pd.to_datetime(row.get('period_start', row.get('first_day_active_in_period', datetime.now())), errors='coerce')
@@ -457,8 +462,8 @@ def normalize_openai_data(df, filename):
         if row.get('messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
-                'user_name': row.get('name', ''),
-                'email': row.get('email', ''),
+                'user_name': user_name,
+                'email': user_email,
                 'department': dept,
                 'date': period_start,
                 'feature_used': 'ChatGPT Messages',
@@ -472,8 +477,8 @@ def normalize_openai_data(df, filename):
         if row.get('gpt_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
-                'user_name': row.get('name', ''),
-                'email': row.get('email', ''),
+                'user_name': user_name,
+                'email': user_email,
                 'department': dept,
                 'date': period_start,
                 'feature_used': 'GPT Messages',
@@ -487,8 +492,8 @@ def normalize_openai_data(df, filename):
         if row.get('tool_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
-                'user_name': row.get('name', ''),
-                'email': row.get('email', ''),
+                'user_name': user_name,
+                'email': user_email,
                 'department': dept,
                 'date': period_start,
                 'feature_used': 'Tool Messages',
@@ -502,8 +507,8 @@ def normalize_openai_data(df, filename):
         if row.get('project_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
-                'user_name': row.get('name', ''),
-                'email': row.get('email', ''),
+                'user_name': user_name,
+                'email': user_email,
                 'department': dept,
                 'date': period_start,
                 'feature_used': 'Project Messages',
@@ -545,8 +550,20 @@ def normalize_blueflame_data(df, filename):
                 user_email = row['User ID']
                 if pd.isna(user_email) or not user_email:
                     continue
-                    
-                user_name = user_email.split('@')[0].replace('.', ' ').title()
+                
+                # Look up employee by email to get authoritative department
+                employee = db.get_employee_by_email(user_email)
+                
+                if employee:
+                    # Use employee data as source of truth
+                    dept = employee['department'] if employee['department'] else 'Unknown'
+                    user_name = f"{employee['first_name']} {employee['last_name']}".strip()
+                    if not user_name:
+                        user_name = user_email.split('@')[0].replace('.', ' ').title()
+                else:
+                    # User not in employee roster - flag as unidentified
+                    dept = 'Unidentified User'
+                    user_name = user_email.split('@')[0].replace('.', ' ').title()
                 
                 # Process each month for this user
                 for month_col in month_cols:
@@ -582,7 +599,7 @@ def normalize_blueflame_data(df, filename):
                             'user_id': user_email,
                             'user_name': user_name,
                             'email': user_email,
-                            'department': 'BlueFlame Users',  # Default department, can be updated later
+                            'department': dept,
                             'date': month_date,
                             'feature_used': 'BlueFlame Messages',
                             'usage_count': int(message_count),
@@ -690,6 +707,8 @@ def display_department_mapper():
     <div class="dept-mapper-container">
     <p><strong>Why use this?</strong> AI tool exports sometimes have incorrect or missing department data. 
     Use this tool to correct department assignments. Changes are saved and applied to all analytics.</p>
+    <p><strong>Note:</strong> Employee departments are sourced from the master employee file and are read-only. 
+    You can only map departments for unidentified users.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -702,6 +721,45 @@ def display_department_mapper():
         st.info("No data available. Upload data first to use department mapping.")
         return
     
+    # Get unidentified users
+    unidentified_users_df = db.get_unidentified_users()
+    
+    # Show unidentified users section prominently
+    if not unidentified_users_df.empty:
+        st.markdown('<div class="section-header"><h3>⚠️ Unidentified Users</h3></div>', unsafe_allow_html=True)
+        st.warning(f"Found {len(unidentified_users_df)} users not in the employee master file")
+        
+        with st.expander(f"👥 View {len(unidentified_users_df)} Unidentified Users", expanded=True):
+            # Display unidentified users
+            for idx, row in unidentified_users_df.iterrows():
+                col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                
+                with col1:
+                    st.write(f"**{row['user_name']}**")
+                    st.caption(row['email'])
+                
+                with col2:
+                    st.write(f"🔧 {row['tools_used']}")
+                
+                with col3:
+                    st.write(f"📊 {int(row['total_usage']):,} messages")
+                    st.caption(f"${row['total_cost']:.2f}")
+                
+                with col4:
+                    st.caption(f"{int(row['days_active'])} days")
+                
+                st.divider()
+        
+        st.divider()
+    
+    # Department options from employee table
+    employee_depts = db.get_employee_departments()
+    
+    # Add standard options for unidentified users
+    dept_options = sorted(employee_depts) if employee_depts else []
+    dept_options.extend(['Unidentified User', 'External', 'Contractor', 'Unknown'])
+    dept_options = sorted(list(set(dept_options)))  # Remove duplicates and sort
+    
     # Deduplicate users by email only, using smart department selection
     # This prevents users who appear in both OpenAI and BlueFlame from showing as duplicates
     users_df = all_data.groupby('email').agg({
@@ -711,17 +769,26 @@ def display_department_mapper():
     }).reset_index()
     users_df = users_df.sort_values('user_name')
     
-    # Department options
-    dept_options = [
-        'Finance', 'IT', 'Analytics', 'Product', 'Legal', 'Research', 
-        'Sales', 'Operations', 'HR', 'Marketing', 'Engineering', 
-        'Customer Success', 'Other', 'Unknown'
-    ]
+    # Check which users are employees
+    users_df['is_employee'] = users_df['email'].apply(lambda e: db.get_employee_by_email(e) is not None if e else False)
     
-    st.write(f"**Total Users:** {len(users_df)}")
+    st.markdown('<div class="section-header"><h3>📋 All Users</h3></div>', unsafe_allow_html=True)
+    st.write(f"**Total Users:** {len(users_df)} ({users_df['is_employee'].sum()} employees, {(~users_df['is_employee']).sum()} unidentified)")
+    
+    # Filter options
+    col1, col2 = st.columns(2)
+    with col1:
+        filter_type = st.radio("Filter by:", ["All Users", "Employees Only", "Unidentified Only"], horizontal=True)
+    
+    # Apply filter
+    if filter_type == "Employees Only":
+        users_df = users_df[users_df['is_employee']]
+    elif filter_type == "Unidentified Only":
+        users_df = users_df[~users_df['is_employee']]
     
     # Search filter
-    search = st.text_input("🔍 Search users by name or email", "")
+    with col2:
+        search = st.text_input("🔍 Search by name or email", "")
     
     # Initialize pagination state if not exists
     if 'dept_mapper_page' not in st.session_state:
@@ -787,21 +854,23 @@ def display_department_mapper():
     changes_made = False
     
     # Create columns for the table
-    col1, col2, col3, col4 = st.columns([3, 3, 3, 1])
+    col1, col2, col3, col4, col5 = st.columns([2, 3, 2, 2, 1])
     with col1:
         st.write("**Name**")
     with col2:
         st.write("**Email**")
     with col3:
-        st.write("**Department**")
+        st.write("**Type**")
     with col4:
+        st.write("**Department**")
+    with col5:
         st.write("**Action**")
     
     st.divider()
     
     # Show current page of users
     for position, (idx, row) in enumerate(current_page_users.iterrows()):
-        col1, col2, col3, col4 = st.columns([3, 3, 3, 1])
+        col1, col2, col3, col4, col5 = st.columns([2, 3, 2, 2, 1])
         
         with col1:
             # Show user name with multi-tool indicator
@@ -815,22 +884,40 @@ def display_department_mapper():
             st.text(row['email'], help=f"Tools: {row['tool_source']}")
         
         with col3:
-            current_dept = mappings.get(row['email'], row['department'])
-            new_dept = st.selectbox(
-                "Dept",
-                options=dept_options,
-                index=dept_options.index(current_dept) if current_dept in dept_options else dept_options.index('Unknown'),
-                key=f"dept_{start_idx + position}_{row['email']}",
-                label_visibility="collapsed"
-            )
-            
-            if new_dept != mappings.get(row['email'], row['department']):
-                mappings[row['email']] = new_dept
-                changes_made = True
+            # Show if employee or unidentified
+            if row['is_employee']:
+                st.write("✅ Employee")
+            else:
+                st.write("⚠️ Unidentified")
         
         with col4:
-            if st.button("✓", key=f"save_{start_idx + position}_{row['email']}", help="Save changes"):
-                changes_made = True
+            current_dept = mappings.get(row['email'], row['department'])
+            
+            # If employee, show department as read-only
+            if row['is_employee']:
+                employee = db.get_employee_by_email(row['email'])
+                if employee:
+                    st.write(f"🔒 {employee['department']}")
+                else:
+                    st.write(current_dept)
+            else:
+                # For unidentified users, allow editing
+                new_dept = st.selectbox(
+                    "Dept",
+                    options=dept_options,
+                    index=dept_options.index(current_dept) if current_dept in dept_options else dept_options.index('Unidentified User'),
+                    key=f"dept_{start_idx + position}_{row['email']}",
+                    label_visibility="collapsed"
+                )
+                
+                if new_dept != mappings.get(row['email'], row['department']):
+                    mappings[row['email']] = new_dept
+                    changes_made = True
+        
+        with col5:
+            if not row['is_employee']:
+                if st.button("✓", key=f"save_{start_idx + position}_{row['email']}", help="Save changes"):
+                    changes_made = True
         
         st.divider()
     
@@ -1968,6 +2055,96 @@ def main():
                 f"${db_info['total_stats']['total_cost']:,.2f}",
                 help="Total estimated cost across all records"
             )
+        
+        st.divider()
+        
+        # Employee File Management
+        st.markdown('<div class="section-header"><h3>👥 Employee Master File</h3></div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="help-tooltip">
+            📋 Upload your employee roster to enable department assignment and identify non-employee tool usage
+        </div>
+        """, unsafe_allow_html=True)
+        
+        employee_count = db.get_employee_count()
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.metric("Employees Loaded", f"{employee_count:,}", help="Total employees in master roster")
+        
+        with col2:
+            if st.button("👁️ View Employees", help="View all loaded employees"):
+                st.session_state.show_employees = not st.session_state.get('show_employees', False)
+        
+        # Show employee table if requested
+        if st.session_state.get('show_employees', False):
+            employees_df = db.get_all_employees()
+            if not employees_df.empty:
+                st.dataframe(employees_df, use_container_width=True)
+            else:
+                st.info("No employees loaded yet")
+        
+        # Employee file uploader
+        employee_file = st.file_uploader(
+            "📤 Upload Employee Master File",
+            type=['csv', 'xlsx'],
+            help="Upload CSV or Excel file with columns: First Name, Last Name, Email, Title, Function (for department), Status",
+            key="employee_uploader"
+        )
+        
+        if employee_file is not None:
+            try:
+                # Read the file
+                if employee_file.name.endswith('.csv'):
+                    emp_df = pd.read_csv(employee_file)
+                else:
+                    emp_df = pd.read_excel(employee_file)
+                
+                st.write(f"**Preview of {employee_file.name}:**")
+                st.dataframe(emp_df.head(5), use_container_width=True)
+                
+                # Map columns
+                st.write("**Column Mapping:**")
+                col_map_col1, col_map_col2 = st.columns(2)
+                
+                with col_map_col1:
+                    first_name_col = st.selectbox("First Name Column", emp_df.columns, 
+                                                  index=next((i for i, c in enumerate(emp_df.columns) if 'first' in c.lower()), 0))
+                    last_name_col = st.selectbox("Last Name Column", emp_df.columns,
+                                                index=next((i for i, c in enumerate(emp_df.columns) if 'last' in c.lower()), 1))
+                    email_col = st.selectbox("Email Column", emp_df.columns,
+                                           index=next((i for i, c in enumerate(emp_df.columns) if 'email' in c.lower()), 2))
+                
+                with col_map_col2:
+                    title_col = st.selectbox("Title Column", emp_df.columns,
+                                           index=next((i for i, c in enumerate(emp_df.columns) if 'title' in c.lower() or 'position' in c.lower()), 3))
+                    dept_col = st.selectbox("Department Column (Function)", emp_df.columns,
+                                          index=next((i for i, c in enumerate(emp_df.columns) if 'function' in c.lower() or 'department' in c.lower() or 'dept' in c.lower()), 4))
+                    status_col = st.selectbox("Status Column", emp_df.columns,
+                                            index=next((i for i, c in enumerate(emp_df.columns) if 'status' in c.lower()), 5))
+                
+                if st.button("📥 Load Employees", type="primary"):
+                    # Create normalized dataframe
+                    normalized_emp_df = pd.DataFrame({
+                        'first_name': emp_df[first_name_col],
+                        'last_name': emp_df[last_name_col],
+                        'email': emp_df[email_col],
+                        'title': emp_df[title_col],
+                        'department': emp_df[dept_col],
+                        'status': emp_df[status_col]
+                    })
+                    
+                    # Load into database
+                    success, message, count = db.load_employees(normalized_emp_df)
+                    
+                    if success:
+                        st.success(f"✅ {message}")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+                        
+            except Exception as e:
+                st.error(f"❌ Error processing employee file: {str(e)}")
         
         st.divider()
         
