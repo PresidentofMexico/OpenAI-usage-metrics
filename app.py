@@ -16,7 +16,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import sqlite3
 import json
-import random
 
 from data_processor import DataProcessor
 from database import DatabaseManager
@@ -748,11 +747,11 @@ def display_department_mapper():
     st.session_state.dept_mapper_page = max(0, st.session_state.dept_mapper_page)
     
     # Pagination controls - place them at top and bottom
-    def pagination_controls():
+    def pagination_controls(position="top"):
         col1, col2, col3, col4, col5 = st.columns([2, 1, 3, 1, 2])
         
         with col1:
-            if st.button("◀️ Previous", key=f"prev_{random.randint(1, 10000)}", 
+            if st.button("◀️ Previous", key=f"prev_{position}", 
                          disabled=(st.session_state.dept_mapper_page <= 0)):
                 st.session_state.dept_mapper_page -= 1
                 st.rerun()
@@ -764,7 +763,7 @@ def display_department_mapper():
                 "Page",
                 options=page_options,
                 index=st.session_state.dept_mapper_page,
-                key=f"page_select_{random.randint(1, 10000)}",
+                key=f"page_select_{position}",
                 label_visibility="collapsed"
             )
             if page_options.index(selected_page) != st.session_state.dept_mapper_page:
@@ -772,13 +771,13 @@ def display_department_mapper():
                 st.rerun()
         
         with col5:
-            if st.button("Next ▶️", key=f"next_{random.randint(1, 10000)}", 
+            if st.button("Next ▶️", key=f"next_{position}", 
                          disabled=(st.session_state.dept_mapper_page >= total_pages - 1)):
                 st.session_state.dept_mapper_page += 1
                 st.rerun()
     
     # Display pagination at top
-    pagination_controls()
+    pagination_controls("top")
     
     # Get current page of users
     start_idx = st.session_state.dept_mapper_page * users_per_page
@@ -839,7 +838,7 @@ def display_department_mapper():
         st.divider()
     
     # Display pagination at bottom too
-    pagination_controls()
+    pagination_controls("bottom")
     
     # User info message
     showing_text = f"Showing users {start_idx + 1}-{min(end_idx, len(users_df))} of {len(users_df)}"
