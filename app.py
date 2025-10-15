@@ -21,8 +21,9 @@ from data_processor import DataProcessor
 from database import DatabaseManager
 from file_reader import read_file_robust, display_file_error, read_file_from_path
 from file_scanner import FileScanner
-from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH
+from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING
 from export_utils import generate_excel_export, generate_pdf_report_html
+from cost_calculator import EnterpriseCostCalculator
 
 # Page configuration
 st.set_page_config(
@@ -558,8 +559,13 @@ def detect_data_source(df):
     return 'Unknown'
 
 def normalize_openai_data(df, filename):
-    """Normalize OpenAI CSV export to standard schema."""
+    """Normalize OpenAI CSV export to standard schema with enterprise license costs."""
     normalized_records = []
+    
+    # Get enterprise pricing
+    cost_calc = EnterpriseCostCalculator()
+    pricing_info = cost_calc.get_pricing_info('ChatGPT')
+    monthly_license_cost = pricing_info['license_cost_per_user_monthly']
     
     for _, row in df.iterrows():
         # Get user email and name
@@ -606,7 +612,7 @@ def normalize_openai_data(df, filename):
         if pd.isna(period_end):
             period_end = datetime.now()
         
-        # ChatGPT messages
+        # ChatGPT messages - cost is enterprise license per user per month
         if row.get('messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
@@ -616,12 +622,12 @@ def normalize_openai_data(df, filename):
                 'date': period_start,
                 'feature_used': 'ChatGPT Messages',
                 'usage_count': row.get('messages', 0),
-                'cost_usd': row.get('messages', 0) * 0.02,
+                'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                 'tool_source': 'ChatGPT',
                 'file_source': filename
             })
         
-        # GPT-specific messages
+        # GPT-specific messages - included in license, cost is 0
         if row.get('gpt_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
@@ -631,12 +637,12 @@ def normalize_openai_data(df, filename):
                 'date': period_start,
                 'feature_used': 'GPT Messages',
                 'usage_count': row.get('gpt_messages', 0),
-                'cost_usd': row.get('gpt_messages', 0) * 0.02,
+                'cost_usd': 0,  # Included in base license
                 'tool_source': 'ChatGPT',
                 'file_source': filename
             })
         
-        # Tool messages
+        # Tool messages - included in license, cost is 0
         if row.get('tool_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
@@ -646,12 +652,12 @@ def normalize_openai_data(df, filename):
                 'date': period_start,
                 'feature_used': 'Tool Messages',
                 'usage_count': row.get('tool_messages', 0),
-                'cost_usd': row.get('tool_messages', 0) * 0.01,
+                'cost_usd': 0,  # Included in base license
                 'tool_source': 'ChatGPT',
                 'file_source': filename
             })
         
-        # Project messages
+        # Project messages - included in license, cost is 0
         if row.get('project_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
@@ -661,7 +667,7 @@ def normalize_openai_data(df, filename):
                 'date': period_start,
                 'feature_used': 'Project Messages',
                 'usage_count': row.get('project_messages', 0),
-                'cost_usd': row.get('project_messages', 0) * 0.015,
+                'cost_usd': 0,  # Included in base license
                 'tool_source': 'ChatGPT',
                 'file_source': filename
             })
@@ -669,8 +675,13 @@ def normalize_openai_data(df, filename):
     return pd.DataFrame(normalized_records)
 
 def normalize_blueflame_data(df, filename):
-    """Normalize BlueFlame AI data to standard schema."""
+    """Normalize BlueFlame AI data to standard schema with enterprise license costs."""
     normalized_records = []
+    
+    # Get enterprise pricing for BlueFlame AI
+    cost_calc = EnterpriseCostCalculator()
+    pricing_info = cost_calc.get_pricing_info('BlueFlame AI')
+    monthly_license_cost = pricing_info['license_cost_per_user_monthly']
     
     # Check if this is the combined format with 'Table' column
     if 'Table' in df.columns:
@@ -757,7 +768,7 @@ def normalize_blueflame_data(df, filename):
                         if pd.isna(message_count) or message_count == 0:
                             continue
                         
-                        # Create user record for this month
+                        # Create user record for this month with enterprise license cost
                         normalized_records.append({
                             'user_id': user_email,
                             'user_name': user_name,
@@ -766,7 +777,7 @@ def normalize_blueflame_data(df, filename):
                             'date': month_date,
                             'feature_used': 'BlueFlame Messages',
                             'usage_count': int(message_count),
-                            'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
+                            'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                             'tool_source': 'BlueFlame AI',
                             'file_source': filename
                         })
@@ -810,7 +821,7 @@ def normalize_blueflame_data(df, filename):
                     if pd.isna(message_count) or message_count == 0:
                         continue
                     
-                    # Create user record for this month
+                    # Create user record for this month with enterprise license cost
                     normalized_records.append({
                         'user_id': user_email,
                         'user_name': user_name,
@@ -819,7 +830,7 @@ def normalize_blueflame_data(df, filename):
                         'date': month_date,
                         'feature_used': 'BlueFlame Messages',
                         'usage_count': message_count,
-                        'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
+                        'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                         'tool_source': 'BlueFlame AI',
                         'file_source': filename
                     })
@@ -855,7 +866,7 @@ def normalize_blueflame_data(df, filename):
                     'date': date,
                     'feature_used': 'BlueFlame Messages',
                     'usage_count': messages,
-                    'cost_usd': float(messages) * 0.015,
+                    'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                     'tool_source': 'BlueFlame AI',
                     'file_source': filename
                 })
