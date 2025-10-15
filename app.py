@@ -558,6 +558,71 @@ st.markdown("""
         font-weight: 700;
     }
     
+    /* Efficiency badges */
+    .efficiency-badge {
+        padding: 4px 8px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 600;
+        display: inline-block;
+        margin-left: 8px;
+    }
+    .high {
+        background-color: #15803d;
+        color: white;
+    }
+    .medium {
+        background-color: #ca8a04;
+        color: white;
+    }
+    .low {
+        background-color: #dc2626;
+        color: white;
+    }
+    
+    /* Enhanced tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: rgba(40, 50, 65, 0.8);
+        border-radius: 4px 4px 0px 0px;
+        gap: 1px;
+        padding: 10px 16px;
+        font-weight: 500;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: rgba(100, 120, 235, 0.2) !important;
+        border-bottom: 2px solid #667eea !important;
+    }
+    
+    /* Enhanced dataframe container */
+    .dataframe-container {
+        border-radius: 10px;
+        overflow: hidden;
+        background: rgba(35, 45, 60, 0.7);
+        padding: 0px;
+        margin: 10px 0px;
+    }
+    
+    /* Metric row styling */
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+        padding: 8px 0;
+    }
+    .metric-label {
+        color: #94a3b8;
+        font-size: 14px;
+    }
+    .metric-value {
+        font-weight: 600;
+        font-size: 15px;
+    }
+    
     /* Info cards with icons */
     .info-card {
         background: var(--bg-primary);
@@ -2480,212 +2545,463 @@ def main():
         dept_stats['Cost per Message'] = (dept_stats['Total Cost'] / dept_stats['Total Usage']).round(3)
         dept_stats = dept_stats.sort_values('Total Usage', ascending=False)
         
-        # Add interactive filtering for departments
-        st.markdown("**🎯 Filter Chart Data**")
-        filter_col1, filter_col2 = st.columns([2, 1])
+        # Add efficiency category
+        conditions = [
+            (dept_stats['Avg Messages/User'] > 5000),
+            (dept_stats['Avg Messages/User'] > 2000),
+            (dept_stats['Avg Messages/User'] <= 2000)
+        ]
+        values = ['High', 'Medium', 'Low']
+        dept_stats['Efficiency'] = np.select(conditions, values, default='Medium')
         
-        with filter_col1:
-            # Department filter - allow excluding specific departments
-            all_departments = dept_stats['Department'].tolist()
-            excluded_depts = st.multiselect(
-                "Exclude departments from chart (e.g., to remove outliers)",
-                all_departments,
-                help="Select departments to exclude from the visualization below"
-            )
+        # Create tabs for different department views
+        dept_tab1, dept_tab2, dept_tab3 = st.tabs([
+            "📊 Department Comparison", 
+            "👥 User Distribution", 
+            "💡 Efficiency Analysis"
+        ])
         
-        with filter_col2:
-            # Minimum user threshold filter
-            min_users = st.number_input(
-                "Min. Active Users",
-                min_value=0,
-                max_value=int(dept_stats['Active Users'].max()),
-                value=0,
-                help="Only show departments with at least this many active users"
-            )
-        
-        # Apply filters to create filtered dataset for visualization
-        dept_stats_filtered = dept_stats.copy()
-        if excluded_depts:
-            dept_stats_filtered = dept_stats_filtered[~dept_stats_filtered['Department'].isin(excluded_depts)]
-        if min_users > 0:
-            dept_stats_filtered = dept_stats_filtered[dept_stats_filtered['Active Users'] >= min_users]
-        
-        # Add view toggle for monthly breakdown
-        view_mode = st.radio(
-            "Chart View Mode",
-            options=["Total Usage", "Monthly Breakdown"],
-            horizontal=True,
-            help="Toggle between total usage view and monthly breakdown by department"
-        )
-        
-        # Create two-column layout for better space utilization
-        col1, col2 = st.columns([3, 2])
-        
-        with col1:
-            # Department comparison bar chart (filtered)
-            if not dept_stats_filtered.empty:
-                if view_mode == "Monthly Breakdown":
-                    # Create monthly breakdown chart
-                    try:
-                        # Prepare monthly data by department
-                        monthly_dept_data = data.copy()
-                        monthly_dept_data['date'] = pd.to_datetime(monthly_dept_data['date'], errors='coerce')
-                        monthly_dept_data = monthly_dept_data.dropna(subset=['date'])
-                        monthly_dept_data['month'] = monthly_dept_data['date'].dt.to_period('M').astype(str)
-                        
-                        # Filter to only departments in the filtered list
-                        filtered_depts = dept_stats_filtered['Department'].tolist()
-                        monthly_dept_data = monthly_dept_data[monthly_dept_data['department'].isin(filtered_depts)]
-                        
-                        # Aggregate by department and month
-                        dept_month_stats = monthly_dept_data.groupby(['department', 'month'])['usage_count'].sum().reset_index()
-                        dept_month_stats.columns = ['Department', 'Month', 'Usage']
-                        
-                        # Create grouped bar chart
-                        fig_dept_comparison = px.bar(
-                            dept_month_stats,
-                            x='Department',
-                            y='Usage',
-                            color='Month',
-                            barmode='group',
-                            title=f'Department Usage by Month (Grouped Bars)',
-                            labels={'Usage': 'Messages', 'Department': 'Department'},
-                            color_discrete_sequence=px.colors.qualitative.Set2
-                        )
-                        
-                        # Update layout with proper margins and height
-                        fig_dept_comparison.update_layout(
-                            xaxis_title='Department',
-                            yaxis_title='Total Messages',
-                            height=450,
-                            hovermode='x unified',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            legend=dict(
-                                orientation="h",
-                                yanchor="bottom",
-                                y=1.02,
-                                xanchor="right",
-                                x=1
-                            ),
-                            margin=dict(t=100, b=80, l=60, r=40)
-                        )
-                        
-                        # Add value labels on bars
-                        fig_dept_comparison.update_traces(
-                            texttemplate='%{y:,.0f}',
-                            textposition='outside',
-                            textfont_size=9
-                        )
-                        
-                        st.plotly_chart(fig_dept_comparison, use_container_width=True)
-                    except Exception as e:
-                        st.error(f"Unable to create monthly breakdown: {str(e)}")
-                        st.info("Please ensure your data contains valid date information.")
-                else:
-                    # Total usage view (original)
-                    fig_dept_comparison = go.Figure()
-                    
-                    # Add usage bars
-                    fig_dept_comparison.add_trace(go.Bar(
-                        name='Total Usage',
-                        x=dept_stats_filtered['Department'],
-                        y=dept_stats_filtered['Total Usage'],
-                        marker_color='#667eea',
-                        text=dept_stats_filtered['Total Usage'],
-                        texttemplate='%{text:,.0f}',
-                        textposition='outside',
-                        hovertemplate='<b>%{x}</b><br>Usage: %{y:,.0f}<extra></extra>'
-                    ))
-                    
-                    # Update title based on filters
-                    title_suffix = ""
-                    if excluded_depts or min_users > 0:
-                        title_suffix = f" (Filtered: {len(dept_stats_filtered)} of {len(dept_stats)} depts)"
-                    else:
-                        title_suffix = f" (All {len(dept_stats)} Departments)"
-                    
-                    fig_dept_comparison.update_layout(
-                        title=f'Department Usage Comparison{title_suffix}',
-                        xaxis_title='Department',
-                        yaxis_title='Total Messages',
-                        showlegend=False,
-                        height=450,
-                        hovermode='x unified',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        margin=dict(t=80, b=80, l=60, r=40)
+        with dept_tab1:
+            st.markdown("### Department Usage Comparison")
+            
+            # Add interactive filtering for departments
+            st.markdown("**🎯 Filter Chart Data**")
+            filter_col1, filter_col2, filter_col3 = st.columns([2, 1, 1])
+            
+            with filter_col1:
+                # Department filter - allow excluding specific departments
+                all_departments = dept_stats['Department'].tolist()
+                excluded_depts = st.multiselect(
+                    "Exclude departments from chart (e.g., to remove outliers)",
+                    all_departments,
+                    help="Select departments to exclude from the visualization below"
+                )
+            
+            with filter_col2:
+                # Sort order
+                sort_by = st.selectbox(
+                    "Sort by:",
+                    ["Total Usage", "Active Users", "Avg Messages/User", "Total Cost"],
+                    index=0
+                )
+            
+            with filter_col3:
+                # Number of departments to show
+                if len(dept_stats) > 1:
+                    num_depts = st.slider(
+                        "Show top:",
+                        min_value=1,
+                        max_value=len(dept_stats),
+                        value=min(7, len(dept_stats))
                     )
-                    
-                    st.plotly_chart(fig_dept_comparison, use_container_width=True)
-            else:
-                st.info("No departments match the current filter criteria.")
-        
-        with col2:
-            # Top 3 departments with detailed insights
-            st.markdown("**Top 3 Departments by Usage**")
+                else:
+                    num_depts = len(dept_stats)
+                    st.write(f"Showing: {num_depts} department" if num_depts == 1 else f"Showing: {num_depts} departments")
             
-            top_3_depts = dept_stats.head(3)
+            # Apply filters
+            dept_stats_filtered = dept_stats.copy()
+            if excluded_depts:
+                dept_stats_filtered = dept_stats_filtered[~dept_stats_filtered['Department'].isin(excluded_depts)]
             
-            for idx, row in top_3_depts.iterrows():
-                # Medal emojis instead of generic trophy
-                medal = ['🥇', '🥈', '🥉'][idx] if idx < 3 else '🏅'
-                
-                # Determine efficiency rating
-                avg_cost_per_msg = dept_stats['Cost per Message'].mean()
-                is_efficient = row['Cost per Message'] <= avg_cost_per_msg
-                efficiency_icon = '💰' if is_efficient else '💸'
-                
+            # Ensure num_depts doesn't exceed available filtered departments
+            num_depts = min(num_depts, len(dept_stats_filtered))
+            
+            # Apply sorting
+            sort_mapping = {
+                "Total Usage": "Total Usage",
+                "Active Users": "Active Users",
+                "Avg Messages/User": "Avg Messages/User",
+                "Total Cost": "Total Cost"
+            }
+            dept_stats_filtered = dept_stats_filtered.sort_values(by=sort_mapping[sort_by], ascending=False).head(num_depts)
+            
+            # ENHANCED VISUALIZATION: Create a dual-axis chart for messages and users
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Add bars for message counts
+            bar = go.Bar(
+                x=dept_stats_filtered['Department'],
+                y=dept_stats_filtered['Total Usage'],
+                name='Total Messages',
+                text=dept_stats_filtered['Total Usage'].apply(lambda x: f"{x:,}"),
+                textposition='outside',
+                marker=dict(
+                    color=dept_stats_filtered['Avg Messages/User'],
+                    colorscale='Blues',
+                    colorbar=dict(title='Msg/User'),
+                    showscale=True
+                ),
+                hovertemplate='<b>%{x}</b><br>Messages: %{y:,}<br>Pct of Total: %{customdata[0]}%<extra></extra>',
+                customdata=dept_stats_filtered[['Usage Share %']]
+            )
+            
+            # Add line for active users
+            line = go.Scatter(
+                x=dept_stats_filtered['Department'],
+                y=dept_stats_filtered['Active Users'],
+                name='Active Users',
+                mode='markers+lines',
+                marker=dict(size=12, symbol='circle', color='#FFA500'),
+                line=dict(color='#FFA500', width=3),
+                hovertemplate='<b>%{x}</b><br>Active Users: %{y}<extra></extra>',
+                yaxis='y2'
+            )
+            
+            # Add the main traces
+            fig.add_trace(bar)
+            fig.add_trace(line, secondary_y=True)
+            
+            # Update layout with improved styling
+            fig.update_layout(
+                title=f"Department Usage Comparison ({len(dept_stats_filtered)} of {len(dept_stats)} depts)",
+                xaxis=dict(title='Department', tickangle=-45, tickfont=dict(size=11)),
+                yaxis=dict(title='Total Messages', gridcolor='rgba(255,255,255,0.1)'),
+                yaxis2=dict(title='Active Users', gridcolor='rgba(255,255,255,0)', range=[0, max(dept_stats_filtered['Active Users'])*1.2]),
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+                barmode='group',
+                height=500,
+                margin=dict(t=80, b=100),
+                hovermode='closest',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white')
+            )
+            
+            # Add avg messages per user annotations
+            for i, row in dept_stats_filtered.iterrows():
+                fig.add_annotation(
+                    x=row['Department'],
+                    y=row['Total Usage'],
+                    text=f"{row['Avg Messages/User']:,.0f}/user",
+                    showarrow=False,
+                    font=dict(size=10, color="#94A3B8"),
+                    xanchor='center',
+                    yanchor='bottom',
+                    yshift=10
+                )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # USING THE SPACE BELOW: Add a detailed data table
+            st.markdown("### Department Details")
+            
+            # Enhanced table with efficiency indicators
+            table_df = dept_stats_filtered.copy()
+            
+            # Format columns for display
+            table_df['Total Usage Formatted'] = table_df['Total Usage'].apply(lambda x: f"{x:,}")
+            table_df['Avg Messages/User Formatted'] = table_df['Avg Messages/User'].apply(lambda x: f"{x:,}")
+            table_df['Total Cost Formatted'] = table_df['Total Cost'].apply(lambda x: f"${x:,.2f}")
+            table_df['Usage Share % Formatted'] = table_df['Usage Share %'].apply(lambda x: f"{x:.1f}%")
+            
+            # Create display dataframe
+            display_df = table_df[[
+                'Department', 'Total Usage Formatted', 'Active Users', 
+                'Avg Messages/User Formatted', 'Usage Share % Formatted', 'Total Cost Formatted', 'Efficiency'
+            ]].copy()
+            display_df.columns = [
+                'Department', 'Total Messages', 'Active Users',
+                'Messages/User', '% of Total', 'Total Cost', 'Efficiency'
+            ]
+            
+            # Display styled table
+            st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
+            
+            # Function to highlight efficiency
+            def highlight_efficiency(row):
+                if row['Efficiency'] == 'High':
+                    return ['background-color: rgba(21, 128, 61, 0.3); color: #ffffff;'] * len(row)
+                elif row['Efficiency'] == 'Medium':
+                    return ['background-color: rgba(202, 138, 4, 0.3); color: #ffffff;'] * len(row)
+                else:
+                    return ['background-color: rgba(220, 38, 38, 0.3); color: #ffffff;'] * len(row)
+            
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Add key insights section
+            st.markdown("### Key Insights")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Most efficient department
+                most_efficient = dept_stats.loc[dept_stats['Avg Messages/User'].idxmax()]
                 st.markdown(f"""
-                <div class="metric-card" style="margin-bottom: 1rem; padding: 1rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                        <h4 style="margin: 0; color: var(--text-primary);">{medal} {row['Department']}</h4>
-                        <span style="background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.75rem; font-weight: 600;">{row['Usage Share %']}% of total</span>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.75rem;">
-                        <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Total Messages</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--text-primary);">{row['Total Usage']:,.0f}</p>
-                        </div>
-                        <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Active Users</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--text-primary);">{row['Active Users']}</p>
-                        </div>
-                        <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Avg/User {efficiency_icon}</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--success-border);">{row['Avg Messages/User']:,.0f}</p>
-                        </div>
-                        <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Total Cost</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--success-border);">${row['Total Cost']:,.2f}</p>
-                        </div>
-                    </div>
+                <div class="insight-card insight-success">
+                    <h4>Most Efficient Department</h4>
+                    <p><strong>{most_efficient['Department']}</strong></p>
+                    <p>{most_efficient['Avg Messages/User']:,.0f} messages per user</p>
+                    <p>Total messages: {most_efficient['Total Usage']:,.0f} | Users: {most_efficient['Active Users']}</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Add breakdown for "Unknown" department if present
-                if row['Department'] == 'Unknown':
-                    # Get breakdown of Unknown department users
-                    unidentified_users = db.get_unidentified_users()
-                    unidentified_count = len(unidentified_users)
-                    total_unknown = int(row['Active Users'])
-                    employees_with_unknown_dept = total_unknown - unidentified_count
-                    
+                # Department with most users
+                most_users = dept_stats.loc[dept_stats['Active Users'].idxmax()]
+                st.markdown(f"""
+                <div class="insight-card insight-info">
+                    <h4>Highest User Adoption</h4>
+                    <p><strong>{most_users['Department']}</strong></p>
+                    <p>{most_users['Active Users']} active users</p>
+                    <p>Average: {most_users['Avg Messages/User']:,.0f} messages per user</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                # Cost insights
+                highest_cost = dept_stats.loc[dept_stats['Total Cost'].idxmax()]
+                st.markdown(f"""
+                <div class="insight-card insight-warning">
+                    <h4>Highest Cost Department</h4>
+                    <p><strong>{highest_cost['Department']}</strong></p>
+                    <p>${highest_cost['Total Cost']:,.2f} total cost</p>
+                    <p>Cost per user: ${highest_cost['Total Cost']/highest_cost['Active Users']:,.2f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Efficiency distribution
+                efficiency_counts = dept_stats['Efficiency'].value_counts()
+                st.markdown(f"""
+                <div class="insight-card insight-success">
+                    <h4>Efficiency Distribution</h4>
+                    <div class="metric-row">
+                        <span class="metric-label">High Efficiency Departments:</span>
+                        <span class="metric-value">{efficiency_counts.get('High', 0)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Medium Efficiency Departments:</span>
+                        <span class="metric-value">{efficiency_counts.get('Medium', 0)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Low Efficiency Departments:</span>
+                        <span class="metric-value">{efficiency_counts.get('Low', 0)}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with dept_tab2:
+            st.markdown("### User Distribution by Department")
+            
+            # Create a horizontal bar chart that shows users per department
+            fig = px.bar(
+                dept_stats.sort_values('Active Users', ascending=True),
+                y='Department',
+                x='Active Users',
+                orientation='h',
+                text='Active Users',
+                title='Active Users by Department',
+                color='Avg Messages/User',
+                color_continuous_scale='Blues',
+                hover_data=['Total Usage', 'Avg Messages/User', 'Total Cost']
+            )
+            
+            fig.update_layout(
+                xaxis_title="Active Users",
+                yaxis_title="Department",
+                height=600,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white')
+            )
+            
+            fig.update_traces(
+                textposition='outside',
+                textfont=dict(size=12)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Add user breakdown cards
+            st.markdown("### User Activity Breakdown")
+            
+            # Create a grid of cards for departments with user breakdown
+            cols = st.columns(3)
+            for i, (_, row) in enumerate(dept_stats.iterrows()):
+                with cols[i % 3]:
                     st.markdown(f"""
-                    <div style="margin-top: 0.5rem; padding: 0.5rem; background: var(--background-secondary); border-radius: 0.5rem; border-left: 3px solid #f59e0b;">
-                        <p style="margin: 0; font-size: 0.75rem; color: var(--text-secondary); font-weight: 600;">ℹ️ "Unknown" Department Breakdown:</p>
-                        <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">
-                            • <strong>{employees_with_unknown_dept}</strong> employees with department = "Unknown" in employee master file<br>
-                            • <strong>{unidentified_count}</strong> unidentified users (not in employee master file)
-                        </p>
-                        <p style="margin: 0.25rem 0 0 0; font-size: 0.7rem; color: var(--text-tertiary); font-style: italic;">
-                            Note: Check Database Management → Unidentified Users to review non-employees
-                        </p>
+                    <div class="metric-card">
+                        <h4>{row['Department']}</h4>
+                        <div class="metric-row">
+                            <span class="metric-label">Active Users:</span>
+                            <span class="metric-value">{row['Active Users']}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Total Messages:</span>
+                            <span class="metric-value">{row['Total Usage']:,.0f}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Messages per User:</span>
+                            <span class="metric-value">{row['Avg Messages/User']:,.0f}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Efficiency:</span>
+                            <span class="metric-value">
+                                {row['Efficiency']}
+                                <span class="efficiency-badge {row['Efficiency'].lower()}">{row['Efficiency']}</span>
+                            </span>
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
         
-        # Department efficiency insights below
-        st.markdown("**Key Insights**")
+        with dept_tab3:
+            st.markdown("### Department Efficiency Analysis")
+            
+            # Create a scatter plot of messages vs users
+            fig = px.scatter(
+                dept_stats,
+                x='Active Users',
+                y='Total Usage',
+                size='Avg Messages/User',
+                color='Efficiency',
+                hover_name='Department',
+                text='Department',
+                color_discrete_map={
+                    'High': '#15803d',
+                    'Medium': '#ca8a04',
+                    'Low': '#dc2626'
+                },
+                title='Department Efficiency Matrix (Messages vs Users)',
+                size_max=50,
+                labels={
+                    'Total Usage': 'Total Messages',
+                    'Active Users': 'Active Users',
+                    'Efficiency': 'Efficiency'
+                }
+            )
+            
+            # Add reference lines for average efficiency
+            avg_msg_per_user = dept_stats['Avg Messages/User'].mean()
+            max_users = dept_stats['Active Users'].max()
+            max_messages = dept_stats['Total Usage'].max()
+            
+            # Add diagonal reference lines for different efficiency levels
+            for efficiency, color in zip([avg_msg_per_user/2, avg_msg_per_user, avg_msg_per_user*2], 
+                                       ['rgba(220, 38, 38, 0.4)', 'rgba(202, 138, 4, 0.4)', 'rgba(21, 128, 61, 0.4)']):
+                x_vals = list(range(1, int(max_users * 1.1)))
+                y_vals = [x * efficiency for x in x_vals]
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_vals,
+                        y=y_vals,
+                        mode='lines',
+                        line=dict(color=color, width=1, dash='dot'),
+                        name=f'{int(efficiency):,} msg/user',
+                        hoverinfo='name'
+                    )
+                )
+            
+            # Add annotations for diagonal reference lines
+            fig.add_annotation(
+                x=max_users * 0.7,
+                y=max_users * 0.7 * avg_msg_per_user,
+                text=f"Avg: {int(avg_msg_per_user):,} msg/user",
+                showarrow=False,
+                font=dict(color='rgba(202, 138, 4, 1)')
+            )
+            
+            # Update layout
+            fig.update_layout(
+                height=600,
+                xaxis=dict(title='Active Users'),
+                yaxis=dict(title='Total Messages'),
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white')
+            )
+            
+            # Update traces
+            fig.update_traces(
+                textposition='top center',
+                textfont=dict(size=10)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Add efficiency distribution
+            st.markdown("### Efficiency Distribution")
+            
+            # Create columns for metrics and chart
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                # Summary metrics
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h4>Efficiency Metrics</h4>
+                    <div class="metric-row">
+                        <span class="metric-label">Average Efficiency:</span>
+                        <span class="metric-value">{dept_stats['Avg Messages/User'].mean():,.0f} msgs/user</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Highest Efficiency:</span>
+                        <span class="metric-value">{dept_stats['Avg Messages/User'].max():,.0f} msgs/user</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Lowest Efficiency:</span>
+                        <span class="metric-value">{dept_stats['Avg Messages/User'].min():,.0f} msgs/user</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Median Efficiency:</span>
+                        <span class="metric-value">{dept_stats['Avg Messages/User'].median():,.0f} msgs/user</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Total Messages:</span>
+                        <span class="metric-value">{dept_stats['Total Usage'].sum():,}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Total Users:</span>
+                        <span class="metric-value">{dept_stats['Active Users'].sum()}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                # Create histogram of messages per user
+                hist_fig = px.histogram(
+                    dept_stats,
+                    x='Avg Messages/User',
+                    nbins=10,
+                    color='Efficiency',
+                    color_discrete_map={
+                        'High': '#15803d',
+                        'Medium': '#ca8a04',
+                        'Low': '#dc2626'
+                    },
+                    title='Distribution of Efficiency (Messages per User)',
+                    labels={'Avg Messages/User': 'Messages per User'}
+                )
+                
+                hist_fig.update_layout(
+                    bargap=0.1,
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    showlegend=True
+                )
+                
+                # Add mean line
+                hist_fig.add_vline(
+                    x=dept_stats['Avg Messages/User'].mean(),
+                    line_dash="solid",
+                    line_color="white",
+                    annotation_text="Mean",
+                    annotation_position="top right"
+                )
+                
+                st.plotly_chart(hist_fig, use_container_width=True)
+        
+        st.divider()
+        
+        # Original insights below (kept for backwards compatibility)
+        st.markdown("**Summary Insights**")
+        
+        # Original insights below (kept for backwards compatibility)
+        st.markdown("**Summary Insights**")
         insight_cols = st.columns(3)
         
         with insight_cols[0]:
