@@ -2071,7 +2071,7 @@ def main():
             projected_annual_cost = total_cost * 12
         
         # Enterprise Pricing Model Information
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">💼 Enterprise Pricing Model</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Enterprise Pricing Model</h3>', unsafe_allow_html=True)
         
         with st.expander("ℹ️ About Cost Calculations - Based on Enterprise SaaS Licenses", expanded=False):
             st.markdown("""
@@ -2235,7 +2235,7 @@ def main():
         st.divider()
         
         # License Utilization Analysis
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📊 License Utilization & ROI Analysis</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">License Utilization & ROI Analysis</h3>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
@@ -2322,7 +2322,7 @@ def main():
         st.divider()
         
         # Data Quality & Validation Panel
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1rem; margin-bottom: 1rem;">Data Quality & Validation</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Data Quality & Validation</h3>', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
