@@ -1906,7 +1906,7 @@ def main():
         # Clean header without emoji, with compact export menu
         col1, col2 = st.columns([4, 1])
         with col1:
-            st.markdown('<h2 style="color: #1e293b; margin-bottom: 0;">Executive Summary</h2>', unsafe_allow_html=True)
+            st.markdown('<h2 style="color: var(--text-primary); margin-bottom: 0;">Executive Summary</h2>', unsafe_allow_html=True)
             st.caption("Key performance metrics and trends")
         with col2:
             # Compact export menu in dropdown
@@ -1971,7 +1971,7 @@ def main():
             projected_annual_cost = total_cost * 12
         
         # Executive Summary Cards with detailed breakdowns
-        st.markdown('<h3 style="color: #1e293b; margin-top: 1.5rem; margin-bottom: 1rem;">Financial Overview</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Financial Overview</h3>', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -2056,7 +2056,7 @@ def main():
         st.divider()
         
         # Data Quality & Validation Panel
-        st.markdown('<h3 style="color: #1e293b; margin-top: 1rem; margin-bottom: 1rem;">Data Quality & Validation</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1rem; margin-bottom: 1rem;">Data Quality & Validation</h3>', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -2116,7 +2116,7 @@ def main():
         st.divider()
         
         # Month-over-Month Trends
-        st.markdown('<h3 style="color: #1e293b; margin-top: 1.5rem; margin-bottom: 1rem;">Month-over-Month Trends</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Month-over-Month Trends</h3>', unsafe_allow_html=True)
         
         try:
             # Prepare monthly data
@@ -2197,7 +2197,7 @@ def main():
         st.divider()
         
         # Department Performance Analytics
-        st.markdown('<h3 style="color: #1e293b; margin-top: 1.5rem; margin-bottom: 1rem;">Department Performance</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Department Performance</h3>', unsafe_allow_html=True)
         
         # Calculate comprehensive department statistics
         dept_stats = data.groupby('department').agg({
@@ -2214,37 +2214,77 @@ def main():
         dept_stats['Cost per Message'] = (dept_stats['Total Cost'] / dept_stats['Total Usage']).round(3)
         dept_stats = dept_stats.sort_values('Total Usage', ascending=False)
         
+        # Add interactive filtering for departments
+        st.markdown("**🎯 Filter Chart Data**")
+        filter_col1, filter_col2 = st.columns([2, 1])
+        
+        with filter_col1:
+            # Department filter - allow excluding specific departments
+            all_departments = dept_stats['Department'].tolist()
+            excluded_depts = st.multiselect(
+                "Exclude departments from chart (e.g., to remove outliers)",
+                all_departments,
+                help="Select departments to exclude from the visualization below"
+            )
+        
+        with filter_col2:
+            # Minimum user threshold filter
+            min_users = st.number_input(
+                "Min. Active Users",
+                min_value=0,
+                max_value=int(dept_stats['Active Users'].max()),
+                value=0,
+                help="Only show departments with at least this many active users"
+            )
+        
+        # Apply filters to create filtered dataset for visualization
+        dept_stats_filtered = dept_stats.copy()
+        if excluded_depts:
+            dept_stats_filtered = dept_stats_filtered[~dept_stats_filtered['Department'].isin(excluded_depts)]
+        if min_users > 0:
+            dept_stats_filtered = dept_stats_filtered[dept_stats_filtered['Active Users'] >= min_users]
+        
         # Create two-column layout for better space utilization
         col1, col2 = st.columns([3, 2])
         
         with col1:
-            # Department comparison bar chart (all departments)
-            fig_dept_comparison = go.Figure()
-            
-            # Add usage bars
-            fig_dept_comparison.add_trace(go.Bar(
-                name='Total Usage',
-                x=dept_stats['Department'],
-                y=dept_stats['Total Usage'],
-                marker_color='#667eea',
-                text=dept_stats['Total Usage'],
-                texttemplate='%{text:,.0f}',
-                textposition='outside',
-                hovertemplate='<b>%{x}</b><br>Usage: %{y:,.0f}<extra></extra>'
-            ))
-            
-            fig_dept_comparison.update_layout(
-                title='Department Usage Comparison (All Departments)',
-                xaxis_title='Department',
-                yaxis_title='Total Messages',
-                showlegend=False,
-                height=350,
-                hovermode='x unified',
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-            )
-            
-            st.plotly_chart(fig_dept_comparison, use_container_width=True)
+            # Department comparison bar chart (filtered)
+            if not dept_stats_filtered.empty:
+                fig_dept_comparison = go.Figure()
+                
+                # Add usage bars
+                fig_dept_comparison.add_trace(go.Bar(
+                    name='Total Usage',
+                    x=dept_stats_filtered['Department'],
+                    y=dept_stats_filtered['Total Usage'],
+                    marker_color='#667eea',
+                    text=dept_stats_filtered['Total Usage'],
+                    texttemplate='%{text:,.0f}',
+                    textposition='outside',
+                    hovertemplate='<b>%{x}</b><br>Usage: %{y:,.0f}<extra></extra>'
+                ))
+                
+                # Update title based on filters
+                title_suffix = ""
+                if excluded_depts or min_users > 0:
+                    title_suffix = f" (Filtered: {len(dept_stats_filtered)} of {len(dept_stats)} depts)"
+                else:
+                    title_suffix = f" (All {len(dept_stats)} Departments)"
+                
+                fig_dept_comparison.update_layout(
+                    title=f'Department Usage Comparison{title_suffix}',
+                    xaxis_title='Department',
+                    yaxis_title='Total Messages',
+                    showlegend=False,
+                    height=350,
+                    hovermode='x unified',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                )
+                
+                st.plotly_chart(fig_dept_comparison, use_container_width=True)
+            else:
+                st.info("No departments match the current filter criteria.")
         
         with col2:
             # Top 3 departments with detailed insights
@@ -2264,24 +2304,24 @@ def main():
                 st.markdown(f"""
                 <div class="metric-card" style="margin-bottom: 1rem; padding: 1rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                        <h4 style="margin: 0; color: #1e293b;">{medal} {row['Department']}</h4>
+                        <h4 style="margin: 0; color: var(--text-primary);">{medal} {row['Department']}</h4>
                         <span style="background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.75rem; font-weight: 600;">{row['Usage Share %']}% of total</span>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.75rem;">
                         <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Total Messages</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #1e293b;">{row['Total Usage']:,.0f}</p>
+                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Total Messages</p>
+                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--text-primary);">{row['Total Usage']:,.0f}</p>
                         </div>
                         <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Active Users</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #1e293b;">{row['Active Users']}</p>
+                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Active Users</p>
+                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--text-primary);">{row['Active Users']}</p>
                         </div>
                         <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Avg/User {efficiency_icon}</p>
+                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Avg/User {efficiency_icon}</p>
                             <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #10b981;">{row['Avg Messages/User']:,.0f}</p>
                         </div>
                         <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Total Cost</p>
+                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Total Cost</p>
                             <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #10b981;">${row['Total Cost']:,.2f}</p>
                         </div>
                     </div>
@@ -2296,9 +2336,9 @@ def main():
             most_efficient = dept_stats.loc[dept_stats['Cost per Message'].idxmin()]
             st.markdown(f"""
             <div class="insight-card insight-success">
-                <h4 style="margin: 0 0 0.5rem 0; color: #065f46;">🎯 Most Cost-Efficient</h4>
-                <p style="margin: 0; font-weight: 600; color: #047857;">{most_efficient['Department']}</p>
-                <p style="margin: 0; font-size: 0.875rem; color: #065f46;">${most_efficient['Cost per Message']:.3f} per message</p>
+                <h4 style="margin: 0 0 0.5rem 0; color: var(--success-text);">🎯 Most Cost-Efficient</h4>
+                <p style="margin: 0; font-weight: 600; color: var(--success-text);">{most_efficient['Department']}</p>
+                <p style="margin: 0; font-size: 0.875rem; color: var(--success-text);">${most_efficient['Cost per Message']:.3f} per message</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -2306,9 +2346,9 @@ def main():
             most_active = dept_stats.loc[dept_stats['Active Users'].idxmax()]
             st.markdown(f"""
             <div class="insight-card insight-info">
-                <h4 style="margin: 0 0 0.5rem 0; color: #1e40af;">👥 Highest Adoption</h4>
-                <p style="margin: 0; font-weight: 600; color: #1e40af;">{most_active['Department']}</p>
-                <p style="margin: 0; font-size: 0.875rem; color: #1e3a8a;">{most_active['Active Users']} active users</p>
+                <h4 style="margin: 0 0 0.5rem 0; color: var(--info-text);">👥 Highest Adoption</h4>
+                <p style="margin: 0; font-weight: 600; color: var(--info-text);">{most_active['Department']}</p>
+                <p style="margin: 0; font-size: 0.875rem; color: var(--info-text);">{most_active['Active Users']} active users</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -2316,9 +2356,9 @@ def main():
             most_engaged = dept_stats.loc[dept_stats['Avg Messages/User'].idxmax()]
             st.markdown(f"""
             <div class="insight-card insight-warning">
-                <h4 style="margin: 0 0 0.5rem 0; color: #92400e;">🚀 Most Engaged</h4>
-                <p style="margin: 0; font-weight: 600; color: #b45309;">{most_engaged['Department']}</p>
-                <p style="margin: 0; font-size: 0.875rem; color: #92400e;">{most_engaged['Avg Messages/User']:,.0f} avg messages/user</p>
+                <h4 style="margin: 0 0 0.5rem 0; color: var(--warning-text);">🚀 Most Engaged</h4>
+                <p style="margin: 0; font-weight: 600; color: var(--warning-text);">{most_engaged['Department']}</p>
+                <p style="margin: 0; font-size: 0.875rem; color: var(--warning-text);">{most_engaged['Avg Messages/User']:,.0f} avg messages/user</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -2340,7 +2380,36 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        power_users = calculate_power_users(data)
+        # Add filtering controls for Power Users
+        st.markdown("**🎯 Customize Power User Threshold**")
+        filter_col1, filter_col2 = st.columns([1, 1])
+        
+        with filter_col1:
+            # Percentile threshold for power users
+            power_user_percentile = st.slider(
+                "Top % of users to include",
+                min_value=1,
+                max_value=25,
+                value=5,
+                step=1,
+                help="Adjust the percentage threshold for identifying power users"
+            )
+        
+        with filter_col2:
+            # Minimum message threshold
+            min_messages = st.number_input(
+                "Min. Total Messages",
+                min_value=0,
+                max_value=int(data.groupby('user_id')['usage_count'].sum().max()) if not data.empty else 1000,
+                value=0,
+                help="Only show users with at least this many total messages"
+            )
+        
+        power_users = calculate_power_users(data, threshold_percentile=(100 - power_user_percentile))
+        
+        # Apply minimum message filter
+        if min_messages > 0 and not power_users.empty:
+            power_users = power_users[power_users['usage_count'] >= min_messages]
         
         if not power_users.empty:
             # Enhanced metrics row
