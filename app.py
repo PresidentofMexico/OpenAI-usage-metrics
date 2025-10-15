@@ -2662,6 +2662,27 @@ def main():
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # Add breakdown for "Unknown" department if present
+                if row['Department'] == 'Unknown':
+                    # Get breakdown of Unknown department users
+                    unidentified_users = db.get_unidentified_users()
+                    unidentified_count = len(unidentified_users)
+                    total_unknown = int(row['Active Users'])
+                    employees_with_unknown_dept = total_unknown - unidentified_count
+                    
+                    st.markdown(f"""
+                    <div style="margin-top: 0.5rem; padding: 0.5rem; background: var(--background-secondary); border-radius: 0.5rem; border-left: 3px solid #f59e0b;">
+                        <p style="margin: 0; font-size: 0.75rem; color: var(--text-secondary); font-weight: 600;">ℹ️ "Unknown" Department Breakdown:</p>
+                        <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">
+                            • <strong>{employees_with_unknown_dept}</strong> employees with department = "Unknown" in employee master file<br>
+                            • <strong>{unidentified_count}</strong> unidentified users (not in employee master file)
+                        </p>
+                        <p style="margin: 0.25rem 0 0 0; font-size: 0.7rem; color: var(--text-tertiary); font-style: italic;">
+                            Note: Check Database Management → Unidentified Users to review non-employees
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
         
         # Department efficiency insights below
         st.markdown("**Key Insights**")
