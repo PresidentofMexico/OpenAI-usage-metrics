@@ -2587,12 +2587,16 @@ def main():
             
             with filter_col3:
                 # Number of departments to show
-                num_depts = st.slider(
-                    "Show top:",
-                    min_value=3,
-                    max_value=len(dept_stats),
-                    value=min(7, len(dept_stats))
-                )
+                if len(dept_stats) > 1:
+                    num_depts = st.slider(
+                        "Show top:",
+                        min_value=1,
+                        max_value=len(dept_stats),
+                        value=min(7, len(dept_stats))
+                    )
+                else:
+                    num_depts = len(dept_stats)
+                    st.write(f"Showing: {num_depts} dept")
             
             # Apply filters
             dept_stats_filtered = dept_stats.copy()
