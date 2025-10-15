@@ -2596,12 +2596,15 @@ def main():
                     )
                 else:
                     num_depts = len(dept_stats)
-                    st.write(f"Showing: {num_depts} dept")
+                    st.write(f"Showing: {num_depts} department" if num_depts == 1 else f"Showing: {num_depts} departments")
             
             # Apply filters
             dept_stats_filtered = dept_stats.copy()
             if excluded_depts:
                 dept_stats_filtered = dept_stats_filtered[~dept_stats_filtered['Department'].isin(excluded_depts)]
+            
+            # Ensure num_depts doesn't exceed available filtered departments
+            num_depts = min(num_depts, len(dept_stats_filtered))
             
             # Apply sorting
             sort_mapping = {
