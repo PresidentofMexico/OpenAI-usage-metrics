@@ -1347,9 +1347,14 @@ def display_tool_comparison(data):
     st.plotly_chart(fig, use_container_width=True)
 
 def main():
-    # Main header
-    st.markdown('<h1 class="main-header">🤖 AI Usage Analytics Dashboard</h1>', unsafe_allow_html=True)
-    st.caption("Multi-Platform Analytics for Enterprise AI Tools")
+    # Main header - professional title without emoji
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.markdown('<h1 class="main-header">AI Usage Analytics Dashboard</h1>', unsafe_allow_html=True)
+        st.caption("Multi-Platform Analytics for Enterprise AI Tools")
+    with col2:
+        # Compact actions menu in top-right
+        st.markdown('<div style="text-align: right; padding-top: 0.5rem;"></div>', unsafe_allow_html=True)
     
     # Create main tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -1834,40 +1839,41 @@ def main():
     
     # TAB 1: Executive Overview
     with tab1:
-        st.header("📊 Executive Summary Dashboard")
-        
-        # Executive Actions Bar
-        col1, col2, col3 = st.columns([2, 1, 1])
+        # Clean header without emoji, with compact export menu
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.markdown('<h2 style="color: #1e293b; margin-bottom: 0;">Executive Summary</h2>', unsafe_allow_html=True)
+            st.caption("Key performance metrics and trends")
         with col2:
-            # PDF Export (HTML version for now)
-            if st.button("📄 Export PDF Report", use_container_width=True, help="Generate executive PDF report"):
+            # Compact export menu in dropdown
+            with st.expander("📥 Export", expanded=False):
+                # PDF Export (HTML version)
                 try:
                     html_content = generate_pdf_report_html(data, "AI Usage Executive Report")
                     st.download_button(
-                        label="📥 Download HTML Report",
+                        label="PDF Report",
                         data=html_content,
                         file_name=f"ai_usage_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
                         mime="text/html",
                         use_container_width=True,
-                        help="Download as HTML (can be printed to PDF from browser)"
+                        help="Download as HTML (print to PDF from browser)"
                     )
                 except Exception as e:
-                    st.error(f"Error generating report: {str(e)}")
-        
-        with col3:
-            # Excel Export with pivot tables
-            try:
-                excel_file = generate_excel_export(data, include_pivots=True)
-                st.download_button(
-                    label="📊 Export to Excel",
-                    data=excel_file,
-                    file_name=f"ai_usage_executive_report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    help="Download Excel with pivot tables and summaries"
-                )
-            except Exception as e:
-                st.error(f"Error generating Excel: {str(e)}")
+                    st.error(f"Export error: {str(e)}")
+                
+                # Excel Export with pivot tables
+                try:
+                    excel_file = generate_excel_export(data, include_pivots=True)
+                    st.download_button(
+                        label="Excel Report",
+                        data=excel_file,
+                        file_name=f"ai_usage_report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        help="Excel with pivot tables and summaries"
+                    )
+                except Exception as e:
+                    st.error(f"Export error: {str(e)}")
         
         st.divider()
         
@@ -1900,17 +1906,26 @@ def main():
             ytd_cost = total_cost
             projected_annual_cost = total_cost * 12
         
-        # Executive Summary Cards
-        st.markdown('<div class="section-header"><h3>💼 Executive Summary</h3></div>', unsafe_allow_html=True)
+        # Executive Summary Cards with detailed breakdowns
+        st.markdown('<h3 style="color: #1e293b; margin-top: 1.5rem; margin-bottom: 1rem;">Financial Overview</h3>', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
                 "YTD Spending", 
-                f"${ytd_cost:,.2f}", 
+                f"${ytd_cost:,.2f}",
                 help="Year-to-date total spending on AI tools"
             )
+            with st.expander("📊 Details"):
+                st.write("**Calculation:**")
+                st.code(f"Total cost for {datetime.now().year}")
+                if not data.empty and 'tool_source' in data.columns:
+                    st.write("**By Provider:**")
+                    provider_costs = data.groupby('tool_source')['cost_usd'].sum().sort_values(ascending=False)
+                    for provider, cost in provider_costs.items():
+                        pct = (cost / ytd_cost * 100) if ytd_cost > 0 else 0
+                        st.write(f"• {provider}: ${cost:,.2f} ({pct:.1f}%)")
         
         with col2:
             st.metric(
@@ -1919,6 +1934,22 @@ def main():
                 delta=f"{((projected_annual_cost - ytd_cost) / max(ytd_cost, 1) * 100):.0f}% vs YTD",
                 help="Projected full-year cost based on current usage trends"
             )
+            with st.expander("📊 Details"):
+                st.write("**Calculation:**")
+                try:
+                    data_with_dates = data.copy()
+                    data_with_dates['date'] = pd.to_datetime(data_with_dates['date'], errors='coerce')
+                    ytd_data = data_with_dates[data_with_dates['date'].dt.year == datetime.now().year]
+                    if not ytd_data.empty:
+                        min_month = ytd_data['date'].min().month
+                        max_month = ytd_data['date'].max().month
+                        months_of_data = max_month - min_month + 1
+                        st.code(f"({ytd_cost:,.2f} / {months_of_data} months) × 12 = ${projected_annual_cost:,.2f}")
+                        st.write(f"**Data Coverage:** {months_of_data} months")
+                    else:
+                        st.code(f"${ytd_cost:,.2f} × 12 = ${projected_annual_cost:,.2f}")
+                except:
+                    st.code(f"${ytd_cost:,.2f} × 12 = ${projected_annual_cost:,.2f}")
         
         with col3:
             avg_cost_per_user = total_cost / max(total_users, 1)
@@ -1927,6 +1958,16 @@ def main():
                 f"${avg_cost_per_user:.2f}", 
                 help="Average cost per active user"
             )
+            with st.expander("📊 Details"):
+                st.write("**Calculation:**")
+                st.code(f"${total_cost:,.2f} ÷ {total_users} users = ${avg_cost_per_user:.2f}")
+                st.write("**Context:**")
+                st.write(f"• Total active users: {total_users:,}")
+                st.write(f"• Total cost: ${total_cost:,.2f}")
+                if not data.empty:
+                    user_costs = data.groupby('user_id')['cost_usd'].sum().sort_values(ascending=False)
+                    st.write(f"• Top user cost: ${user_costs.iloc[0]:,.2f}")
+                    st.write(f"• Median user cost: ${user_costs.median():,.2f}")
         
         with col4:
             cost_per_interaction = total_cost / max(total_usage, 1)
@@ -1935,11 +1976,83 @@ def main():
                 f"${cost_per_interaction:.3f}/msg", 
                 help="Average cost per message/interaction"
             )
+            with st.expander("📊 Details"):
+                st.write("**Calculation:**")
+                st.code(f"${total_cost:,.2f} ÷ {total_usage:,} messages = ${cost_per_interaction:.3f}")
+                st.write("**Breakdown by Feature:**")
+                if not data.empty and 'feature_used' in data.columns:
+                    feature_efficiency = data.groupby('feature_used').agg({
+                        'cost_usd': 'sum',
+                        'usage_count': 'sum'
+                    })
+                    feature_efficiency['cost_per_msg'] = feature_efficiency['cost_usd'] / feature_efficiency['usage_count']
+                    for feature, row in feature_efficiency.iterrows():
+                        st.write(f"• {feature}: ${row['cost_per_msg']:.3f}/msg")
+        
+        st.divider()
+        
+        # Data Quality & Validation Panel
+        st.markdown('<h3 style="color: #1e293b; margin-top: 1rem; margin-bottom: 1rem;">Data Quality & Validation</h3>', unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        # Calculate completeness
+        completeness = 100.0
+        if not data.empty:
+            required_cols = ['user_id', 'date', 'usage_count', 'cost_usd']
+            for col in required_cols:
+                if col in data.columns:
+                    col_completeness = (data[col].notna().sum() / len(data)) * 100
+                    completeness = min(completeness, col_completeness)
+        
+        # Get unique users count
+        unique_users = data['user_id'].nunique() if not data.empty else 0
+        
+        # Calculate date coverage
+        try:
+            if not data.empty and 'date' in data.columns:
+                valid_dates = pd.to_datetime(data['date'], errors='coerce').dropna()
+                date_coverage = (valid_dates.max() - valid_dates.min()).days + 1
+            else:
+                date_coverage = 0
+        except Exception as e:
+            st.warning(f"⚠️ Date parsing issue: {str(e)}")
+            date_coverage = 0
+        
+        with col1:
+            quality_class = "quality-excellent" if completeness >= 95 else "quality-good" if completeness >= 80 else "quality-warning"
+            st.markdown(f'<div class="{quality_class}" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{completeness:.1f}%</strong><br><small>Completeness</small></div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{unique_users}</strong><br><small>Active Users</small></div>', unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{date_coverage}</strong><br><small>Days Coverage</small></div>', unsafe_allow_html=True)
+        
+        with col4:
+            total_records = len(data)
+            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{total_records:,}</strong><br><small>Total Records</small></div>', unsafe_allow_html=True)
+        
+        # Data source breakdown
+        if not data.empty and 'tool_source' in data.columns:
+            st.markdown('<div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 0.5rem; border: 1px solid #e2e8f0;">', unsafe_allow_html=True)
+            st.write("**Data Sources:**")
+            source_summary = data.groupby('tool_source').agg({
+                'user_id': 'nunique',
+                'usage_count': 'sum',
+                'cost_usd': 'sum'
+            }).reset_index()
+            source_summary.columns = ['Provider', 'Users', 'Messages', 'Cost']
+            
+            for _, row in source_summary.iterrows():
+                cost_pct = (row['Cost'] / total_cost * 100) if total_cost > 0 else 0
+                st.write(f"**{row['Provider']}**: {row['Users']} users, {row['Messages']:,} messages, ${row['Cost']:,.2f} ({cost_pct:.1f}% of total)")
+            st.markdown('</div>', unsafe_allow_html=True)
         
         st.divider()
         
         # Month-over-Month Trends
-        st.markdown('<div class="section-header"><h3>📈 Month-over-Month Adoption Trends</h3></div>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: #1e293b; margin-top: 1.5rem; margin-bottom: 1rem;">Month-over-Month Trends</h3>', unsafe_allow_html=True)
         
         try:
             # Prepare monthly data
@@ -2020,7 +2133,7 @@ def main():
         st.divider()
         
         # Department Performance Analytics
-        st.markdown('<div class="section-header"><h3>📊 Department Performance Analytics</h3></div>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: #1e293b; margin-top: 1.5rem; margin-bottom: 1rem;">Department Performance</h3>', unsafe_allow_html=True)
         
         # Calculate comprehensive department statistics
         dept_stats = data.groupby('department').agg({
@@ -2071,7 +2184,7 @@ def main():
         
         with col2:
             # Top 3 departments with detailed insights
-            st.markdown("**🥇 Top 3 Departments**")
+            st.markdown("**Top 3 Departments by Usage**")
             
             top_3_depts = dept_stats.head(3)
             
@@ -2112,7 +2225,7 @@ def main():
                 """, unsafe_allow_html=True)
         
         # Department efficiency insights below
-        st.markdown("**💡 Department Insights**")
+        st.markdown("**Key Insights**")
         insight_cols = st.columns(3)
         
         with insight_cols[0]:
@@ -2146,40 +2259,6 @@ def main():
             """, unsafe_allow_html=True)
         
         st.divider()
-        
-        # Data Quality Dashboard
-        st.markdown('<div class="section-header"><h3>🛡️ Data Quality Metrics</h3></div>', unsafe_allow_html=True)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        # Calculate data quality metrics
-        completeness = (1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100
-        unique_users = data['user_id'].nunique()
-        
-        # Robust date handling - convert dates and filter out invalid values
-        try:
-            valid_dates = pd.to_datetime(data['date'], errors='coerce').dropna()
-            if len(valid_dates) > 0:
-                date_coverage = (valid_dates.max() - valid_dates.min()).days + 1
-            else:
-                date_coverage = 0
-        except Exception as e:
-            st.warning(f"⚠️ Date parsing issue: {str(e)}")
-            date_coverage = 0
-        
-        with col1:
-            quality_class = "quality-excellent" if completeness >= 95 else "quality-good" if completeness >= 80 else "quality-warning"
-            st.markdown(f'<div class="{quality_class}" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{completeness:.1f}%</strong><br><small>Completeness</small></div>', unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{unique_users}</strong><br><small>Active Users</small></div>', unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{date_coverage}</strong><br><small>Days Coverage</small></div>', unsafe_allow_html=True)
-        
-        with col4:
-            total_records = len(data)
-            st.markdown(f'<div class="quality-good" style="padding: 0.75rem; border-radius: 0.5rem; text-align: center;"><strong>{total_records:,}</strong><br><small>Total Records</small></div>', unsafe_allow_html=True)
     
     # TAB 2: Tool Comparison
     with tab2:
