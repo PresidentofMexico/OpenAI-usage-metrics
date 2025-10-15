@@ -1277,6 +1277,13 @@ def calculate_power_users(data, threshold_percentile=95):
         'department': lambda x: _select_primary_department(x)
     }).reset_index()
     
+    # Update departments from employee database as authoritative source
+    # This ensures verified employees show their correct locked departments
+    for idx, row in user_usage.iterrows():
+        employee = get_employee_for_user(row['email'], row['user_name'])
+        if employee and employee.get('department'):
+            user_usage.at[idx, 'department'] = employee['department']
+    
     # Calculate threshold (top 5% by default)
     threshold = user_usage['usage_count'].quantile(threshold_percentile / 100)
     
@@ -1290,17 +1297,21 @@ def calculate_power_users(data, threshold_percentile=95):
 def _select_primary_department(departments):
     """Select the most appropriate department from a list.
     
-    Prefers non-'BlueFlame Users' departments. If multiple non-BlueFlame
-    departments exist, returns the first one. Returns 'BlueFlame Users' 
-    only if that's the only department available.
+    Prefers valid department names over placeholder values like 'BlueFlame Users' 
+    or 'Unknown'. If multiple valid departments exist, returns the first one.
+    Returns placeholder values only if that's all that's available.
     """
     unique_depts = list(departments.unique())
     
-    # Filter out 'BlueFlame Users' if other departments exist
-    non_blueflame = [d for d in unique_depts if d != 'BlueFlame Users']
+    # Filter out placeholder departments if real departments exist
+    real_depts = [d for d in unique_depts if d not in ('BlueFlame Users', 'Unknown')]
     
-    if non_blueflame:
-        return non_blueflame[0]  # Return first non-BlueFlame department
+    if real_depts:
+        return real_depts[0]  # Return first real department
+    
+    # If only placeholders available, prefer 'BlueFlame Users' over 'Unknown'
+    if 'BlueFlame Users' in unique_depts:
+        return 'BlueFlame Users'
     
     return unique_depts[0] if unique_depts else 'Unknown'
 
