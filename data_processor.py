@@ -11,10 +11,12 @@ import sqlite3
 from datetime import datetime
 import re
 import json
+from cost_calculator import EnterpriseCostCalculator
 
 class DataProcessor:
     def __init__(self, db_manager):
         self.db = db_manager
+        self.cost_calculator = EnterpriseCostCalculator()
     
     def process_monthly_data(self, df, filename):
         """
@@ -99,9 +101,15 @@ class DataProcessor:
         Clean and normalize OpenAI usage data format.
         
         This maintains backward compatibility with the original OpenAI CSV format.
+        Now calculates costs based on enterprise license pricing ($60/user/month)
+        rather than per-message pricing.
         """
         try:
             processed_data = []
+            
+            # Get pricing info for enterprise licenses
+            pricing_info = self.cost_calculator.get_pricing_info('ChatGPT')
+            monthly_license_cost = pricing_info['license_cost_per_user_monthly']
             
             for _, row in df.iterrows():
                 # Skip rows with no messages
@@ -134,6 +142,7 @@ class DataProcessor:
                 records = []
                 
                 # ChatGPT Messages (main message count)
+                # Cost is now based on enterprise license, not per-message
                 if messages > 0:
                     records.append({
                         'user_id': user_email,
@@ -143,13 +152,14 @@ class DataProcessor:
                         'date': period_start,
                         'feature_used': 'ChatGPT Messages',
                         'usage_count': int(messages),
-                        'cost_usd': float(messages) * 0.02,
+                        'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                         'tool_source': 'ChatGPT',
                         'file_source': filename,
                         'created_at': datetime.now().isoformat()
                     })
                 
                 # GPT Messages (custom GPTs)
+                # These are included in the enterprise license, so cost is 0 (already counted above)
                 gpt_messages = row.get('gpt_messages', 0)
                 if pd.notna(gpt_messages) and gpt_messages > 0:
                     records.append({
@@ -160,13 +170,14 @@ class DataProcessor:
                         'date': period_start,
                         'feature_used': 'GPT Messages',
                         'usage_count': int(gpt_messages),
-                        'cost_usd': float(gpt_messages) * 0.02,
+                        'cost_usd': 0,  # Included in base license
                         'tool_source': 'ChatGPT',
                         'file_source': filename,
                         'created_at': datetime.now().isoformat()
                     })
                 
                 # Tool Messages (code interpreter, web browsing, etc.)
+                # These are included in the enterprise license
                 tool_messages = row.get('tool_messages', 0)
                 if pd.notna(tool_messages) and tool_messages > 0:
                     records.append({
@@ -177,13 +188,14 @@ class DataProcessor:
                         'date': period_start,
                         'feature_used': 'Tool Messages',
                         'usage_count': int(tool_messages),
-                        'cost_usd': float(tool_messages) * 0.01,
+                        'cost_usd': 0,  # Included in base license
                         'tool_source': 'ChatGPT',
                         'file_source': filename,
                         'created_at': datetime.now().isoformat()
                     })
                 
                 # Project Messages (ChatGPT Projects feature)
+                # These are included in the enterprise license
                 project_messages = row.get('project_messages', 0)
                 if pd.notna(project_messages) and project_messages > 0:
                     records.append({
@@ -194,7 +206,7 @@ class DataProcessor:
                         'date': period_start,
                         'feature_used': 'Project Messages',
                         'usage_count': int(project_messages),
-                        'cost_usd': float(project_messages) * 0.015,
+                        'cost_usd': 0,  # Included in base license
                         'tool_source': 'ChatGPT',
                         'file_source': filename,
                         'created_at': datetime.now().isoformat()
@@ -243,6 +255,8 @@ class DataProcessor:
         Normalize BlueFlame AI data to standard schema.
         
         Handles both aggregate metrics format and user-level data.
+        Now calculates costs based on enterprise license pricing ($125/user/month)
+        rather than per-message pricing.
         
         Args:
             df: Raw BlueFlame export DataFrame
@@ -253,6 +267,10 @@ class DataProcessor:
         """
         try:
             processed_data = []
+            
+            # Get pricing info for BlueFlame AI enterprise licenses
+            pricing_info = self.cost_calculator.get_pricing_info('BlueFlame AI')
+            monthly_license_cost = pricing_info['license_cost_per_user_monthly']
             
             # Check if this is the combined format with 'Table' column
             if 'Table' in df.columns:
@@ -303,7 +321,8 @@ class DataProcessor:
                             if pd.isna(total_messages) or total_messages == 0:
                                 continue
                             
-                            # Create aggregate record for the month
+                            # Create aggregate record for the month - cost is based on MAUs, not messages
+                            total_cost = maus * monthly_license_cost if maus > 0 else 0
                             processed_data.append({
                                 'user_id': 'blueflame-aggregate',
                                 'user_name': 'BlueFlame Aggregate',
@@ -312,7 +331,7 @@ class DataProcessor:
                                 'date': month_date.strftime('%Y-%m-%d'),
                                 'feature_used': 'BlueFlame Messages',
                                 'usage_count': int(total_messages),
-                                'cost_usd': float(total_messages) * 0.015,  # Adjust pricing as needed
+                                'cost_usd': total_cost,  # Enterprise license cost based on active users
                                 'tool_source': 'BlueFlame AI',
                                 'file_source': filename,
                                 'created_at': datetime.now().isoformat()
@@ -330,7 +349,7 @@ class DataProcessor:
                                         'date': month_date.strftime('%Y-%m-%d'),
                                         'feature_used': 'BlueFlame Messages',
                                         'usage_count': round(avg_messages_per_user),
-                                        'cost_usd': float(avg_messages_per_user) * 0.015,
+                                        'cost_usd': monthly_license_cost,  # Each user pays enterprise license cost
                                         'tool_source': 'BlueFlame AI',
                                         'file_source': filename,
                                         'created_at': datetime.now().isoformat()
@@ -371,6 +390,7 @@ class DataProcessor:
                                     continue
                                 
                                 # Create user record for this month
+                                # Cost is enterprise license per user, not per message
                                 processed_data.append({
                                     'user_id': user_email,
                                     'user_name': user_name,
@@ -379,7 +399,7 @@ class DataProcessor:
                                     'date': month_date.strftime('%Y-%m-%d'),
                                     'feature_used': 'BlueFlame Messages',
                                     'usage_count': int(message_count),
-                                    'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
+                                    'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                                     'tool_source': 'BlueFlame AI',
                                     'file_source': filename,
                                     'created_at': datetime.now().isoformat()
@@ -428,6 +448,8 @@ class DataProcessor:
                             continue
                         
                         # Create aggregate record for the month
+                        # Cost based on active users with enterprise license pricing
+                        total_cost = maus * monthly_license_cost if maus > 0 else 0
                         processed_data.append({
                             'user_id': 'blueflame-aggregate',
                             'user_name': 'BlueFlame Aggregate',
@@ -436,7 +458,7 @@ class DataProcessor:
                             'date': month_date.strftime('%Y-%m-%d'),
                             'feature_used': 'BlueFlame Messages',
                             'usage_count': int(total_messages),
-                            'cost_usd': float(total_messages) * 0.015,  # Adjust pricing as needed
+                            'cost_usd': total_cost,  # Enterprise license cost based on active users
                             'tool_source': 'BlueFlame AI',
                             'file_source': filename,
                             'created_at': datetime.now().isoformat()
@@ -454,7 +476,7 @@ class DataProcessor:
                                     'date': month_date.strftime('%Y-%m-%d'),
                                     'feature_used': 'BlueFlame Messages',
                                     'usage_count': round(avg_messages_per_user),
-                                    'cost_usd': float(avg_messages_per_user) * 0.015,
+                                    'cost_usd': monthly_license_cost,  # Each user pays enterprise license cost
                                     'tool_source': 'BlueFlame AI',
                                     'file_source': filename,
                                     'created_at': datetime.now().isoformat()
@@ -495,6 +517,7 @@ class DataProcessor:
                                 continue
                             
                             # Create user record for this month
+                            # Cost is enterprise license per user, not per message
                             processed_data.append({
                                 'user_id': user_email,
                                 'user_name': user_name,
@@ -503,7 +526,7 @@ class DataProcessor:
                                 'date': month_date.strftime('%Y-%m-%d'),
                                 'feature_used': 'BlueFlame Messages',
                                 'usage_count': int(message_count),
-                                'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
+                                'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                                 'tool_source': 'BlueFlame AI',
                                 'file_source': filename,
                                 'created_at': datetime.now().isoformat()
@@ -542,7 +565,7 @@ class DataProcessor:
                             'date': date,
                             'feature_used': 'BlueFlame Messages',
                             'usage_count': int(messages),
-                            'cost_usd': float(messages) * 0.015,
+                            'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                             'tool_source': 'BlueFlame AI',
                             'file_source': filename,
                             'created_at': datetime.now().isoformat()

@@ -21,8 +21,9 @@ from data_processor import DataProcessor
 from database import DatabaseManager
 from file_reader import read_file_robust, display_file_error, read_file_from_path
 from file_scanner import FileScanner
-from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH
+from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING
 from export_utils import generate_excel_export, generate_pdf_report_html
+from cost_calculator import EnterpriseCostCalculator
 
 # Page configuration
 st.set_page_config(
@@ -558,8 +559,13 @@ def detect_data_source(df):
     return 'Unknown'
 
 def normalize_openai_data(df, filename):
-    """Normalize OpenAI CSV export to standard schema."""
+    """Normalize OpenAI CSV export to standard schema with enterprise license costs."""
     normalized_records = []
+    
+    # Get enterprise pricing
+    cost_calc = EnterpriseCostCalculator()
+    pricing_info = cost_calc.get_pricing_info('ChatGPT')
+    monthly_license_cost = pricing_info['license_cost_per_user_monthly']
     
     for _, row in df.iterrows():
         # Get user email and name
@@ -606,7 +612,7 @@ def normalize_openai_data(df, filename):
         if pd.isna(period_end):
             period_end = datetime.now()
         
-        # ChatGPT messages
+        # ChatGPT messages - cost is enterprise license per user per month
         if row.get('messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
@@ -616,12 +622,12 @@ def normalize_openai_data(df, filename):
                 'date': period_start,
                 'feature_used': 'ChatGPT Messages',
                 'usage_count': row.get('messages', 0),
-                'cost_usd': row.get('messages', 0) * 0.02,
+                'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                 'tool_source': 'ChatGPT',
                 'file_source': filename
             })
         
-        # GPT-specific messages
+        # GPT-specific messages - included in license, cost is 0
         if row.get('gpt_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
@@ -631,12 +637,12 @@ def normalize_openai_data(df, filename):
                 'date': period_start,
                 'feature_used': 'GPT Messages',
                 'usage_count': row.get('gpt_messages', 0),
-                'cost_usd': row.get('gpt_messages', 0) * 0.02,
+                'cost_usd': 0,  # Included in base license
                 'tool_source': 'ChatGPT',
                 'file_source': filename
             })
         
-        # Tool messages
+        # Tool messages - included in license, cost is 0
         if row.get('tool_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
@@ -646,12 +652,12 @@ def normalize_openai_data(df, filename):
                 'date': period_start,
                 'feature_used': 'Tool Messages',
                 'usage_count': row.get('tool_messages', 0),
-                'cost_usd': row.get('tool_messages', 0) * 0.01,
+                'cost_usd': 0,  # Included in base license
                 'tool_source': 'ChatGPT',
                 'file_source': filename
             })
         
-        # Project messages
+        # Project messages - included in license, cost is 0
         if row.get('project_messages', 0) > 0:
             normalized_records.append({
                 'user_id': row.get('public_id', row.get('email', '')),
@@ -661,7 +667,7 @@ def normalize_openai_data(df, filename):
                 'date': period_start,
                 'feature_used': 'Project Messages',
                 'usage_count': row.get('project_messages', 0),
-                'cost_usd': row.get('project_messages', 0) * 0.015,
+                'cost_usd': 0,  # Included in base license
                 'tool_source': 'ChatGPT',
                 'file_source': filename
             })
@@ -669,8 +675,13 @@ def normalize_openai_data(df, filename):
     return pd.DataFrame(normalized_records)
 
 def normalize_blueflame_data(df, filename):
-    """Normalize BlueFlame AI data to standard schema."""
+    """Normalize BlueFlame AI data to standard schema with enterprise license costs."""
     normalized_records = []
+    
+    # Get enterprise pricing for BlueFlame AI
+    cost_calc = EnterpriseCostCalculator()
+    pricing_info = cost_calc.get_pricing_info('BlueFlame AI')
+    monthly_license_cost = pricing_info['license_cost_per_user_monthly']
     
     # Check if this is the combined format with 'Table' column
     if 'Table' in df.columns:
@@ -757,7 +768,7 @@ def normalize_blueflame_data(df, filename):
                         if pd.isna(message_count) or message_count == 0:
                             continue
                         
-                        # Create user record for this month
+                        # Create user record for this month with enterprise license cost
                         normalized_records.append({
                             'user_id': user_email,
                             'user_name': user_name,
@@ -766,7 +777,7 @@ def normalize_blueflame_data(df, filename):
                             'date': month_date,
                             'feature_used': 'BlueFlame Messages',
                             'usage_count': int(message_count),
-                            'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
+                            'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                             'tool_source': 'BlueFlame AI',
                             'file_source': filename
                         })
@@ -810,7 +821,7 @@ def normalize_blueflame_data(df, filename):
                     if pd.isna(message_count) or message_count == 0:
                         continue
                     
-                    # Create user record for this month
+                    # Create user record for this month with enterprise license cost
                     normalized_records.append({
                         'user_id': user_email,
                         'user_name': user_name,
@@ -819,7 +830,7 @@ def normalize_blueflame_data(df, filename):
                         'date': month_date,
                         'feature_used': 'BlueFlame Messages',
                         'usage_count': message_count,
-                        'cost_usd': float(message_count) * 0.015,  # Adjust pricing as needed
+                        'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                         'tool_source': 'BlueFlame AI',
                         'file_source': filename
                     })
@@ -855,7 +866,7 @@ def normalize_blueflame_data(df, filename):
                     'date': date,
                     'feature_used': 'BlueFlame Messages',
                     'usage_count': messages,
-                    'cost_usd': float(messages) * 0.015,
+                    'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                     'tool_source': 'BlueFlame AI',
                     'file_source': filename
                 })
@@ -1970,6 +1981,68 @@ def main():
             ytd_cost = total_cost
             projected_annual_cost = total_cost * 12
         
+        # Enterprise Pricing Model Information
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">💼 Enterprise Pricing Model</h3>', unsafe_allow_html=True)
+        
+        with st.expander("ℹ️ About Cost Calculations - Based on Enterprise SaaS Licenses", expanded=False):
+            st.markdown("""
+            **Cost Model:** Enterprise license-based pricing (per user per month)
+            
+            This dashboard calculates costs based on **actual enterprise SaaS license fees**, not per-message usage.
+            Each active user in a month incurs the full monthly license cost, regardless of message volume.
+            
+            ### Current Enterprise Pricing:
+            """)
+            
+            col_info1, col_info2 = st.columns(2)
+            
+            with col_info1:
+                st.markdown("""
+                **🤖 ChatGPT Enterprise**
+                - **License Cost:** $60 per user per month
+                - **Annual Cost:** $720 per user per year
+                - **Minimum Seats:** 150 users
+                - **Included Features:**
+                  - Standard messages (unlimited)
+                  - Custom GPTs
+                  - Tool usage (code interpreter, browsing)
+                  - Project messages
+                
+                *Source: Reported enterprise pricing (~$60/user/month)*
+                """)
+            
+            with col_info2:
+                st.markdown("""
+                **🔥 BlueFlame AI**
+                - **License Cost:** $125 per user per month
+                - **Annual Cost:** $1,500 per user per year
+                - **Minimum Seats:** 1 user
+                - **Included Features:**
+                  - AI-powered insights
+                  - Document analysis
+                  - Investment workflow automation
+                  - Data integration
+                
+                *Source: Estimated based on typical enterprise AI software ($100-150/user/month)*
+                """)
+            
+            st.markdown("""
+            ---
+            ### Key Metrics to Monitor:
+            
+            1. **Cost per User** - Primary metric for license efficiency
+            2. **Messages per User** - Indicates engagement and value delivered
+            3. **Annual Cost Projection** - Budget planning and ROI analysis
+            4. **License Utilization** - Which users are actively using their licenses
+            
+            ### Why This Matters:
+            
+            - **Budget Accuracy:** True costs are based on seat licenses, not message volume
+            - **ROI Analysis:** Cost per user helps justify software investments
+            - **Utilization Insights:** Identify underutilized licenses to optimize spending
+            - **Future Planning:** Better annual cost projections for budgeting
+            """)
+        
         # Executive Summary Cards with detailed breakdowns
         st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Financial Overview</h3>', unsafe_allow_html=True)
         
@@ -2018,40 +2091,144 @@ def main():
         with col3:
             avg_cost_per_user = total_cost / max(total_users, 1)
             st.metric(
-                "Cost per User", 
+                "Avg Monthly Cost per User", 
                 f"${avg_cost_per_user:.2f}", 
-                help="Average cost per active user"
+                help="Average monthly license cost per active user - key metric for enterprise SaaS ROI"
             )
             with st.expander("📊 Details"):
-                st.write("**Calculation:**")
-                st.code(f"${total_cost:,.2f} ÷ {total_users} users = ${avg_cost_per_user:.2f}")
+                st.write("**Enterprise License Pricing:**")
+                st.code(f"${total_cost:,.2f} ÷ {total_users} users = ${avg_cost_per_user:.2f}/user/month")
                 st.write("**Context:**")
                 st.write(f"• Total active users: {total_users:,}")
-                st.write(f"• Total cost: ${total_cost:,.2f}")
-                if not data.empty:
-                    user_costs = data.groupby('user_id')['cost_usd'].sum().sort_values(ascending=False)
-                    st.write(f"• Top user cost: ${user_costs.iloc[0]:,.2f}")
-                    st.write(f"• Median user cost: ${user_costs.median():,.2f}")
+                st.write(f"• Total monthly cost: ${total_cost:,.2f}")
+                
+                # Show pricing by provider
+                if not data.empty and 'tool_source' in data.columns:
+                    st.write("**Cost per User by Provider:**")
+                    provider_user_cost = data.groupby('tool_source').agg({
+                        'user_id': 'nunique',
+                        'cost_usd': 'sum'
+                    })
+                    provider_user_cost['cost_per_user'] = provider_user_cost['cost_usd'] / provider_user_cost['user_id']
+                    for provider, row in provider_user_cost.iterrows():
+                        st.write(f"• {provider}: ${row['cost_per_user']:.2f}/user ({row['user_id']} users)")
+                
+                # Annual cost per user
+                annual_cost_per_user = avg_cost_per_user * 12
+                st.write("**Annual Projection:**")
+                st.write(f"• ${annual_cost_per_user:,.2f} per user per year")
         
         with col4:
             cost_per_interaction = total_cost / max(total_usage, 1)
             st.metric(
-                "Cost Efficiency", 
-                f"${cost_per_interaction:.3f}/msg", 
-                help="Average cost per message/interaction"
+                "Messages per User", 
+                f"{total_usage / max(total_users, 1):,.0f}", 
+                help="Average messages per user - indicates engagement and license utilization"
             )
             with st.expander("📊 Details"):
-                st.write("**Calculation:**")
-                st.code(f"${total_cost:,.2f} ÷ {total_usage:,} messages = ${cost_per_interaction:.3f}")
-                st.write("**Breakdown by Feature:**")
-                if not data.empty and 'feature_used' in data.columns:
-                    feature_efficiency = data.groupby('feature_used').agg({
-                        'cost_usd': 'sum',
+                st.write("**Engagement Metrics:**")
+                st.code(f"{total_usage:,} messages ÷ {total_users} users = {total_usage / max(total_users, 1):,.0f} msgs/user")
+                st.write("**License Value:**")
+                st.write(f"• Cost per message: ${cost_per_interaction:.3f}")
+                st.write(f"• Total messages: {total_usage:,}")
+                
+                # Show message volume by provider
+                if not data.empty and 'tool_source' in data.columns:
+                    st.write("**Messages per User by Provider:**")
+                    provider_engagement = data.groupby('tool_source').agg({
+                        'user_id': 'nunique',
                         'usage_count': 'sum'
                     })
-                    feature_efficiency['cost_per_msg'] = feature_efficiency['cost_usd'] / feature_efficiency['usage_count']
-                    for feature, row in feature_efficiency.iterrows():
-                        st.write(f"• {feature}: ${row['cost_per_msg']:.3f}/msg")
+                    provider_engagement['msgs_per_user'] = provider_engagement['usage_count'] / provider_engagement['user_id']
+                    for provider, row in provider_engagement.iterrows():
+                        st.write(f"• {provider}: {row['msgs_per_user']:,.0f} msgs/user")
+        
+        st.divider()
+        
+        # License Utilization Analysis
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📊 License Utilization & ROI Analysis</h3>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown('<div style="background: var(--card-bg); padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--primary-color);">', unsafe_allow_html=True)
+            st.markdown("**🎯 Cost Justification Analysis**")
+            
+            if not data.empty and 'tool_source' in data.columns:
+                for provider in data['tool_source'].unique():
+                    provider_data = data[data['tool_source'] == provider]
+                    provider_users = provider_data['user_id'].nunique()
+                    provider_cost = provider_data['cost_usd'].sum()
+                    provider_messages = provider_data['usage_count'].sum()
+                    
+                    # Get pricing info
+                    cost_calc = EnterpriseCostCalculator()
+                    pricing_info = cost_calc.get_pricing_info(provider)
+                    monthly_cost_per_user = pricing_info['license_cost_per_user_monthly']
+                    annual_cost_per_user = pricing_info['annual_cost_per_user']
+                    
+                    st.write(f"**{provider}:**")
+                    st.write(f"• Active users: {provider_users}")
+                    st.write(f"• Total messages: {provider_messages:,}")
+                    st.write(f"• Monthly cost: ${provider_cost:,.2f}")
+                    st.write(f"• Annual projection: ${provider_cost * 12:,.2f}")
+                    st.write(f"• Cost per user: ${monthly_cost_per_user}/month (${annual_cost_per_user}/year)")
+                    
+                    # Calculate engagement
+                    msgs_per_user = provider_messages / max(provider_users, 1)
+                    st.write(f"• Engagement: {msgs_per_user:.0f} messages/user/month")
+                    
+                    # License efficiency
+                    if msgs_per_user > 50:
+                        st.success(f"✅ High utilization - strong license value")
+                    elif msgs_per_user > 20:
+                        st.info(f"ℹ️ Moderate utilization - good license value")
+                    else:
+                        st.warning(f"⚠️ Low utilization - review license needs")
+                    
+                    st.write("")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown('<div style="background: var(--card-bg); padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--success-border);">', unsafe_allow_html=True)
+            st.markdown("**💡 Key Insights**")
+            
+            # Calculate overall metrics
+            msgs_per_user_overall = total_usage / max(total_users, 1)
+            cost_per_msg_overall = total_cost / max(total_usage, 1)
+            
+            st.write("**License Value Metrics:**")
+            st.write(f"• Average messages per user: {msgs_per_user_overall:.0f}/month")
+            st.write(f"• Effective cost per message: ${cost_per_msg_overall:.3f}")
+            st.write(f"• Total active user licenses: {total_users}")
+            
+            st.write("")
+            st.write("**Budget Planning:**")
+            st.write(f"• Current monthly spend: ${total_cost:,.2f}")
+            st.write(f"• Projected annual spend: ${projected_annual_cost:,.2f}")
+            
+            # Calculate savings opportunities
+            if not data.empty:
+                # Find low-usage users (less than 10 messages per month)
+                user_usage = data.groupby('user_id')['usage_count'].sum()
+                low_usage_users = (user_usage < 10).sum()
+                
+                if low_usage_users > 0:
+                    st.write("")
+                    st.write("**Optimization Opportunities:**")
+                    st.write(f"• {low_usage_users} users with <10 messages/month")
+                    
+                    # Calculate potential savings
+                    if 'tool_source' in data.columns:
+                        # Estimate potential savings (assuming ChatGPT $60/user/month)
+                        potential_monthly_savings = low_usage_users * 60
+                        potential_annual_savings = potential_monthly_savings * 12
+                        st.write(f"• Potential monthly savings: ~${potential_monthly_savings:,.2f}")
+                        st.write(f"• Potential annual savings: ~${potential_annual_savings:,.2f}")
+                        st.info(f"💡 Consider reviewing license needs for low-usage users")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
         
         st.divider()
         
