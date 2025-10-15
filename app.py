@@ -73,6 +73,80 @@ def apply_department_mappings(data, mappings):
     
     return data
 
+def apply_employee_departments(data, db_manager=None):
+    """
+    Apply employee master file departments to all data.
+    
+    This ensures the employee master file is the authoritative source for 
+    department assignments for all employees, not just power users.
+    
+    Args:
+        data: DataFrame with usage data
+        db_manager: DatabaseManager instance (optional, will use global db if not provided)
+        
+    Returns:
+        DataFrame with employee departments applied
+    """
+    if data.empty:
+        return data
+    
+    data = data.copy()
+    
+    # Use provided db_manager or fall back to global db
+    database = db_manager if db_manager is not None else db
+    
+    # Get all employees for efficient lookup
+    try:
+        employees_df = database.get_all_employees()
+        if employees_df.empty:
+            return data
+        
+        # Create lookup dictionaries for fast matching
+        email_to_dept = {}
+        name_to_dept = {}
+        
+        for _, emp in employees_df.iterrows():
+            # Email-based lookup (primary)
+            if pd.notna(emp.get('email')) and emp.get('email'):
+                email_to_dept[emp['email'].lower().strip()] = emp.get('department', 'Unknown')
+            
+            # Name-based lookup (fallback)
+            if pd.notna(emp.get('first_name')) and pd.notna(emp.get('last_name')):
+                full_name = f"{emp['first_name']} {emp['last_name']}".lower().strip()
+                name_to_dept[full_name] = emp.get('department', 'Unknown')
+        
+        # Apply employee departments to data
+        for idx, row in data.iterrows():
+            employee_dept = None
+            
+            # Try email match first
+            if pd.notna(row.get('email')) and row.get('email'):
+                email_key = row['email'].lower().strip()
+                if email_key in email_to_dept:
+                    employee_dept = email_to_dept[email_key]
+            
+            # Try name match if email didn't work
+            if not employee_dept and pd.notna(row.get('user_name')) and row.get('user_name'):
+                name_key = row['user_name'].lower().strip()
+                if name_key in name_to_dept:
+                    employee_dept = name_to_dept[name_key]
+            
+            # Update department if employee found
+            if employee_dept:
+                data.at[idx, 'department'] = employee_dept
+        
+        return data
+        
+    except AttributeError as e:
+        # Handle case where db doesn't have employee methods (cache error)
+        print(f"AttributeError in apply_employee_departments: {e}")
+        return data
+    except Exception as e:
+        print(f"Error applying employee departments: {e}")
+        import traceback
+        traceback.print_exc()
+        return data
+
 def is_employee_user(email, user_name):
     """
     Check if a user is an employee by email or name.
@@ -1892,7 +1966,11 @@ def main():
         else:
             data = db.get_all_data()
     
-    # Apply department mappings
+    # Apply employee departments FIRST (authoritative source for employees)
+    # This ensures the employee master file drives all employee department tagging
+    data = apply_employee_departments(data)
+    
+    # Apply manual department mappings for non-employees (secondary/override)
     data = apply_department_mappings(data, dept_mappings)
     
     # Apply tool filter
