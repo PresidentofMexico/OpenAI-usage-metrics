@@ -2318,11 +2318,11 @@ def main():
                         </div>
                         <div>
                             <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Avg/User {efficiency_icon}</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #10b981;">{row['Avg Messages/User']:,.0f}</p>
+                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--success-border);">{row['Avg Messages/User']:,.0f}</p>
                         </div>
                         <div>
                             <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Total Cost</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #10b981;">${row['Total Cost']:,.2f}</p>
+                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--success-border);">${row['Total Cost']:,.2f}</p>
                         </div>
                     </div>
                 </div>
