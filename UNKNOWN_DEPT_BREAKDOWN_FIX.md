@@ -8,8 +8,10 @@ The Department Performance section showed 35 active users in the "Unknown" depar
 
 The "Unknown" department contains TWO distinct types of users:
 
-1. **Employees with department="Unknown"**: Users who ARE in the employee master file, but whose department field is set to "Unknown"
+1. **Employees with department="Unknown"**: Users who ARE in the employee master file, but whose department field is explicitly set to "Unknown" (not blank)
 2. **Unidentified users**: Users who are NOT in the employee master file at all (e.g., contractors, external users)
+
+**Note**: Employees with BLANK/EMPTY department fields in the employee master are NOT counted in category 1. They retain their department from usage data but are not considered as having department="Unknown" in the employee master.
 
 The Department Performance section counts ALL users in the "Unknown" department (both types), while the Unidentified Users section only shows the second type (non-employees).
 
@@ -21,18 +23,24 @@ Consider this data:
 - Alice Employee (department: Engineering)
 - Bob Manager (department: Unknown)
 - Charlie Analyst (department: Unknown)
+- Art Rosen (department: [blank])
+- Tim Milazzo (department: [blank])
 
 **Usage Data:**
 - alice@company.com → Applied dept from master: Engineering
 - bob@company.com → Applied dept from master: Unknown
 - charlie@company.com → Applied dept from master: Unknown
+- art@company.com → Keeps dept from usage data: Unknown (blank dept not applied)
+- tim@company.com → Keeps dept from usage data: Unknown (blank dept not applied)
 - contractor1@vendor.com → Not in master: stays as Unknown
 - contractor2@vendor.com → Not in master: stays as Unknown
 
 **Result:**
-- Department Performance "Unknown": 4 users (Bob, Charlie, contractor1, contractor2)
-- Unidentified Users: 2 users (contractor1, contractor2)
-- Discrepancy: 4 - 2 = 2 (Bob and Charlie are employees with Unknown dept)
+- Department Performance "Unknown": 6 users (Bob, Charlie, Art, Tim, contractor1, contractor2)
+- Breakdown shows:
+  - **Employees with department='Unknown'**: 2 (Bob, Charlie)
+  - **Unidentified users**: 2 (contractor1, contractor2)
+- Note: Art and Tim are in the employee master but have blank departments, so they keep "Unknown" from usage data but are NOT counted in the breakdown as "employees with department='Unknown'"
 
 ## Solution
 
@@ -50,38 +58,54 @@ Note: Check Database Management → Unidentified Users to review non-employees
 
 ### Code Changes
 
-**File: `app.py`**
+**File: `database.py`**
 
-Added after displaying each top department (lines 2665-2682):
+Added new method `get_employees_with_unknown_dept_in_usage()` (after line 750):
 
 ```python
-# Add breakdown for "Unknown" department if present
-if row['Department'] == 'Unknown':
-    # Get breakdown of Unknown department users
-    unidentified_users = db.get_unidentified_users()
-    unidentified_count = len(unidentified_users)
-    total_unknown = int(row['Active Users'])
-    employees_with_unknown_dept = total_unknown - unidentified_count
+def get_employees_with_unknown_dept_in_usage(self):
+    """
+    Get employees who have department='Unknown' in their USAGE DATA.
+    This includes employees whose department in the employee master is 'Unknown',
+    but excludes employees with blank/empty departments.
     
-    st.markdown(f"""
-    <div style="margin-top: 0.5rem; padding: 0.5rem; background: var(--background-secondary); border-radius: 0.5rem; border-left: 3px solid #f59e0b;">
-        <p style="margin: 0; font-size: 0.75rem; color: var(--text-secondary); font-weight: 600;">ℹ️ "Unknown" Department Breakdown:</p>
-        <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">
-            • <strong>{employees_with_unknown_dept}</strong> employees with department = "Unknown" in employee master file<br>
-            • <strong>{unidentified_count}</strong> unidentified users (not in employee master file)
-        </p>
-        <p style="margin: 0.25rem 0 0 0; font-size: 0.7rem; color: var(--text-tertiary); font-style: italic;">
-            Note: Check Database Management → Unidentified Users to review non-employees
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    Returns:
+        DataFrame with employees who have usage data with department='Unknown'
+    """
+    # SQL query that:
+    # 1. Joins usage_metrics with employees table
+    # 2. Filters for um.department = 'Unknown'
+    # 3. Filters for e.department = 'Unknown' (explicitly)
+    # 4. Excludes e.department IS NULL or e.department = '' (blank departments)
 ```
+
+This method ensures that only employees who EXPLICITLY have department='Unknown' in the employee master are counted, not those with blank/empty departments.
+
+**File: `app.py`**
+
+Updated the breakdown calculation (lines 2665-2685):
+
+**Before:**
+```python
+employees_with_unknown_dept = total_unknown - unidentified_count
+```
+
+**After:**
+```python
+# Get employees who explicitly have department='Unknown' in employee master
+# (excludes employees with blank/empty departments)
+employees_unknown_dept = db.get_employees_with_unknown_dept_in_usage()
+employees_with_unknown_dept = len(employees_unknown_dept)
+```
+
+This change ensures accurate counting by querying actual employees instead of using subtraction.
 
 ### Test Coverage
 
 Created `test_unknown_dept_breakdown.py` to verify:
 - Employees with "Unknown" department are counted separately
 - Unidentified users are counted separately
+- Employees with blank departments are NOT counted as "employees with department='Unknown'"
 - Total in "Unknown" department equals the sum of both
 - Breakdown calculation is correct
 
