@@ -749,3 +749,145 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error getting employee count: {e}")
             return 0
+    
+    def delete_employee(self, employee_id):
+        """
+        Delete an employee from the employees table.
+        
+        Args:
+            employee_id: The employee_id to delete
+            
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        try:
+            # Convert numpy int64 to regular int
+            if hasattr(employee_id, 'item'):
+                employee_id = int(employee_id.item())
+            else:
+                employee_id = int(employee_id)
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # First check if employee exists
+            cursor.execute("SELECT first_name, last_name, email FROM employees WHERE employee_id = ?", (employee_id,))
+            employee = cursor.fetchone()
+            
+            if not employee:
+                conn.close()
+                return False, "Employee not found"
+            
+            first_name, last_name, email = employee
+            
+            # Delete the employee
+            cursor.execute("DELETE FROM employees WHERE employee_id = ?", (employee_id,))
+            conn.commit()
+            conn.close()
+            
+            message = f"Successfully deleted employee: {first_name} {last_name}"
+            if email:
+                message += f" ({email})"
+            
+            print(message)
+            return True, message
+            
+        except Exception as e:
+            print(f"Error deleting employee: {e}")
+            return False, f"Error deleting employee: {str(e)}"
+            return False, f"Error deleting employee: {str(e)}"
+    
+    def delete_employee_usage(self, email):
+        """
+        Delete all usage metrics for a specific employee email.
+        This removes the employee's data from analytics while keeping the employee record.
+        
+        Args:
+            email: The employee email to delete usage for
+            
+        Returns:
+            tuple: (success: bool, message: str, records_deleted: int)
+        """
+        try:
+            if not email:
+                return False, "No email provided", 0
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Count records to be deleted
+            cursor.execute("SELECT COUNT(*) FROM usage_metrics WHERE LOWER(email) = ?", (email.lower(),))
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                conn.close()
+                return True, "No usage data found for this email", 0
+            
+            # Delete usage records
+            cursor.execute("DELETE FROM usage_metrics WHERE LOWER(email) = ?", (email.lower(),))
+            conn.commit()
+            conn.close()
+            
+            message = f"Deleted {count} usage record(s) for {email}"
+            print(message)
+            return True, message, count
+            
+        except Exception as e:
+            print(f"Error deleting employee usage: {e}")
+            return False, f"Error deleting usage data: {str(e)}", 0
+    
+    def delete_employee_and_usage(self, employee_id):
+        """
+        Delete an employee and all their usage metrics.
+        This is a complete removal from the system.
+        
+        Args:
+            employee_id: The employee_id to delete
+            
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        try:
+            # Convert numpy int64 to regular int
+            if hasattr(employee_id, 'item'):
+                employee_id = int(employee_id.item())
+            else:
+                employee_id = int(employee_id)
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Get employee info first
+            cursor.execute("SELECT first_name, last_name, email FROM employees WHERE employee_id = ?", (employee_id,))
+            employee = cursor.fetchone()
+            
+            if not employee:
+                conn.close()
+                return False, "Employee not found"
+            
+            first_name, last_name, email = employee
+            conn.close()
+            
+            # Delete usage data if email exists
+            usage_deleted = 0
+            if email:
+                success, message, usage_deleted = self.delete_employee_usage(email)
+                if not success:
+                    return False, f"Error deleting usage data: {message}"
+            
+            # Delete employee record
+            success, message = self.delete_employee(employee_id)
+            if not success:
+                return False, message
+            
+            final_message = f"Successfully deleted employee {first_name} {last_name}"
+            if email:
+                final_message += f" ({email})"
+            if usage_deleted > 0:
+                final_message += f" and {usage_deleted} usage record(s)"
+            
+            return True, final_message
+            
+        except Exception as e:
+            print(f"Error in delete_employee_and_usage: {e}")
+            return False, f"Error: {str(e)}"

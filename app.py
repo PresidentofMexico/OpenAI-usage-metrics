@@ -2953,7 +2953,94 @@ def main():
                 employees_df = pd.DataFrame()
             
             if not employees_df.empty:
-                st.dataframe(employees_df, use_container_width=True)
+                st.markdown("**Employee Actions:**")
+                st.caption("⚠️ Deleting an employee will remove them from the roster and optionally remove their usage data from all analytics.")
+                
+                # Add search filter for employees
+                search_emp = st.text_input("🔍 Search employees by name or email", "", key="employee_search")
+                
+                # Filter employees if search is active
+                if search_emp:
+                    employees_filtered = employees_df[
+                        employees_df['first_name'].str.contains(search_emp, case=False, na=False) |
+                        employees_df['last_name'].str.contains(search_emp, case=False, na=False) |
+                        employees_df['email'].str.contains(search_emp, case=False, na=False)
+                    ]
+                else:
+                    employees_filtered = employees_df
+                
+                if employees_filtered.empty:
+                    st.info(f"No employees match '{search_emp}'")
+                else:
+                    st.write(f"**Showing {len(employees_filtered)} of {len(employees_df)} employees:**")
+                    
+                    # Display employees with delete options
+                    for idx, row in employees_filtered.iterrows():
+                        col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 1])
+                        
+                        with col1:
+                            st.write(f"**{row['first_name']} {row['last_name']}**")
+                        
+                        with col2:
+                            if pd.notna(row['email']) and row['email']:
+                                st.write(f"📧 {row['email']}")
+                            else:
+                                st.write("📧 _No email_")
+                        
+                        with col3:
+                            if pd.notna(row['department']) and row['department']:
+                                st.write(f"🏢 {row['department']}")
+                            else:
+                                st.write("🏢 _Unknown_")
+                        
+                        with col4:
+                            if pd.notna(row['status']) and row['status']:
+                                st.write(f"Status: {row['status']}")
+                            else:
+                                st.write("Status: _Unknown_")
+                        
+                        with col5:
+                            # Delete button with confirmation
+                            delete_key = f"delete_emp_{row['employee_id']}"
+                            if st.button("🗑️", key=delete_key, help=f"Delete {row['first_name']} {row['last_name']}"):
+                                st.session_state[f"confirm_{delete_key}"] = True
+                        
+                        # Confirmation dialog if delete was clicked
+                        confirm_key = f"confirm_delete_emp_{row['employee_id']}"
+                        if st.session_state.get(confirm_key, False):
+                            st.error(f"⚠️ **Confirm deletion of {row['first_name']} {row['last_name']}**")
+                            
+                            col_a, col_b, col_c = st.columns(3)
+                            
+                            with col_a:
+                                if st.button("❌ Cancel", key=f"cancel_{delete_key}"):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
+                            
+                            with col_b:
+                                if st.button("🗑️ Delete Employee Only", key=f"confirm_emp_{delete_key}", 
+                                           help="Remove from employee roster but keep usage data"):
+                                    success, message = db.delete_employee(row['employee_id'])
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        st.session_state[confirm_key] = False
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {message}")
+                            
+                            with col_c:
+                                if st.button("💣 Delete All Data", key=f"confirm_all_{delete_key}", 
+                                           help="Remove employee AND all their usage data from analytics"):
+                                    success, message = db.delete_employee_and_usage(row['employee_id'])
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        st.session_state[confirm_key] = False
+                                        st.cache_resource.clear()  # Clear cache to refresh metrics
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {message}")
+                        
+                        st.divider()
             else:
                 st.info("No employees loaded yet")
         
