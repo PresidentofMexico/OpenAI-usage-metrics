@@ -2510,45 +2510,114 @@ def main():
         if min_users > 0:
             dept_stats_filtered = dept_stats_filtered[dept_stats_filtered['Active Users'] >= min_users]
         
+        # Add view toggle for monthly breakdown
+        view_mode = st.radio(
+            "Chart View Mode",
+            options=["Total Usage", "Monthly Breakdown"],
+            horizontal=True,
+            help="Toggle between total usage view and monthly breakdown by department"
+        )
+        
         # Create two-column layout for better space utilization
         col1, col2 = st.columns([3, 2])
         
         with col1:
             # Department comparison bar chart (filtered)
             if not dept_stats_filtered.empty:
-                fig_dept_comparison = go.Figure()
-                
-                # Add usage bars
-                fig_dept_comparison.add_trace(go.Bar(
-                    name='Total Usage',
-                    x=dept_stats_filtered['Department'],
-                    y=dept_stats_filtered['Total Usage'],
-                    marker_color='#667eea',
-                    text=dept_stats_filtered['Total Usage'],
-                    texttemplate='%{text:,.0f}',
-                    textposition='outside',
-                    hovertemplate='<b>%{x}</b><br>Usage: %{y:,.0f}<extra></extra>'
-                ))
-                
-                # Update title based on filters
-                title_suffix = ""
-                if excluded_depts or min_users > 0:
-                    title_suffix = f" (Filtered: {len(dept_stats_filtered)} of {len(dept_stats)} depts)"
+                if view_mode == "Monthly Breakdown":
+                    # Create monthly breakdown chart
+                    try:
+                        # Prepare monthly data by department
+                        monthly_dept_data = data.copy()
+                        monthly_dept_data['date'] = pd.to_datetime(monthly_dept_data['date'], errors='coerce')
+                        monthly_dept_data = monthly_dept_data.dropna(subset=['date'])
+                        monthly_dept_data['month'] = monthly_dept_data['date'].dt.to_period('M').astype(str)
+                        
+                        # Filter to only departments in the filtered list
+                        filtered_depts = dept_stats_filtered['Department'].tolist()
+                        monthly_dept_data = monthly_dept_data[monthly_dept_data['department'].isin(filtered_depts)]
+                        
+                        # Aggregate by department and month
+                        dept_month_stats = monthly_dept_data.groupby(['department', 'month'])['usage_count'].sum().reset_index()
+                        dept_month_stats.columns = ['Department', 'Month', 'Usage']
+                        
+                        # Create grouped bar chart
+                        fig_dept_comparison = px.bar(
+                            dept_month_stats,
+                            x='Department',
+                            y='Usage',
+                            color='Month',
+                            barmode='group',
+                            title=f'Department Usage by Month (Grouped Bars)',
+                            labels={'Usage': 'Messages', 'Department': 'Department'},
+                            color_discrete_sequence=px.colors.qualitative.Set2
+                        )
+                        
+                        # Update layout with proper margins and height
+                        fig_dept_comparison.update_layout(
+                            xaxis_title='Department',
+                            yaxis_title='Total Messages',
+                            height=450,
+                            hovermode='x unified',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=1.02,
+                                xanchor="right",
+                                x=1
+                            ),
+                            margin=dict(t=100, b=80, l=60, r=40)
+                        )
+                        
+                        # Add value labels on bars
+                        fig_dept_comparison.update_traces(
+                            texttemplate='%{y:,.0f}',
+                            textposition='outside',
+                            textfont_size=9
+                        )
+                        
+                        st.plotly_chart(fig_dept_comparison, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Unable to create monthly breakdown: {str(e)}")
+                        st.info("Please ensure your data contains valid date information.")
                 else:
-                    title_suffix = f" (All {len(dept_stats)} Departments)"
-                
-                fig_dept_comparison.update_layout(
-                    title=f'Department Usage Comparison{title_suffix}',
-                    xaxis_title='Department',
-                    yaxis_title='Total Messages',
-                    showlegend=False,
-                    height=350,
-                    hovermode='x unified',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                )
-                
-                st.plotly_chart(fig_dept_comparison, use_container_width=True)
+                    # Total usage view (original)
+                    fig_dept_comparison = go.Figure()
+                    
+                    # Add usage bars
+                    fig_dept_comparison.add_trace(go.Bar(
+                        name='Total Usage',
+                        x=dept_stats_filtered['Department'],
+                        y=dept_stats_filtered['Total Usage'],
+                        marker_color='#667eea',
+                        text=dept_stats_filtered['Total Usage'],
+                        texttemplate='%{text:,.0f}',
+                        textposition='outside',
+                        hovertemplate='<b>%{x}</b><br>Usage: %{y:,.0f}<extra></extra>'
+                    ))
+                    
+                    # Update title based on filters
+                    title_suffix = ""
+                    if excluded_depts or min_users > 0:
+                        title_suffix = f" (Filtered: {len(dept_stats_filtered)} of {len(dept_stats)} depts)"
+                    else:
+                        title_suffix = f" (All {len(dept_stats)} Departments)"
+                    
+                    fig_dept_comparison.update_layout(
+                        title=f'Department Usage Comparison{title_suffix}',
+                        xaxis_title='Department',
+                        yaxis_title='Total Messages',
+                        showlegend=False,
+                        height=450,
+                        hovermode='x unified',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        margin=dict(t=80, b=80, l=60, r=40)
+                    )
+                    
+                    st.plotly_chart(fig_dept_comparison, use_container_width=True)
             else:
                 st.info("No departments match the current filter criteria.")
         
