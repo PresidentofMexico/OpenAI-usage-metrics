@@ -140,9 +140,86 @@ def get_employee_for_user(email, user_name):
         # This happens when code is updated while app is running
         return None
 
-# Enhanced CSS with micro UI improvements
+# Enhanced CSS with dark mode support
 st.markdown("""
 <style>
+    /* CSS Variables for Light and Dark Mode */
+    :root {
+        /* Light mode colors (default) */
+        --bg-primary: #ffffff;
+        --bg-secondary: #f8f9fa;
+        --bg-tertiary: #f1f5f9;
+        --text-primary: #1e293b;
+        --text-secondary: #475569;
+        --text-tertiary: #64748b;
+        --border-color: #e9ecef;
+        --border-color-light: #e2e8f0;
+        --border-dashed: #cbd5e1;
+        --shadow-sm: rgba(0,0,0,0.05);
+        --shadow-md: rgba(0,0,0,0.1);
+        --shadow-lg: rgba(0,0,0,0.15);
+        
+        /* Card backgrounds */
+        --card-bg-start: #f8f9fa;
+        --card-bg-end: #ffffff;
+        
+        /* State colors with good contrast */
+        --success-bg: #d1fae5;
+        --success-text: #065f46;
+        --success-border: #10b981;
+        
+        --warning-bg: #fef3c7;
+        --warning-text: #92400e;
+        --warning-border: #f59e0b;
+        
+        --info-bg: #dbeafe;
+        --info-text: #1e40af;
+        --info-border: #3b82f6;
+        
+        --error-bg: #fee2e2;
+        --error-text: #991b1b;
+        --error-border: #ef4444;
+    }
+    
+    /* Dark mode colors */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-primary: #1e293b;
+            --bg-secondary: #334155;
+            --bg-tertiary: #475569;
+            --text-primary: #f1f5f9;
+            --text-secondary: #cbd5e1;
+            --text-tertiary: #94a3b8;
+            --border-color: #475569;
+            --border-color-light: #64748b;
+            --border-dashed: #64748b;
+            --shadow-sm: rgba(0,0,0,0.3);
+            --shadow-md: rgba(0,0,0,0.4);
+            --shadow-lg: rgba(0,0,0,0.5);
+            
+            /* Card backgrounds for dark mode */
+            --card-bg-start: #334155;
+            --card-bg-end: #1e293b;
+            
+            /* State colors optimized for dark mode */
+            --success-bg: #065f46;
+            --success-text: #a7f3d0;
+            --success-border: #34d399;
+            
+            --warning-bg: #78350f;
+            --warning-text: #fde68a;
+            --warning-border: #fbbf24;
+            
+            --info-bg: #1e3a8a;
+            --info-text: #bfdbfe;
+            --info-border: #60a5fa;
+            
+            --error-bg: #7f1d1d;
+            --error-text: #fecaca;
+            --error-border: #f87171;
+        }
+    }
+    
     /* Main header with improved typography */
     .main-header {
         font-size: 2.5rem;
@@ -157,17 +234,18 @@ st.markdown("""
     
     /* Improved metric cards */
     .metric-card {
-        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+        background: linear-gradient(135deg, var(--card-bg-start) 0%, var(--card-bg-end) 100%);
         padding: 1.5rem;
         border-radius: 0.75rem;
         margin: 0.5rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border: 1px solid #e9ecef;
+        box-shadow: 0 2px 4px var(--shadow-sm);
+        border: 1px solid var(--border-color);
         transition: all 0.3s ease;
+        color: var(--text-primary);
     }
     
     .metric-card:hover {
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 8px var(--shadow-md);
         transform: translateY(-2px);
     }
     
@@ -179,7 +257,7 @@ st.markdown("""
         font-size: 0.85rem;
         font-weight: 600;
         margin: 0.25rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 4px var(--shadow-md);
         transition: all 0.2s ease;
     }
     
@@ -210,13 +288,13 @@ st.markdown("""
     
     /* Department mapper with improved styling */
     .dept-mapper-container {
-        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-        border: 2px solid #e9ecef;
+        background: linear-gradient(135deg, var(--card-bg-start) 0%, var(--card-bg-end) 100%);
+        border: 2px solid var(--border-color);
         border-radius: 0.75rem;
         padding: 1.5rem;
         margin: 1rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        color: #1e293b;
+        box-shadow: 0 2px 4px var(--shadow-sm);
+        color: var(--text-primary);
     }
     
     /* Enhanced insight cards */
@@ -225,58 +303,62 @@ st.markdown("""
         padding: 1.25rem;
         margin: 1rem 0;
         border-radius: 0.5rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 4px var(--shadow-sm);
         transition: all 0.3s ease;
     }
     
     .insight-card:hover {
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 8px var(--shadow-md);
     }
     
     .insight-success {
-        border-color: #10b981;
-        background: linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%);
+        border-color: var(--success-border);
+        background: var(--success-bg);
+        color: var(--success-text);
     }
     
     .insight-warning {
-        border-color: #f59e0b;
-        background: linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%);
+        border-color: var(--warning-border);
+        background: var(--warning-bg);
+        color: var(--warning-text);
     }
     
     .insight-info {
-        border-color: #3b82f6;
-        background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+        border-color: var(--info-border);
+        background: var(--info-bg);
+        color: var(--info-text);
     }
     
     /* Enhanced file upload zone */
     .upload-zone {
-        border: 2px dashed #cbd5e1;
+        border: 2px dashed var(--border-dashed);
         border-radius: 0.75rem;
         padding: 2rem;
         text-align: center;
-        background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+        background: var(--bg-secondary);
         margin: 1rem 0;
         transition: all 0.3s ease;
+        color: var(--text-primary);
     }
     
     .upload-zone:hover {
         border-color: #667eea;
-        background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+        background: var(--bg-tertiary);
     }
     
     .upload-requirements {
-        background: #f1f5f9;
+        background: var(--bg-tertiary);
         border-radius: 0.5rem;
         padding: 1rem;
         margin: 0.5rem 0;
         font-size: 0.875rem;
-        border: 1px solid #e2e8f0;
-        color: #1e293b;
+        border: 1px solid var(--border-color-light);
+        color: var(--text-primary);
     }
     
     /* Loading states */
     .loading-skeleton {
-        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+        background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--border-color-light) 50%, var(--bg-tertiary) 75%);
         background-size: 200% 100%;
         animation: loading 1.5s ease-in-out infinite;
         border-radius: 0.5rem;
@@ -292,10 +374,11 @@ st.markdown("""
     .empty-state {
         text-align: center;
         padding: 3rem 2rem;
-        background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+        background: var(--bg-secondary);
         border-radius: 0.75rem;
-        border: 2px dashed #cbd5e1;
+        border: 2px dashed var(--border-dashed);
         margin: 2rem 0;
+        color: var(--text-primary);
     }
     
     .empty-state-icon {
@@ -307,12 +390,12 @@ st.markdown("""
     .empty-state-title {
         font-size: 1.5rem;
         font-weight: 600;
-        color: #475569;
+        color: var(--text-secondary);
         margin-bottom: 0.5rem;
     }
     
     .empty-state-text {
-        color: #64748b;
+        color: var(--text-tertiary);
         margin-bottom: 1.5rem;
     }
     
@@ -328,27 +411,27 @@ st.markdown("""
     }
     
     .quality-excellent {
-        background: #d1fae5;
-        color: #065f46;
-        border: 1px solid #10b981;
+        background: var(--success-bg);
+        color: var(--success-text);
+        border: 1px solid var(--success-border);
     }
     
     .quality-good {
-        background: #dbeafe;
-        color: #1e40af;
-        border: 1px solid #3b82f6;
+        background: var(--info-bg);
+        color: var(--info-text);
+        border: 1px solid var(--info-border);
     }
     
     .quality-warning {
-        background: #fef3c7;
-        color: #92400e;
-        border: 1px solid #f59e0b;
+        background: var(--warning-bg);
+        color: var(--warning-text);
+        border: 1px solid var(--warning-border);
     }
     
     .quality-poor {
-        background: #fee2e2;
-        color: #991b1b;
-        border: 1px solid #ef4444;
+        background: var(--error-bg);
+        color: var(--error-text);
+        border: 1px solid var(--error-border);
     }
     
     /* Mobile responsiveness */
@@ -385,28 +468,30 @@ st.markdown("""
     
     /* Enhanced tooltips */
     .help-tooltip {
-        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-        border-left: 4px solid #3b82f6;
+        background: var(--info-bg);
+        border-left: 4px solid var(--info-border);
         border-radius: 0.5rem;
         padding: 1rem;
         margin: 0.5rem 0;
         font-size: 0.875rem;
-        border: 1px solid #bfdbfe;
-        color: #1e40af;
+        border: 1px solid var(--info-border);
+        color: var(--info-text);
     }
     
     .help-tooltip strong {
-        color: #1e3a8a;
+        color: var(--info-text);
+        font-weight: 700;
     }
     
     /* Info cards with icons */
     .info-card {
-        background: white;
-        border: 2px solid #e5e7eb;
+        background: var(--bg-primary);
+        border: 2px solid var(--border-color);
         border-radius: 0.75rem;
         padding: 1.25rem;
         margin: 1rem 0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        box-shadow: 0 1px 3px var(--shadow-md);
+        color: var(--text-primary);
     }
     
     .info-card-icon {
@@ -430,23 +515,12 @@ st.markdown("""
         border-radius: 0.5rem;
         font-weight: 600;
         transition: all 0.2s ease;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 4px var(--shadow-md);
     }
     
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-    }
-    
-    /* Help tooltips */
-    .help-tooltip {
-        background: #eff6ff;
-        border: 1px solid #3b82f6;
-        border-radius: 0.5rem;
-        padding: 0.75rem;
-        margin: 0.5rem 0;
-        font-size: 0.875rem;
-        color: #1e40af;
+        box-shadow: 0 4px 8px var(--shadow-lg);
     }
     
     /* Better spacing */
@@ -454,18 +528,8 @@ st.markdown("""
         margin-top: 2rem;
         margin-bottom: 1rem;
         padding-bottom: 0.5rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-    
-    /* Responsive improvements */
-    @media (max-width: 768px) {
-        .main-header {
-            font-size: 1.75rem;
-        }
-        
-        .metric-card {
-            padding: 1rem;
-        }
+        border-bottom: 2px solid var(--border-color);
+        color: var(--text-primary);
     }
 </style>
 """, unsafe_allow_html=True)
