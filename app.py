@@ -2019,28 +2019,131 @@ def main():
         
         st.divider()
         
-        # Top 3 Departments
-        st.markdown('<div class="section-header"><h3>🏆 Top 3 Departments by Usage</h3></div>', unsafe_allow_html=True)
+        # Department Performance Analytics
+        st.markdown('<div class="section-header"><h3>📊 Department Performance Analytics</h3></div>', unsafe_allow_html=True)
         
+        # Calculate comprehensive department statistics
         dept_stats = data.groupby('department').agg({
             'user_id': 'nunique',
             'usage_count': 'sum',
             'cost_usd': 'sum'
         }).reset_index()
         dept_stats.columns = ['Department', 'Active Users', 'Total Usage', 'Total Cost']
-        dept_stats = dept_stats.sort_values('Total Usage', ascending=False).head(3)
         
-        cols = st.columns(3)
-        for idx, row in dept_stats.iterrows():
-            with cols[idx if idx < 3 else 2]:
+        # Calculate derived metrics
+        total_usage_all = dept_stats['Total Usage'].sum()
+        dept_stats['Usage Share %'] = (dept_stats['Total Usage'] / total_usage_all * 100).round(1)
+        dept_stats['Avg Messages/User'] = (dept_stats['Total Usage'] / dept_stats['Active Users']).round(0)
+        dept_stats['Cost per Message'] = (dept_stats['Total Cost'] / dept_stats['Total Usage']).round(3)
+        dept_stats = dept_stats.sort_values('Total Usage', ascending=False)
+        
+        # Create two-column layout for better space utilization
+        col1, col2 = st.columns([3, 2])
+        
+        with col1:
+            # Department comparison bar chart (all departments)
+            fig_dept_comparison = go.Figure()
+            
+            # Add usage bars
+            fig_dept_comparison.add_trace(go.Bar(
+                name='Total Usage',
+                x=dept_stats['Department'],
+                y=dept_stats['Total Usage'],
+                marker_color='#667eea',
+                text=dept_stats['Total Usage'],
+                texttemplate='%{text:,.0f}',
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Usage: %{y:,.0f}<extra></extra>'
+            ))
+            
+            fig_dept_comparison.update_layout(
+                title='Department Usage Comparison (All Departments)',
+                xaxis_title='Department',
+                yaxis_title='Total Messages',
+                showlegend=False,
+                height=350,
+                hovermode='x unified',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+            )
+            
+            st.plotly_chart(fig_dept_comparison, use_container_width=True)
+        
+        with col2:
+            # Top 3 departments with detailed insights
+            st.markdown("**🥇 Top 3 Departments**")
+            
+            top_3_depts = dept_stats.head(3)
+            
+            for idx, row in top_3_depts.iterrows():
+                # Medal emojis instead of generic trophy
+                medal = ['🥇', '🥈', '🥉'][idx] if idx < 3 else '🏅'
+                
+                # Determine efficiency rating
+                avg_cost_per_msg = dept_stats['Cost per Message'].mean()
+                is_efficient = row['Cost per Message'] <= avg_cost_per_msg
+                efficiency_icon = '💰' if is_efficient else '💸'
+                
                 st.markdown(f"""
-                <div class="metric-card" style="text-align: center;">
-                    <h3 style="color: #667eea; margin: 0;">#{idx + 1} {row['Department']}</h3>
-                    <p style="font-size: 2rem; font-weight: bold; margin: 0.5rem 0;">{row['Total Usage']:,}</p>
-                    <p style="color: #64748b; margin: 0;">messages from {row['Active Users']} users</p>
-                    <p style="color: #10b981; font-weight: 600; margin: 0;">${row['Total Cost']:,.2f}</p>
+                <div class="metric-card" style="margin-bottom: 1rem; padding: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h4 style="margin: 0; color: #1e293b;">{medal} {row['Department']}</h4>
+                        <span style="background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.75rem; font-weight: 600;">{row['Usage Share %']}% of total</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.75rem;">
+                        <div>
+                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Total Messages</p>
+                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #1e293b;">{row['Total Usage']:,.0f}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Active Users</p>
+                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #1e293b;">{row['Active Users']}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Avg/User {efficiency_icon}</p>
+                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #10b981;">{row['Avg Messages/User']:,.0f}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Total Cost</p>
+                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: #10b981;">${row['Total Cost']:,.2f}</p>
+                        </div>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
+        
+        # Department efficiency insights below
+        st.markdown("**💡 Department Insights**")
+        insight_cols = st.columns(3)
+        
+        with insight_cols[0]:
+            most_efficient = dept_stats.loc[dept_stats['Cost per Message'].idxmin()]
+            st.markdown(f"""
+            <div class="insight-card insight-success">
+                <h4 style="margin: 0 0 0.5rem 0; color: #065f46;">🎯 Most Cost-Efficient</h4>
+                <p style="margin: 0; font-weight: 600; color: #047857;">{most_efficient['Department']}</p>
+                <p style="margin: 0; font-size: 0.875rem; color: #065f46;">${most_efficient['Cost per Message']:.3f} per message</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with insight_cols[1]:
+            most_active = dept_stats.loc[dept_stats['Active Users'].idxmax()]
+            st.markdown(f"""
+            <div class="insight-card insight-info">
+                <h4 style="margin: 0 0 0.5rem 0; color: #1e40af;">👥 Highest Adoption</h4>
+                <p style="margin: 0; font-weight: 600; color: #1e40af;">{most_active['Department']}</p>
+                <p style="margin: 0; font-size: 0.875rem; color: #1e3a8a;">{most_active['Active Users']} active users</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with insight_cols[2]:
+            most_engaged = dept_stats.loc[dept_stats['Avg Messages/User'].idxmax()]
+            st.markdown(f"""
+            <div class="insight-card insight-warning">
+                <h4 style="margin: 0 0 0.5rem 0; color: #92400e;">🚀 Most Engaged</h4>
+                <p style="margin: 0; font-weight: 600; color: #b45309;">{most_engaged['Department']}</p>
+                <p style="margin: 0; font-size: 0.875rem; color: #92400e;">{most_engaged['Avg Messages/User']:,.0f} avg messages/user</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         st.divider()
         
