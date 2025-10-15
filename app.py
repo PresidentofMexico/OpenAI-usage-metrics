@@ -2668,8 +2668,13 @@ def main():
                     # Get breakdown of Unknown department users
                     unidentified_users = db.get_unidentified_users()
                     unidentified_count = len(unidentified_users)
+                    
+                    # Get employees who explicitly have department='Unknown' in employee master
+                    # (excludes employees with blank/empty departments)
+                    employees_unknown_dept = db.get_employees_with_unknown_dept_in_usage()
+                    employees_with_unknown_dept = len(employees_unknown_dept)
+                    
                     total_unknown = int(row['Active Users'])
-                    employees_with_unknown_dept = total_unknown - unidentified_count
                     
                     st.markdown(f"""
                     <div style="margin-top: 0.5rem; padding: 0.5rem; background: var(--background-secondary); border-radius: 0.5rem; border-left: 3px solid #f59e0b;">
