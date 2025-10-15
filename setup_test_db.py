@@ -3,13 +3,18 @@
 Setup script to create a test database with sample data for UI testing
 """
 import sys
-sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+import os
+
+# Use relative path instead of hard-coded absolute path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pandas as pd
 from database import DatabaseManager
 from data_processor import DataProcessor
 from datetime import datetime
-import os
+
+# Define cost constants
+CHATGPT_LICENSE_COST_PER_USER_MONTHLY = 60.0
 
 def setup_test_database():
     """Create a test database with sample employees and usage data"""
@@ -27,7 +32,17 @@ def setup_test_database():
     
     # Load sample employees from existing test file
     print("\n1. Loading employees from test_employees.csv...")
-    emp_df = pd.read_csv('test_employees.csv')
+    
+    # Use relative path and check if file exists
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    employee_file = os.path.join(script_dir, 'test_employees.csv')
+    
+    if not os.path.exists(employee_file):
+        print(f"ERROR: Employee file not found: {employee_file}")
+        print("Please ensure test_employees.csv exists in the same directory as this script.")
+        return None
+    
+    emp_df = pd.read_csv(employee_file)
     
     normalized_emp_df = pd.DataFrame({
         'first_name': emp_df['First Name'],
@@ -52,7 +67,7 @@ def setup_test_database():
             'date': '2024-10-01',
             'feature_used': 'ChatGPT Messages',
             'usage_count': 150,
-            'cost_usd': 60.0,
+            'cost_usd': CHATGPT_LICENSE_COST_PER_USER_MONTHLY,
             'tool_source': 'ChatGPT',
             'file_source': 'setup_data.csv',
             'created_at': datetime.now().isoformat()
@@ -65,7 +80,7 @@ def setup_test_database():
             'date': '2024-10-01',
             'feature_used': 'ChatGPT Messages',
             'usage_count': 200,
-            'cost_usd': 60.0,
+            'cost_usd': CHATGPT_LICENSE_COST_PER_USER_MONTHLY,
             'tool_source': 'ChatGPT',
             'file_source': 'setup_data.csv',
             'created_at': datetime.now().isoformat()
@@ -78,7 +93,7 @@ def setup_test_database():
             'date': '2024-10-01',
             'feature_used': 'ChatGPT Messages',
             'usage_count': 75,
-            'cost_usd': 60.0,
+            'cost_usd': CHATGPT_LICENSE_COST_PER_USER_MONTHLY,
             'tool_source': 'ChatGPT',
             'file_source': 'setup_data.csv',
             'created_at': datetime.now().isoformat()
@@ -91,7 +106,7 @@ def setup_test_database():
             'date': '2024-10-01',
             'feature_used': 'ChatGPT Messages',
             'usage_count': 100,
-            'cost_usd': 60.0,
+            'cost_usd': CHATGPT_LICENSE_COST_PER_USER_MONTHLY,
             'tool_source': 'ChatGPT',
             'file_source': 'setup_data.csv',
             'created_at': datetime.now().isoformat()
@@ -104,7 +119,7 @@ def setup_test_database():
             'date': '2024-10-01',
             'feature_used': 'ChatGPT Messages',
             'usage_count': 50,
-            'cost_usd': 60.0,
+            'cost_usd': CHATGPT_LICENSE_COST_PER_USER_MONTHLY,
             'tool_source': 'ChatGPT',
             'file_source': 'setup_data.csv',
             'created_at': datetime.now().isoformat()
