@@ -50,38 +50,56 @@ def auto_load_employee_file(db_manager):
     Automatically load employee master file from repository if it exists.
     This function checks for known employee CSV files and loads them automatically.
     """
-    # List of potential employee file names to check
+    # Get the directory where this script is located (not the current working directory)
+    # This ensures we look for the employee file in the repository root, regardless of
+    # where the app is launched from (important for cloud deployments)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    print(f"[auto_load_employee_file] Script directory: {script_dir}")
+    print(f"[auto_load_employee_file] Current working directory: {os.getcwd()}")
+    
+    # Check if employees are already loaded - if so, we don't need to load any file
+    try:
+        employee_count = db_manager.get_employee_count()
+        if employee_count > 0:
+            print(f"[auto_load_employee_file] Employees already loaded in database ({employee_count} employees), skipping auto-load")
+            return
+    except:
+        pass  # If get_employee_count fails, continue with auto-load attempt
+    
+    # List of potential employee file names to check (in priority order)
     employee_file_candidates = [
         "Employee Headcount October 2025_Emails.csv",
         "Employee Headcount October 2025.csv"
     ]
     
     for filename in employee_file_candidates:
-        file_path = os.path.join(os.getcwd(), filename)
+        file_path = os.path.join(script_dir, filename)
+        print(f"[auto_load_employee_file] Checking for: {file_path}")
         
         if os.path.exists(file_path):
+            print(f"[auto_load_employee_file] Found employee file: {filename}")
             try:
                 # Check if this file has already been loaded
                 # We'll use a simple marker to avoid reloading the same file repeatedly
-                marker_file = f".{filename}.loaded"
+                # Place marker in the script directory (same as where we look for the CSV)
+                marker_file = os.path.join(script_dir, f".{filename}.loaded")
                 
-                # If marker exists and employee count > 0, skip loading
+                # If marker exists, this file was already processed, skip to next candidate
                 if os.path.exists(marker_file):
-                    try:
-                        employee_count = db_manager.get_employee_count()
-                        if employee_count > 0:
-                            print(f"Employee file {filename} already loaded ({employee_count} employees)")
-                            continue
-                    except:
-                        pass  # If get_employee_count fails, try loading anyway
+                    print(f"[auto_load_employee_file] Marker file found for {filename}, trying next candidate...")
+                    continue
+                else:
+                    print(f"[auto_load_employee_file] No marker file found, will load for first time")
                 
                 # Read the employee file
-                print(f"Auto-loading employee file: {filename}")
+                print(f"[auto_load_employee_file] Reading CSV file: {file_path}")
                 emp_df = pd.read_csv(file_path, low_memory=False)
+                print(f"[auto_load_employee_file] CSV contains {len(emp_df)} rows")
                 
                 # Map columns - adjust based on the CSV structure
                 # Expected columns: Last Name, First Name, Title, Function (department), Status, Email
                 if 'Last Name' in emp_df.columns and 'First Name' in emp_df.columns:
+                    print(f"[auto_load_employee_file] CSV has expected column structure")
                     # Create normalized dataframe
                     normalized_emp_df = pd.DataFrame({
                         'first_name': emp_df['First Name'],
@@ -93,25 +111,29 @@ def auto_load_employee_file(db_manager):
                     })
                     
                     # Load into database
+                    print(f"[auto_load_employee_file] Loading {len(normalized_emp_df)} employees into database...")
                     success, message, count = db_manager.load_employees(normalized_emp_df)
                     
                     if success:
-                        print(f"✅ {message}")
+                        print(f"[auto_load_employee_file] ✅ {message}")
                         # Create marker file to indicate successful load
                         with open(marker_file, 'w') as f:
                             f.write(f"Loaded on {datetime.now().isoformat()}\n")
                             f.write(f"Records: {count}\n")
+                        print(f"[auto_load_employee_file] Created marker file: {marker_file}")
                         return  # Successfully loaded, exit
                     else:
-                        print(f"❌ Error loading employee file: {message}")
+                        print(f"[auto_load_employee_file] ❌ Error loading employee file: {message}")
                 else:
-                    print(f"Employee file {filename} has unexpected column structure")
-                    print(f"Available columns: {list(emp_df.columns)}")
+                    print(f"[auto_load_employee_file] ❌ Employee file {filename} has unexpected column structure")
+                    print(f"[auto_load_employee_file] Available columns: {list(emp_df.columns)}")
                     
             except Exception as e:
-                print(f"Error auto-loading employee file {filename}: {str(e)}")
+                print(f"[auto_load_employee_file] ❌ Error auto-loading employee file {filename}: {str(e)}")
                 import traceback
                 traceback.print_exc()
+        else:
+            print(f"[auto_load_employee_file] File not found: {file_path}")
 
 db, processor, scanner = init_app()
 
