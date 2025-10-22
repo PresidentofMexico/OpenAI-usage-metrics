@@ -39,7 +39,79 @@ def init_app():
     db = DatabaseManager()
     processor = DataProcessor(db)
     scanner = FileScanner(FILE_TRACKING_PATH)
+    
+    # Auto-load employee file if it exists
+    auto_load_employee_file(db)
+    
     return db, processor, scanner
+
+def auto_load_employee_file(db_manager):
+    """
+    Automatically load employee master file from repository if it exists.
+    This function checks for known employee CSV files and loads them automatically.
+    """
+    # List of potential employee file names to check
+    employee_file_candidates = [
+        "Employee Headcount October 2025_Emails.csv",
+        "Employee Headcount October 2025.csv"
+    ]
+    
+    for filename in employee_file_candidates:
+        file_path = os.path.join(os.getcwd(), filename)
+        
+        if os.path.exists(file_path):
+            try:
+                # Check if this file has already been loaded
+                # We'll use a simple marker to avoid reloading the same file repeatedly
+                marker_file = f".{filename}.loaded"
+                
+                # If marker exists and employee count > 0, skip loading
+                if os.path.exists(marker_file):
+                    try:
+                        employee_count = db_manager.get_employee_count()
+                        if employee_count > 0:
+                            print(f"Employee file {filename} already loaded ({employee_count} employees)")
+                            continue
+                    except:
+                        pass  # If get_employee_count fails, try loading anyway
+                
+                # Read the employee file
+                print(f"Auto-loading employee file: {filename}")
+                emp_df = pd.read_csv(file_path, low_memory=False)
+                
+                # Map columns - adjust based on the CSV structure
+                # Expected columns: Last Name, First Name, Title, Function (department), Status, Email
+                if 'Last Name' in emp_df.columns and 'First Name' in emp_df.columns:
+                    # Create normalized dataframe
+                    normalized_emp_df = pd.DataFrame({
+                        'first_name': emp_df['First Name'],
+                        'last_name': emp_df['Last Name'],
+                        'email': emp_df.get('Email', None),
+                        'title': emp_df.get('Title', ''),
+                        'department': emp_df.get('Function', ''),  # Function column maps to department
+                        'status': emp_df.get('Status', '')
+                    })
+                    
+                    # Load into database
+                    success, message, count = db_manager.load_employees(normalized_emp_df)
+                    
+                    if success:
+                        print(f"✅ {message}")
+                        # Create marker file to indicate successful load
+                        with open(marker_file, 'w') as f:
+                            f.write(f"Loaded on {datetime.now().isoformat()}\n")
+                            f.write(f"Records: {count}\n")
+                        return  # Successfully loaded, exit
+                    else:
+                        print(f"❌ Error loading employee file: {message}")
+                else:
+                    print(f"Employee file {filename} has unexpected column structure")
+                    print(f"Available columns: {list(emp_df.columns)}")
+                    
+            except Exception as e:
+                print(f"Error auto-loading employee file {filename}: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
 db, processor, scanner = init_app()
 
