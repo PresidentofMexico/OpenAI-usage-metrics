@@ -6,7 +6,16 @@ The dashboard now supports integration of a master employee file to serve as the
 
 ## Features
 
-### 1. Employee Data Store
+### 1. Automatic Employee File Loading (New!)
+- **Auto-loads employee file on app startup** if it exists in the repository
+- Checks for known employee CSV files:
+  - `Employee Headcount October 2025_Emails.csv` (preferred)
+  - `Employee Headcount October 2025.csv` (fallback)
+- **Smart caching** with marker files prevents duplicate loads
+- **Works in any deployment environment** - uses script directory, not working directory
+- **Zero configuration required** - just place the employee file in the repository root
+
+### 2. Employee Data Store
 - **New `employees` table** in the database stores the master list of full-time employees
 - Schema includes:
   - `employee_id` (Primary Key)
@@ -70,6 +79,15 @@ Bob,Johnson,bob.johnson@company.com,Data Analyst,Analytics,Active
 The same structure works for Excel files (.xlsx). The uploader will read the first sheet.
 
 ## Usage Instructions
+
+### Quick Start (Automatic Loading)
+If you have one of the supported employee files in your repository root:
+- `Employee Headcount October 2025_Emails.csv` (recommended)
+- `Employee Headcount October 2025.csv`
+
+**The app will automatically load it on startup!** No manual upload needed.
+
+### Manual Upload (Alternative Method)
 
 ### Step 1: Upload Employee Master File
 1. Navigate to the **"🔧 Database Management"** tab
@@ -149,6 +167,14 @@ CREATE TABLE employees (
 - Historical usage data is not retroactively updated
 
 ## Troubleshooting
+
+### Auto-load not working
+- Ensure the employee file is named exactly:
+  - `Employee Headcount October 2025_Emails.csv` OR
+  - `Employee Headcount October 2025.csv`
+- File must be in the repository root (same directory as `app.py`)
+- Check application logs for `[auto_load_employee_file]` messages
+- Marker files (`.*.loaded`) prevent duplicate loads - delete them to force reload
 
 ### "No employees loaded yet"
 - Upload an employee master file first in the Database Management tab
