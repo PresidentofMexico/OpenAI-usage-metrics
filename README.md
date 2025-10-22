@@ -591,10 +591,6 @@ We welcome contributions! To get started:
 
 ## 📄 License & Support
 
-### License
-
-This project is available under the MIT License. See the repository for full license details.
-
 ### Support
 
 **For questions and bug reports:**
