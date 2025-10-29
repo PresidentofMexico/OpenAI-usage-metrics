@@ -2106,12 +2106,16 @@ def main():
                         st.error("❌ Unknown data format. Please select the correct tool.")
                         return
                     
-                    # Step 4: Storing in database
+                    # Step 4: Checking for duplicates
+                    status_text.text("🔍 Checking for duplicates...")
+                    progress_bar.progress(70)
+                    
+                    # Step 5: Storing in database
                     status_text.text("💾 Storing in database...")
                     progress_bar.progress(80)
                     
                     if not normalized_df.empty:
-                        success = processor.process_monthly_data(normalized_df, uploaded_file.name)
+                        success, message = processor.process_monthly_data(normalized_df, uploaded_file.name)
                         
                         progress_bar.progress(100)
                         
@@ -2139,7 +2143,12 @@ def main():
                         else:
                             progress_bar.empty()
                             status_text.empty()
-                            st.error("❌ Error storing data in database")
+                            # Check if it's a duplicate warning
+                            if "already processed" in message:
+                                st.warning(message)
+                                st.info("💡 If you want to re-process this file, first delete it from the Database Management tab, then upload again.")
+                            else:
+                                st.error(f"❌ Error storing data in database: {message}")
                     else:
                         progress_bar.empty()
                         status_text.empty()
@@ -4654,23 +4663,33 @@ def main():
         # Upload history with better styling and file management
         st.markdown('<div class="section-header"><h3>📂 Upload History & File Management</h3></div>', unsafe_allow_html=True)
         
+        st.info("💡 **Duplicate Prevention:** The system automatically detects and prevents duplicate file processing. If you upload the same file twice, you'll see a warning.")
+        
         if db_info['upload_history']:
             upload_df = pd.DataFrame(db_info['upload_history'])
             
             # Display upload history with delete option
             for idx, row in upload_df.iterrows():
-                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+                col1, col2, col3, col4, col5 = st.columns([3, 2, 1, 1, 1])
                 
                 with col1:
                     st.write(f"**📄 {row['filename']}**")
+                    if 'tool' in row and row['tool']:
+                        st.caption(f"🤖 {row['tool']}")
                 
                 with col2:
                     st.write(f"📅 {row['date_range']}")
                 
                 with col3:
-                    st.write(f"📊 {row['records']:,} records")
+                    st.write(f"📊 {row['records']:,}")
+                    st.caption("records")
                 
                 with col4:
+                    if 'users' in row:
+                        st.write(f"👥 {row['users']:,}")
+                        st.caption("users")
+                
+                with col5:
                     # Delete button for individual file
                     if st.button("🗑️", key=f"delete_file_{idx}", help=f"Delete {row['filename']}"):
                         confirm_key = f"confirm_delete_{idx}"
@@ -4750,7 +4769,7 @@ def main():
             st.error("⚠️ **Warning:** This action will permanently delete all data. Click the button again to confirm.")
 
 def get_database_info():
-    """Get database information."""
+    """Get database information with enhanced file tracking."""
     all_data = db.get_all_data()
     
     if all_data.empty:
@@ -4779,15 +4798,32 @@ def get_database_info():
         'total_cost': float(total_cost)
     }
     
+    # Use enhanced file summary method
     upload_history = []
-    if 'file_source' in all_data.columns:
-        for filename in all_data['file_source'].unique():
-            file_data = all_data[all_data['file_source'] == filename]
+    files_summary = db.get_processed_files_summary()
+    if not files_summary.empty:
+        for _, row in files_summary.iterrows():
             upload_history.append({
-                'filename': filename,
-                'date_range': f"{file_data['date'].min()} to {file_data['date'].max()}",
-                'records': len(file_data)
+                'filename': row['file_source'],
+                'date_range': f"{row['min_date']} to {row['max_date']}",
+                'records': row['record_count'],
+                'users': row['user_count'],
+                'tool': row['tool_source'],
+                'uploaded_at': row['created_at']
             })
+    else:
+        # Fallback to old method if new method fails
+        if 'file_source' in all_data.columns:
+            for filename in all_data['file_source'].unique():
+                file_data = all_data[all_data['file_source'] == filename]
+                upload_history.append({
+                    'filename': filename,
+                    'date_range': f"{file_data['date'].min()} to {file_data['date'].max()}",
+                    'records': len(file_data),
+                    'users': file_data['user_id'].nunique(),
+                    'tool': file_data['tool_source'].iloc[0] if 'tool_source' in file_data.columns else 'Unknown',
+                    'uploaded_at': 'Unknown'
+                })
     
     return {
         'total_stats': total_stats,

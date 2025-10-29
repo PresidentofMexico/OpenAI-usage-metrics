@@ -344,6 +344,65 @@ class DatabaseManager:
             print(f"Error deleting data: {e}")
             return False
     
+    def check_file_exists(self, file_source):
+        """
+        Check if data from a specific file already exists in the database.
+        
+        Args:
+            file_source: Filename to check
+            
+        Returns:
+            dict with:
+                - exists: bool
+                - record_count: int
+                - user_count: int
+                - date_range: tuple (min_date, max_date)
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Check record count
+            cursor.execute("SELECT COUNT(*) FROM usage_metrics WHERE file_source = ?", (file_source,))
+            count = cursor.fetchone()[0]
+            
+            if count > 0:
+                # Get additional stats
+                cursor.execute("""
+                    SELECT 
+                        COUNT(DISTINCT user_id) as user_count,
+                        MIN(date) as min_date,
+                        MAX(date) as max_date
+                    FROM usage_metrics 
+                    WHERE file_source = ?
+                """, (file_source,))
+                stats = cursor.fetchone()
+                
+                conn.close()
+                return {
+                    'exists': True,
+                    'record_count': count,
+                    'user_count': stats[0],
+                    'date_range': (stats[1], stats[2])
+                }
+            else:
+                conn.close()
+                return {
+                    'exists': False,
+                    'record_count': 0,
+                    'user_count': 0,
+                    'date_range': (None, None)
+                }
+                
+        except Exception as e:
+            print(f"Error checking file existence: {e}")
+            return {
+                'exists': False,
+                'record_count': 0,
+                'user_count': 0,
+                'date_range': (None, None)
+            }
+    
     def delete_by_file(self, file_source):
         """Delete data from a specific file."""
         try:
@@ -389,6 +448,37 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error deleting tool data: {e}")
             return False
+    
+    def get_processed_files_summary(self):
+        """
+        Get a summary of all files that have been processed and stored in the database.
+        
+        Returns:
+            DataFrame with columns: file_source, record_count, user_count, tool_source, 
+                                    min_date, max_date, created_at
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            query = """
+                SELECT 
+                    file_source,
+                    COUNT(*) as record_count,
+                    COUNT(DISTINCT user_id) as user_count,
+                    tool_source,
+                    MIN(date) as min_date,
+                    MAX(date) as max_date,
+                    MIN(created_at) as created_at
+                FROM usage_metrics
+                WHERE file_source IS NOT NULL
+                GROUP BY file_source, tool_source
+                ORDER BY created_at DESC
+            """
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            return df
+        except Exception as e:
+            print(f"Error getting processed files summary: {e}")
+            return pd.DataFrame()
     
     def get_database_stats(self):
         """Get comprehensive database statistics."""
