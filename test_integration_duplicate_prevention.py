@@ -44,6 +44,22 @@ def create_sample_openai_csv(filepath, filename_suffix=""):
     return len(df)
 
 
+def normalize_sample_data(df, filename):
+    """Helper function to normalize sample OpenAI data."""
+    return pd.DataFrame({
+        'user_id': df['email'],
+        'user_name': df['name'],
+        'email': df['email'],
+        'department': df['department'].str.replace('[', '', regex=False).str.replace(']', '', regex=False).str.replace('"', '', regex=False),
+        'date': df['period_start'],
+        'feature_used': 'ChatGPT Messages',
+        'usage_count': df['messages'],
+        'cost_usd': 60.0,
+        'tool_source': 'ChatGPT',
+        'file_source': filename
+    })
+
+
 def test_full_workflow():
     """Test the complete duplicate prevention workflow."""
     
@@ -77,20 +93,7 @@ def test_full_workflow():
         
         # Simulate manual upload workflow
         df1 = pd.read_csv(test_file1)
-        
-        # Normalize data (simplified version)
-        normalized_df1 = pd.DataFrame({
-            'user_id': df1['email'],
-            'user_name': df1['name'],
-            'email': df1['email'],
-            'department': df1['department'].str.replace('[', '').str.replace(']', '').str.replace('"', ''),
-            'date': df1['period_start'],
-            'feature_used': 'ChatGPT Messages',
-            'usage_count': df1['messages'],
-            'cost_usd': 60.0,
-            'tool_source': 'ChatGPT',
-            'file_source': os.path.basename(test_file1)
-        })
+        normalized_df1 = normalize_sample_data(df1, os.path.basename(test_file1))
         
         success1, message1 = processor.process_monthly_data(normalized_df1, os.path.basename(test_file1))
         
@@ -138,18 +141,7 @@ def test_full_workflow():
         
         # Upload a different file
         df2 = pd.read_csv(test_file2)
-        normalized_df2 = pd.DataFrame({
-            'user_id': df2['email'],
-            'user_name': df2['name'],
-            'email': df2['email'],
-            'department': df2['department'].str.replace('[', '').str.replace(']', '').str.replace('"', ''),
-            'date': df2['period_start'],
-            'feature_used': 'ChatGPT Messages',
-            'usage_count': df2['messages'],
-            'cost_usd': 60.0,
-            'tool_source': 'ChatGPT',
-            'file_source': os.path.basename(test_file2)
-        })
+        normalized_df2 = normalize_sample_data(df2, os.path.basename(test_file2))
         
         success3, message3 = processor.process_monthly_data(normalized_df2, os.path.basename(test_file2))
         
