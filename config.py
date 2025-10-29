@@ -17,6 +17,11 @@ AUTO_SCAN_FOLDERS = [
     "data/uploads"  # Optional user upload folder
 ]
 
+# Folders that should be scanned recursively (for subfolders like Monthly/Weekly)
+RECURSIVE_SCAN_FOLDERS = [
+    "OpenAI User Data"
+]
+
 # File tracking settings
 FILE_TRACKING_PATH = "file_tracking.json"
 

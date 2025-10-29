@@ -21,7 +21,7 @@ from data_processor import DataProcessor
 from database import DatabaseManager
 from file_reader import read_file_robust, display_file_error, read_file_from_path
 from file_scanner import FileScanner
-from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING
+from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING, RECURSIVE_SCAN_FOLDERS
 from export_utils import generate_excel_export, generate_pdf_report_html
 from cost_calculator import EnterpriseCostCalculator
 
@@ -38,7 +38,7 @@ st.set_page_config(
 def init_app():
     db = DatabaseManager()
     processor = DataProcessor(db)
-    scanner = FileScanner(FILE_TRACKING_PATH)
+    scanner = FileScanner(FILE_TRACKING_PATH, recursive_folders=RECURSIVE_SCAN_FOLDERS)
     
     # Auto-load employee file if it exists
     auto_load_employee_file(db)
@@ -791,6 +791,82 @@ def detect_data_source(df):
     # Default or ask user
     return 'Unknown'
 
+def is_weekly_file(filename):
+    """
+    Detect if a file is a weekly report based on filename.
+    Weekly files contain 'weekly' and a date (YYYY-MM-DD format).
+    
+    Args:
+        filename: Name of the file
+        
+    Returns:
+        bool: True if file is detected as weekly report
+    """
+    filename_lower = filename.lower()
+    # Check if filename contains 'weekly' and a date pattern
+    import re
+    has_weekly = 'weekly' in filename_lower
+    has_date = re.search(r'\d{4}-\d{2}-\d{2}', filename) is not None
+    return has_weekly and has_date
+
+def determine_record_month(period_start, period_end, first_active, last_active):
+    """
+    Determine which month a record should be assigned to based on actual usage dates.
+    For weekly files that span two months, assign to the month with more activity days.
+    
+    Args:
+        period_start: Period start date (datetime)
+        period_end: Period end date (datetime)
+        first_active: First day active in period (datetime or None)
+        last_active: Last day active in period (datetime or None)
+        
+    Returns:
+        datetime: The date to use for the record (first day of the assigned month)
+    """
+    # If we have actual activity dates, use them to determine the month
+    if pd.notna(first_active) and pd.notna(last_active):
+        first_active = pd.to_datetime(first_active, errors='coerce')
+        last_active = pd.to_datetime(last_active, errors='coerce')
+        
+        if pd.notna(first_active) and pd.notna(last_active):
+            # Calculate midpoint of actual activity
+            midpoint = first_active + (last_active - first_active) / 2
+            # Return first day of the month containing the midpoint
+            return pd.Timestamp(year=midpoint.year, month=midpoint.month, day=1)
+    
+    # If no activity dates, use period dates
+    if pd.notna(period_start) and pd.notna(period_end):
+        period_start = pd.to_datetime(period_start, errors='coerce')
+        period_end = pd.to_datetime(period_end, errors='coerce')
+        
+        if pd.notna(period_start) and pd.notna(period_end):
+            # Check if period spans two months
+            if period_start.month != period_end.month:
+                # Calculate number of days in each month
+                days_in_start_month = (pd.Timestamp(year=period_start.year, 
+                                                    month=period_start.month, 
+                                                    day=1) + pd.DateOffset(months=1) - pd.Timedelta(days=1)).day - period_start.day + 1
+                days_in_end_month = period_end.day
+                
+                # Assign to month with more days
+                if days_in_start_month >= days_in_end_month:
+                    return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
+                else:
+                    return pd.Timestamp(year=period_end.year, month=period_end.month, day=1)
+            else:
+                # Same month, use period start
+                return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
+    
+    # Fallback to period_start or current date
+    if pd.notna(period_start):
+        period_start = pd.to_datetime(period_start, errors='coerce')
+        if pd.notna(period_start):
+            return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
+    
+    # Last resort: current date
+    now = datetime.now()
+    return pd.Timestamp(year=now.year, month=now.month, day=1)
+
 def normalize_openai_data(df, filename):
     """Normalize OpenAI CSV export to standard schema with enterprise license costs."""
     normalized_records = []
@@ -838,12 +914,23 @@ def normalize_openai_data(df, filename):
         # Get period dates with robust error handling
         period_start = pd.to_datetime(row.get('period_start', row.get('first_day_active_in_period', datetime.now())), errors='coerce')
         period_end = pd.to_datetime(row.get('period_end', row.get('last_day_active_in_period', datetime.now())), errors='coerce')
+        first_active = row.get('first_day_active_in_period')
+        last_active = row.get('last_day_active_in_period')
         
         # Fallback to current date if parsing fails
         if pd.isna(period_start):
             period_start = datetime.now()
         if pd.isna(period_end):
             period_end = datetime.now()
+        
+        # Determine the correct month for this record
+        # For weekly files spanning two months, this ensures data goes to the right month
+        is_weekly = is_weekly_file(filename)
+        if is_weekly:
+            record_date = determine_record_month(period_start, period_end, first_active, last_active)
+        else:
+            # For monthly files, use period_start as before
+            record_date = period_start
         
         # ChatGPT messages - cost is enterprise license per user per month
         if row.get('messages', 0) > 0:
@@ -852,7 +939,7 @@ def normalize_openai_data(df, filename):
                 'user_name': user_name,
                 'email': user_email,
                 'department': dept,
-                'date': period_start,
+                'date': record_date,
                 'feature_used': 'ChatGPT Messages',
                 'usage_count': row.get('messages', 0),
                 'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
@@ -867,7 +954,7 @@ def normalize_openai_data(df, filename):
                 'user_name': user_name,
                 'email': user_email,
                 'department': dept,
-                'date': period_start,
+                'date': record_date,
                 'feature_used': 'GPT Messages',
                 'usage_count': row.get('gpt_messages', 0),
                 'cost_usd': 0,  # Included in base license
@@ -882,7 +969,7 @@ def normalize_openai_data(df, filename):
                 'user_name': user_name,
                 'email': user_email,
                 'department': dept,
-                'date': period_start,
+                'date': record_date,
                 'feature_used': 'Tool Messages',
                 'usage_count': row.get('tool_messages', 0),
                 'cost_usd': 0,  # Included in base license
@@ -897,7 +984,7 @@ def normalize_openai_data(df, filename):
                 'user_name': user_name,
                 'email': user_email,
                 'department': dept,
-                'date': period_start,
+                'date': record_date,
                 'feature_used': 'Project Messages',
                 'usage_count': row.get('project_messages', 0),
                 'cost_usd': 0,  # Included in base license
