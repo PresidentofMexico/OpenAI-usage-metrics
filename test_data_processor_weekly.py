@@ -1,5 +1,9 @@
 """
-Test data_processor.py weekly file handling
+Test data_processor.py weekly file handling - preserves actual period_start dates.
+
+This test verifies that weekly files preserve their actual period_start dates
+(e.g., 2025-03-30) instead of collapsing them to the first day of the month.
+This enables week-over-week analysis.
 """
 
 import sys
@@ -11,9 +15,9 @@ from database import DatabaseManager
 import os
 
 def test_data_processor_weekly_file():
-    """Test that DataProcessor correctly handles weekly files."""
+    """Test that DataProcessor preserves actual period_start dates for weekly files."""
     print("=" * 80)
-    print("TEST: DataProcessor Weekly File Handling")
+    print("TEST: DataProcessor Weekly File Handling - Date Preservation")
     print("=" * 80)
     
     # Initialize database and processor
@@ -40,28 +44,24 @@ def test_data_processor_weekly_file():
     # Check the results
     print(f"\n📊 Checking date assignments:")
     
-    # Group by user email to see their assigned months
+    # All users should have the same period_start date (2025-03-30)
+    unique_dates = processed_df['date'].unique()
+    print(f"\n  Unique dates in processed data: {unique_dates}")
+    
+    # Verify all records have the same period_start date (the week start)
+    assert len(unique_dates) == 1, f"Expected 1 unique date, got {len(unique_dates)}"
+    assert unique_dates[0] == '2025-03-30', f"Expected date 2025-03-30, got {unique_dates[0]}"
+    print(f"  ✅ All records correctly assigned to period_start: 2025-03-30")
+    
+    # Group by user email to show their records
     for email in processed_df['email'].unique():
         user_records = processed_df[processed_df['email'] == email]
         user_name = user_records.iloc[0]['user_name']
-        assigned_dates = user_records['date'].unique()
+        record_count = len(user_records)
         
         print(f"\n  User: {user_name} ({email})")
-        for date in assigned_dates:
-            date_obj = pd.to_datetime(date)
-            month_name = date_obj.strftime('%B %Y')
-            record_count = len(user_records[user_records['date'] == date])
-            print(f"    - {month_name}: {record_count} records")
-            
-            # Verify expected assignments
-            if 'User One' in user_name:
-                # User One was active April 2-5, should be assigned to April
-                assert date_obj.month == 4, f"User One should be assigned to April, got {date_obj.month}"
-                print(f"    ✅ Correctly assigned to April")
-            elif 'User Two' in user_name:
-                # User Two was active March 30-31, should be assigned to March
-                assert date_obj.month == 3, f"User Two should be assigned to March, got {date_obj.month}"
-                print(f"    ✅ Correctly assigned to March")
+        print(f"    - Date: 2025-03-30, Records: {record_count}")
+        print(f"    ✅ Preserves actual period_start date")
     
     # Clean up test database
     if os.path.exists("test_weekly.db"):

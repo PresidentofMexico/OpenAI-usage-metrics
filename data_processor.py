@@ -104,8 +104,8 @@ class DataProcessor:
         Now calculates costs based on enterprise license pricing ($60/user/month)
         rather than per-message pricing.
         
-        For weekly files spanning two months, assigns data to the correct month
-        based on actual usage dates.
+        Preserves actual period_start dates for both weekly and monthly files,
+        enabling week-over-week and month-over-month analysis.
         """
         try:
             processed_data = []
@@ -113,9 +113,6 @@ class DataProcessor:
             # Get pricing info for enterprise licenses
             pricing_info = self.cost_calculator.get_pricing_info('ChatGPT')
             monthly_license_cost = pricing_info['license_cost_per_user_monthly']
-            
-            # Detect if this is a weekly file
-            is_weekly = self._is_weekly_file(filename)
             
             for _, row in df.iterrows():
                 # Skip rows with no messages
@@ -128,29 +125,18 @@ class DataProcessor:
                 department = self.extract_department(row.get('department', 'Unknown'))
                 
                 # Get date - use period_start or first_day_active_in_period
-                period_start = row.get('period_start', row.get('first_day_active_in_period', datetime.now().strftime('%Y-%m-%d')))
-                period_end = row.get('period_end', row.get('last_day_active_in_period', datetime.now().strftime('%Y-%m-%d')))
-                first_active = row.get('first_day_active_in_period')
-                last_active = row.get('last_day_active_in_period')
+                # If neither exists, use first day of current month as fallback
+                period_start = row.get('period_start', row.get('first_day_active_in_period'))
                 
-                # Determine the correct date based on file type
-                if is_weekly:
-                    # For weekly files, use smart date assignment
-                    period_start = self._determine_record_month(period_start, period_end, first_active, last_active)
+                # Preserve actual period_start date - validate and format only
+                # This enables week-over-week analysis for weekly files
+                parsed_date = pd.to_datetime(period_start, errors='coerce')
+                if pd.isna(parsed_date):
+                    # If date is invalid or missing, use first day of current month for consistency
+                    now = datetime.now()
+                    period_start = f"{now.year}-{now.month:02d}-01"
                 else:
-                    # For monthly files, use period_start as before
-                    # Ensure date is in proper format with robust error handling
-                    try:
-                        # Use errors='coerce' to handle invalid dates gracefully
-                        parsed_date = pd.to_datetime(period_start, errors='coerce')
-                        if pd.isna(parsed_date):
-                            # If date is invalid, use current date
-                            period_start = datetime.now().strftime('%Y-%m-%d')
-                        else:
-                            period_start = parsed_date.strftime('%Y-%m-%d')
-                    except Exception:
-                        # Fallback to current date if any other error occurs
-                        period_start = datetime.now().strftime('%Y-%m-%d')
+                    period_start = parsed_date.strftime('%Y-%m-%d')
                 
                 messages = row.get('messages', 0)
                 
@@ -236,85 +222,6 @@ class DataProcessor:
             import traceback
             traceback.print_exc()
             return pd.DataFrame()
-    
-    def _is_weekly_file(self, filename):
-        """
-        Detect if a file is a weekly report based on filename.
-        Weekly files contain 'weekly' and a date (YYYY-MM-DD format).
-        
-        Args:
-            filename: Name of the file
-            
-        Returns:
-            bool: True if file is detected as weekly report
-        """
-        filename_lower = filename.lower()
-        # Check if filename contains 'weekly' and a date pattern
-        has_weekly = 'weekly' in filename_lower
-        has_date = re.search(r'\d{4}-\d{2}-\d{2}', filename) is not None
-        return has_weekly and has_date
-    
-    def _determine_record_month(self, period_start, period_end, first_active, last_active):
-        """
-        Determine which month a record should be assigned to based on actual usage dates.
-        For weekly files that span two months, assign to the month with more activity days.
-        
-        Args:
-            period_start: Period start date (string or datetime)
-            period_end: Period end date (string or datetime)
-            first_active: First day active in period (string or datetime or None)
-            last_active: Last day active in period (string or datetime or None)
-            
-        Returns:
-            str: The date to use for the record (first day of the assigned month in YYYY-MM-DD format)
-        """
-        # If we have actual activity dates, use them to determine the month
-        if pd.notna(first_active) and pd.notna(last_active):
-            first_active_dt = pd.to_datetime(first_active, errors='coerce')
-            last_active_dt = pd.to_datetime(last_active, errors='coerce')
-            
-            if pd.notna(first_active_dt) and pd.notna(last_active_dt):
-                # Calculate midpoint of actual activity
-                midpoint = first_active_dt + (last_active_dt - first_active_dt) / 2
-                # Return first day of the month containing the midpoint
-                result = pd.Timestamp(year=midpoint.year, month=midpoint.month, day=1)
-                return result.strftime('%Y-%m-%d')
-        
-        # If no activity dates, use period dates
-        if pd.notna(period_start) and pd.notna(period_end):
-            period_start_dt = pd.to_datetime(period_start, errors='coerce')
-            period_end_dt = pd.to_datetime(period_end, errors='coerce')
-            
-            if pd.notna(period_start_dt) and pd.notna(period_end_dt):
-                # Check if period spans two months
-                if period_start_dt.month != period_end_dt.month:
-                    # Calculate number of days in each month
-                    days_in_start_month = (pd.Timestamp(year=period_start_dt.year, 
-                                                        month=period_start_dt.month, 
-                                                        day=1) + pd.DateOffset(months=1) - pd.Timedelta(days=1)).day - period_start_dt.day + 1
-                    days_in_end_month = period_end_dt.day
-                    
-                    # Assign to month with more days
-                    if days_in_start_month >= days_in_end_month:
-                        result = pd.Timestamp(year=period_start_dt.year, month=period_start_dt.month, day=1)
-                    else:
-                        result = pd.Timestamp(year=period_end_dt.year, month=period_end_dt.month, day=1)
-                    return result.strftime('%Y-%m-%d')
-                else:
-                    # Same month, use period start
-                    result = pd.Timestamp(year=period_start_dt.year, month=period_start_dt.month, day=1)
-                    return result.strftime('%Y-%m-%d')
-        
-        # Fallback to period_start or current date
-        if pd.notna(period_start):
-            period_start_dt = pd.to_datetime(period_start, errors='coerce')
-            if pd.notna(period_start_dt):
-                result = pd.Timestamp(year=period_start_dt.year, month=period_start_dt.month, day=1)
-                return result.strftime('%Y-%m-%d')
-        
-        # Last resort: current date
-        now = datetime.now()
-        return f"{now.year}-{now.month:02d}-01"
     
     def extract_department(self, dept_str):
         """

@@ -4,8 +4,8 @@ Test script for weekly file detection and recursive folder scanning.
 This test validates:
 1. Recursive folder scanning finds files in subdirectories
 2. Weekly files are correctly detected
-3. Data from weekly files is assigned to correct month based on actual dates
-4. Monthly files still work as before
+3. Data from weekly files preserves actual period_start dates
+4. Multiple weekly files preserve their respective dates
 5. BlueFlame files remain unchanged (flat structure)
 """
 
@@ -17,73 +17,17 @@ import pandas as pd
 from datetime import datetime
 from file_scanner import FileScanner
 from config import AUTO_SCAN_FOLDERS, RECURSIVE_SCAN_FOLDERS
+import re
 
-# Import the helper functions from app.py
-# We need to do this carefully to avoid initializing streamlit
-import importlib.util
-spec = importlib.util.spec_from_file_location("app", "app.py")
-app_module = importlib.util.module_from_spec(spec)
-# Don't execute the module, just get the functions we need
-
-# Instead, let's directly test the functions
 def is_weekly_file(filename):
     """
     Detect if a file is a weekly report based on filename.
     Weekly files contain 'weekly' and a date (YYYY-MM-DD format).
     """
     filename_lower = filename.lower()
-    import re
     has_weekly = 'weekly' in filename_lower
     has_date = re.search(r'\d{4}-\d{2}-\d{2}', filename) is not None
     return has_weekly and has_date
-
-def determine_record_month(period_start, period_end, first_active, last_active):
-    """
-    Determine which month a record should be assigned to based on actual usage dates.
-    """
-    # If we have actual activity dates, use them to determine the month
-    if pd.notna(first_active) and pd.notna(last_active):
-        first_active = pd.to_datetime(first_active, errors='coerce')
-        last_active = pd.to_datetime(last_active, errors='coerce')
-        
-        if pd.notna(first_active) and pd.notna(last_active):
-            # Calculate midpoint of actual activity
-            midpoint = first_active + (last_active - first_active) / 2
-            # Return first day of the month containing the midpoint
-            return pd.Timestamp(year=midpoint.year, month=midpoint.month, day=1)
-    
-    # If no activity dates, use period dates
-    if pd.notna(period_start) and pd.notna(period_end):
-        period_start = pd.to_datetime(period_start, errors='coerce')
-        period_end = pd.to_datetime(period_end, errors='coerce')
-        
-        if pd.notna(period_start) and pd.notna(period_end):
-            # Check if period spans two months
-            if period_start.month != period_end.month:
-                # Calculate number of days in each month
-                days_in_start_month = (pd.Timestamp(year=period_start.year, 
-                                                    month=period_start.month, 
-                                                    day=1) + pd.DateOffset(months=1) - pd.Timedelta(days=1)).day - period_start.day + 1
-                days_in_end_month = period_end.day
-                
-                # Assign to month with more days
-                if days_in_start_month >= days_in_end_month:
-                    return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
-                else:
-                    return pd.Timestamp(year=period_end.year, month=period_end.month, day=1)
-            else:
-                # Same month, use period start
-                return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
-    
-    # Fallback to period_start or current date
-    if pd.notna(period_start):
-        period_start = pd.to_datetime(period_start, errors='coerce')
-        if pd.notna(period_start):
-            return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
-    
-    # Last resort: current date
-    now = datetime.now()
-    return pd.Timestamp(year=now.year, month=now.month, day=1)
 
 def test_file_scanner_recursive():
     """Test that FileScanner correctly scans recursive folders."""
@@ -146,11 +90,14 @@ def test_weekly_file_detection():
     
     print("\n✅ TEST 2 PASSED: Weekly file detection works correctly\n")
 
-def test_date_assignment_spanning_months():
-    """Test that weekly data spanning two months is assigned correctly."""
+def test_date_preservation():
+    """Test that period_start dates are preserved for weekly files."""
     print("=" * 80)
-    print("TEST 3: Date Assignment for Week Spanning Two Months")
+    print("TEST 3: Date Preservation for Weekly Files")
     print("=" * 80)
+    
+    from data_processor import DataProcessor
+    from database import DatabaseManager
     
     # Read the test weekly file that spans March-April
     weekly_file = "OpenAI User Data/Weekly OpenAI User Data/March/Eldridge Capital Management weekly user report 2025-03-30.csv"
@@ -161,67 +108,68 @@ def test_date_assignment_spanning_months():
     
     df = pd.read_csv(weekly_file)
     print(f"\nLoaded test file with {len(df)} records")
-    print(f"Period: {df['period_start'].iloc[0]} to {df['period_end'].iloc[0]}")
+    print(f"Period start: {df['period_start'].iloc[0]}")
     
-    # Test each user
-    for idx, row in df.iterrows():
-        period_start = pd.to_datetime(row['period_start'])
-        period_end = pd.to_datetime(row['period_end'])
-        first_active = row['first_day_active_in_period']
-        last_active = row['last_day_active_in_period']
-        
-        assigned_month = determine_record_month(period_start, period_end, first_active, last_active)
-        
-        print(f"\nUser: {row['name']}")
-        print(f"  Active: {first_active} to {last_active}")
-        print(f"  Assigned to: {assigned_month.strftime('%B %Y')}")
-        
-        # Validate assignment
-        if 'User One' in row['name']:
-            # User One was active April 2-5, should be assigned to April
-            assert assigned_month.month == 4, f"User One should be assigned to April, got {assigned_month.month}"
-            print(f"  ✅ Correctly assigned to April (activity was in April)")
-        elif 'User Two' in row['name']:
-            # User Two was active March 30-31, should be assigned to March
-            assert assigned_month.month == 3, f"User Two should be assigned to March, got {assigned_month.month}"
-            print(f"  ✅ Correctly assigned to March (activity was in March)")
+    # Process through data processor
+    db = DatabaseManager("test_date_preservation.db")
+    processor = DataProcessor(db)
+    result = processor.clean_openai_data(df, os.path.basename(weekly_file))
     
-    print("\n✅ TEST 3 PASSED: Date assignment works correctly for weeks spanning two months\n")
+    # All records should have the same period_start date
+    unique_dates = result['date'].unique()
+    print(f"\nProcessed dates: {unique_dates}")
+    print(f"Expected: ['2025-03-30']")
+    
+    assert len(unique_dates) == 1, f"Expected 1 unique date, got {len(unique_dates)}"
+    assert unique_dates[0] == '2025-03-30', f"Expected 2025-03-30, got {unique_dates[0]}"
+    
+    print(f"\n✅ All records preserve actual period_start date: 2025-03-30")
+    
+    # Cleanup
+    if os.path.exists("test_date_preservation.db"):
+        os.remove("test_date_preservation.db")
+    
+    print("\n✅ TEST 3 PASSED: Date preservation works correctly for weekly files\n")
 
-def test_date_assignment_same_month():
-    """Test that weekly data in same month is assigned correctly."""
+def test_multiple_weekly_files():
+    """Test that different weekly files preserve their respective period_start dates."""
     print("=" * 80)
-    print("TEST 4: Date Assignment for Week Within Same Month")
+    print("TEST 4: Multiple Weekly Files Date Preservation")
     print("=" * 80)
     
-    # Read the test weekly file entirely in April
-    weekly_file = "OpenAI User Data/Weekly OpenAI User Data/April/Eldridge Capital Management weekly user report 2025-04-06.csv"
+    from data_processor import DataProcessor
+    from database import DatabaseManager
     
-    if not os.path.exists(weekly_file):
-        print(f"❌ Test file not found: {weekly_file}")
-        return
+    # Test different weekly files
+    test_files = [
+        ("OpenAI User Data/Weekly OpenAI User Data/May/Eldridge Capital Management weekly user report 2025-05-04.csv", "2025-05-04"),
+        ("OpenAI User Data/Weekly OpenAI User Data/May/Eldridge Capital Management weekly user report 2025-05-11.csv", "2025-05-11"),
+    ]
     
-    df = pd.read_csv(weekly_file)
-    print(f"\nLoaded test file with {len(df)} records")
-    print(f"Period: {df['period_start'].iloc[0]} to {df['period_end'].iloc[0]}")
+    db = DatabaseManager("test_multiple_weekly.db")
+    processor = DataProcessor(db)
     
-    for idx, row in df.iterrows():
-        period_start = pd.to_datetime(row['period_start'])
-        period_end = pd.to_datetime(row['period_end'])
-        first_active = row['first_day_active_in_period']
-        last_active = row['last_day_active_in_period']
+    for file_path, expected_date in test_files:
+        if not os.path.exists(file_path):
+            print(f"⚠️ Skipping {file_path} - file not found")
+            continue
+            
+        df = pd.read_csv(file_path)
+        print(f"\nProcessing: {os.path.basename(file_path)}")
+        print(f"  Original period_start: {df['period_start'].iloc[0]}")
         
-        assigned_month = determine_record_month(period_start, period_end, first_active, last_active)
+        result = processor.clean_openai_data(df, os.path.basename(file_path))
+        unique_dates = result['date'].unique()
         
-        print(f"\nUser: {row['name']}")
-        print(f"  Active: {first_active} to {last_active}")
-        print(f"  Assigned to: {assigned_month.strftime('%B %Y')}")
-        
-        # Should be assigned to April
-        assert assigned_month.month == 4, f"Should be assigned to April, got {assigned_month.month}"
-        print(f"  ✅ Correctly assigned to April")
+        print(f"  Processed dates: {unique_dates}")
+        assert expected_date in unique_dates, f"Expected {expected_date} in processed dates"
+        print(f"  ✅ Preserves period_start: {expected_date}")
     
-    print("\n✅ TEST 4 PASSED: Date assignment works correctly for weeks within same month\n")
+    # Cleanup
+    if os.path.exists("test_multiple_weekly.db"):
+        os.remove("test_multiple_weekly.db")
+    
+    print("\n✅ TEST 4 PASSED: Multiple weekly files preserve their dates correctly\n")
 
 def test_folder_structure():
     """Verify the folder structure is correct."""
@@ -256,8 +204,8 @@ def main():
         test_folder_structure()
         test_file_scanner_recursive()
         test_weekly_file_detection()
-        test_date_assignment_spanning_months()
-        test_date_assignment_same_month()
+        test_date_preservation()
+        test_multiple_weekly_files()
         
         print("=" * 80)
         print("🎉 ALL TESTS PASSED! 🎉")
@@ -266,8 +214,8 @@ def main():
         print("Summary:")
         print("  ✅ Recursive folder scanning works")
         print("  ✅ Weekly file detection works")
-        print("  ✅ Date assignment for spanning weeks works")
-        print("  ✅ Date assignment for same-month weeks works")
+        print("  ✅ Date preservation for weekly files works")
+        print("  ✅ Multiple weekly files preserve their dates")
         print("  ✅ Folder structure is correct")
         print()
         
