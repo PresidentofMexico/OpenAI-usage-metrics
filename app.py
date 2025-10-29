@@ -21,7 +21,7 @@ from data_processor import DataProcessor
 from database import DatabaseManager
 from file_reader import read_file_robust, display_file_error, read_file_from_path
 from file_scanner import FileScanner
-from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING
+from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING, RECURSIVE_SCAN_FOLDERS
 from export_utils import generate_excel_export, generate_pdf_report_html
 from cost_calculator import EnterpriseCostCalculator
 
@@ -38,8 +38,102 @@ st.set_page_config(
 def init_app():
     db = DatabaseManager()
     processor = DataProcessor(db)
-    scanner = FileScanner(FILE_TRACKING_PATH)
+    scanner = FileScanner(FILE_TRACKING_PATH, recursive_folders=RECURSIVE_SCAN_FOLDERS)
+    
+    # Auto-load employee file if it exists
+    auto_load_employee_file(db)
+    
     return db, processor, scanner
+
+def auto_load_employee_file(db_manager):
+    """
+    Automatically load employee master file from repository if it exists.
+    This function checks for known employee CSV files and loads them automatically.
+    """
+    # Get the directory where this script is located (not the current working directory)
+    # This ensures we look for the employee file in the repository root, regardless of
+    # where the app is launched from (important for cloud deployments)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    print(f"[auto_load_employee_file] Script directory: {script_dir}")
+    print(f"[auto_load_employee_file] Current working directory: {os.getcwd()}")
+    
+    # Check if employees are already loaded - if so, we don't need to load any file
+    try:
+        employee_count = db_manager.get_employee_count()
+        if employee_count > 0:
+            print(f"[auto_load_employee_file] Employees already loaded in database ({employee_count} employees), skipping auto-load")
+            return
+    except:
+        pass  # If get_employee_count fails, continue with auto-load attempt
+    
+    # List of potential employee file names to check (in priority order)
+    employee_file_candidates = [
+        "Employee Headcount October 2025_Emails.csv",
+        "Employee Headcount October 2025.csv"
+    ]
+    
+    for filename in employee_file_candidates:
+        file_path = os.path.join(script_dir, filename)
+        print(f"[auto_load_employee_file] Checking for: {file_path}")
+        
+        if os.path.exists(file_path):
+            print(f"[auto_load_employee_file] Found employee file: {filename}")
+            try:
+                # Check if this file has already been loaded
+                # We'll use a simple marker to avoid reloading the same file repeatedly
+                # Place marker in the script directory (same as where we look for the CSV)
+                marker_file = os.path.join(script_dir, f".{filename}.loaded")
+                
+                # If marker exists, this file was already processed, skip to next candidate
+                if os.path.exists(marker_file):
+                    print(f"[auto_load_employee_file] Marker file found for {filename}, trying next candidate...")
+                    continue
+                else:
+                    print(f"[auto_load_employee_file] No marker file found, will load for first time")
+                
+                # Read the employee file
+                print(f"[auto_load_employee_file] Reading CSV file: {file_path}")
+                emp_df = pd.read_csv(file_path, low_memory=False)
+                print(f"[auto_load_employee_file] CSV contains {len(emp_df)} rows")
+                
+                # Map columns - adjust based on the CSV structure
+                # Expected columns: Last Name, First Name, Title, Function (department), Status, Email
+                if 'Last Name' in emp_df.columns and 'First Name' in emp_df.columns:
+                    print(f"[auto_load_employee_file] CSV has expected column structure")
+                    # Create normalized dataframe
+                    normalized_emp_df = pd.DataFrame({
+                        'first_name': emp_df['First Name'],
+                        'last_name': emp_df['Last Name'],
+                        'email': emp_df.get('Email', None),
+                        'title': emp_df.get('Title', ''),
+                        'department': emp_df.get('Function', ''),  # Function column maps to department
+                        'status': emp_df.get('Status', '')
+                    })
+                    
+                    # Load into database
+                    print(f"[auto_load_employee_file] Loading {len(normalized_emp_df)} employees into database...")
+                    success, message, count = db_manager.load_employees(normalized_emp_df)
+                    
+                    if success:
+                        print(f"[auto_load_employee_file] ✅ {message}")
+                        # Create marker file to indicate successful load
+                        with open(marker_file, 'w') as f:
+                            f.write(f"Loaded on {datetime.now().isoformat()}\n")
+                            f.write(f"Records: {count}\n")
+                        print(f"[auto_load_employee_file] Created marker file: {marker_file}")
+                        return  # Successfully loaded, exit
+                    else:
+                        print(f"[auto_load_employee_file] ❌ Error loading employee file: {message}")
+                else:
+                    print(f"[auto_load_employee_file] ❌ Employee file {filename} has unexpected column structure")
+                    print(f"[auto_load_employee_file] Available columns: {list(emp_df.columns)}")
+                    
+            except Exception as e:
+                print(f"[auto_load_employee_file] ❌ Error auto-loading employee file {filename}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"[auto_load_employee_file] File not found: {file_path}")
 
 db, processor, scanner = init_app()
 
@@ -72,6 +166,80 @@ def apply_department_mappings(data, mappings):
             data.loc[data['email'] == email, 'department'] = dept
     
     return data
+
+def apply_employee_departments(data, db_manager=None):
+    """
+    Apply employee master file departments to all data.
+    
+    This ensures the employee master file is the authoritative source for 
+    department assignments for all employees, not just power users.
+    
+    Args:
+        data: DataFrame with usage data
+        db_manager: DatabaseManager instance (optional, will use global db if not provided)
+        
+    Returns:
+        DataFrame with employee departments applied
+    """
+    if data.empty:
+        return data
+    
+    data = data.copy()
+    
+    # Use provided db_manager or fall back to global db
+    database = db_manager if db_manager is not None else db
+    
+    # Get all employees for efficient lookup
+    try:
+        employees_df = database.get_all_employees()
+        if employees_df.empty:
+            return data
+        
+        # Create lookup dictionaries for fast matching
+        email_to_dept = {}
+        name_to_dept = {}
+        
+        for _, emp in employees_df.iterrows():
+            # Email-based lookup (primary)
+            if pd.notna(emp.get('email')) and emp.get('email'):
+                email_to_dept[emp['email'].lower().strip()] = emp.get('department', 'Unknown')
+            
+            # Name-based lookup (fallback)
+            if pd.notna(emp.get('first_name')) and pd.notna(emp.get('last_name')):
+                full_name = f"{emp['first_name']} {emp['last_name']}".lower().strip()
+                name_to_dept[full_name] = emp.get('department', 'Unknown')
+        
+        # Apply employee departments to data
+        for idx, row in data.iterrows():
+            employee_dept = None
+            
+            # Try email match first
+            if pd.notna(row.get('email')) and row.get('email'):
+                email_key = row['email'].lower().strip()
+                if email_key in email_to_dept:
+                    employee_dept = email_to_dept[email_key]
+            
+            # Try name match if email didn't work
+            if not employee_dept and pd.notna(row.get('user_name')) and row.get('user_name'):
+                name_key = row['user_name'].lower().strip()
+                if name_key in name_to_dept:
+                    employee_dept = name_to_dept[name_key]
+            
+            # Update department if employee found
+            if employee_dept:
+                data.at[idx, 'department'] = employee_dept
+        
+        return data
+        
+    except AttributeError as e:
+        # Handle case where db doesn't have employee methods (cache error)
+        print(f"AttributeError in apply_employee_departments: {e}")
+        return data
+    except Exception as e:
+        print(f"Error applying employee departments: {e}")
+        import traceback
+        traceback.print_exc()
+        return data
 
 def is_employee_user(email, user_name):
     """
@@ -484,6 +652,71 @@ st.markdown("""
         font-weight: 700;
     }
     
+    /* Efficiency badges */
+    .efficiency-badge {
+        padding: 4px 8px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 600;
+        display: inline-block;
+        margin-left: 8px;
+    }
+    .high {
+        background-color: #15803d;
+        color: white;
+    }
+    .medium {
+        background-color: #ca8a04;
+        color: white;
+    }
+    .low {
+        background-color: #dc2626;
+        color: white;
+    }
+    
+    /* Enhanced tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: rgba(40, 50, 65, 0.8);
+        border-radius: 4px 4px 0px 0px;
+        gap: 1px;
+        padding: 10px 16px;
+        font-weight: 500;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: rgba(100, 120, 235, 0.2) !important;
+        border-bottom: 2px solid #667eea !important;
+    }
+    
+    /* Enhanced dataframe container */
+    .dataframe-container {
+        border-radius: 10px;
+        overflow: hidden;
+        background: rgba(35, 45, 60, 0.7);
+        padding: 0px;
+        margin: 10px 0px;
+    }
+    
+    /* Metric row styling */
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+        padding: 8px 0;
+    }
+    .metric-label {
+        color: #94a3b8;
+        font-size: 14px;
+    }
+    .metric-value {
+        font-weight: 600;
+        font-size: 15px;
+    }
+    
     /* Info cards with icons */
     .info-card {
         background: var(--bg-primary);
@@ -558,6 +791,82 @@ def detect_data_source(df):
     # Default or ask user
     return 'Unknown'
 
+def is_weekly_file(filename):
+    """
+    Detect if a file is a weekly report based on filename.
+    Weekly files contain 'weekly' and a date (YYYY-MM-DD format).
+    
+    Args:
+        filename: Name of the file
+        
+    Returns:
+        bool: True if file is detected as weekly report
+    """
+    filename_lower = filename.lower()
+    # Check if filename contains 'weekly' and a date pattern
+    import re
+    has_weekly = 'weekly' in filename_lower
+    has_date = re.search(r'\d{4}-\d{2}-\d{2}', filename) is not None
+    return has_weekly and has_date
+
+def determine_record_month(period_start, period_end, first_active, last_active):
+    """
+    Determine which month a record should be assigned to based on actual usage dates.
+    For weekly files that span two months, assign to the month with more activity days.
+    
+    Args:
+        period_start: Period start date (datetime)
+        period_end: Period end date (datetime)
+        first_active: First day active in period (datetime or None)
+        last_active: Last day active in period (datetime or None)
+        
+    Returns:
+        datetime: The date to use for the record (first day of the assigned month)
+    """
+    # If we have actual activity dates, use them to determine the month
+    if pd.notna(first_active) and pd.notna(last_active):
+        first_active = pd.to_datetime(first_active, errors='coerce')
+        last_active = pd.to_datetime(last_active, errors='coerce')
+        
+        if pd.notna(first_active) and pd.notna(last_active):
+            # Calculate midpoint of actual activity
+            midpoint = first_active + (last_active - first_active) / 2
+            # Return first day of the month containing the midpoint
+            return pd.Timestamp(year=midpoint.year, month=midpoint.month, day=1)
+    
+    # If no activity dates, use period dates
+    if pd.notna(period_start) and pd.notna(period_end):
+        period_start = pd.to_datetime(period_start, errors='coerce')
+        period_end = pd.to_datetime(period_end, errors='coerce')
+        
+        if pd.notna(period_start) and pd.notna(period_end):
+            # Check if period spans two months
+            if period_start.month != period_end.month:
+                # Calculate number of days in each month
+                days_in_start_month = (pd.Timestamp(year=period_start.year, 
+                                                    month=period_start.month, 
+                                                    day=1) + pd.DateOffset(months=1) - pd.Timedelta(days=1)).day - period_start.day + 1
+                days_in_end_month = period_end.day
+                
+                # Assign to month with more days
+                if days_in_start_month >= days_in_end_month:
+                    return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
+                else:
+                    return pd.Timestamp(year=period_end.year, month=period_end.month, day=1)
+            else:
+                # Same month, use period start
+                return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
+    
+    # Fallback to period_start or current date
+    if pd.notna(period_start):
+        period_start = pd.to_datetime(period_start, errors='coerce')
+        if pd.notna(period_start):
+            return pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
+    
+    # Last resort: current date
+    now = datetime.now()
+    return pd.Timestamp(year=now.year, month=now.month, day=1)
+
 def normalize_openai_data(df, filename):
     """Normalize OpenAI CSV export to standard schema with enterprise license costs."""
     normalized_records = []
@@ -605,12 +914,23 @@ def normalize_openai_data(df, filename):
         # Get period dates with robust error handling
         period_start = pd.to_datetime(row.get('period_start', row.get('first_day_active_in_period', datetime.now())), errors='coerce')
         period_end = pd.to_datetime(row.get('period_end', row.get('last_day_active_in_period', datetime.now())), errors='coerce')
+        first_active = row.get('first_day_active_in_period')
+        last_active = row.get('last_day_active_in_period')
         
         # Fallback to current date if parsing fails
         if pd.isna(period_start):
             period_start = datetime.now()
         if pd.isna(period_end):
             period_end = datetime.now()
+        
+        # Determine the correct month for this record
+        # For weekly files spanning two months, this ensures data goes to the right month
+        is_weekly = is_weekly_file(filename)
+        if is_weekly:
+            record_date = determine_record_month(period_start, period_end, first_active, last_active)
+        else:
+            # For monthly files, use period_start as before
+            record_date = period_start
         
         # ChatGPT messages - cost is enterprise license per user per month
         if row.get('messages', 0) > 0:
@@ -619,7 +939,7 @@ def normalize_openai_data(df, filename):
                 'user_name': user_name,
                 'email': user_email,
                 'department': dept,
-                'date': period_start,
+                'date': record_date,
                 'feature_used': 'ChatGPT Messages',
                 'usage_count': row.get('messages', 0),
                 'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
@@ -634,7 +954,7 @@ def normalize_openai_data(df, filename):
                 'user_name': user_name,
                 'email': user_email,
                 'department': dept,
-                'date': period_start,
+                'date': record_date,
                 'feature_used': 'GPT Messages',
                 'usage_count': row.get('gpt_messages', 0),
                 'cost_usd': 0,  # Included in base license
@@ -649,7 +969,7 @@ def normalize_openai_data(df, filename):
                 'user_name': user_name,
                 'email': user_email,
                 'department': dept,
-                'date': period_start,
+                'date': record_date,
                 'feature_used': 'Tool Messages',
                 'usage_count': row.get('tool_messages', 0),
                 'cost_usd': 0,  # Included in base license
@@ -664,7 +984,7 @@ def normalize_openai_data(df, filename):
                 'user_name': user_name,
                 'email': user_email,
                 'department': dept,
-                'date': period_start,
+                'date': record_date,
                 'feature_used': 'Project Messages',
                 'usage_count': row.get('project_messages', 0),
                 'cost_usd': 0,  # Included in base license
@@ -1277,6 +1597,13 @@ def calculate_power_users(data, threshold_percentile=95):
         'department': lambda x: _select_primary_department(x)
     }).reset_index()
     
+    # Update departments from employee database as authoritative source
+    # This ensures verified employees show their correct locked departments
+    for idx, row in user_usage.iterrows():
+        employee = get_employee_for_user(row['email'], row['user_name'])
+        if employee and employee.get('department'):
+            user_usage.at[idx, 'department'] = employee['department']
+    
     # Calculate threshold (top 5% by default)
     threshold = user_usage['usage_count'].quantile(threshold_percentile / 100)
     
@@ -1290,17 +1617,21 @@ def calculate_power_users(data, threshold_percentile=95):
 def _select_primary_department(departments):
     """Select the most appropriate department from a list.
     
-    Prefers non-'BlueFlame Users' departments. If multiple non-BlueFlame
-    departments exist, returns the first one. Returns 'BlueFlame Users' 
-    only if that's the only department available.
+    Prefers valid department names over placeholder values like 'BlueFlame Users' 
+    or 'Unknown'. If multiple valid departments exist, returns the first one.
+    Returns placeholder values only if that's all that's available.
     """
     unique_depts = list(departments.unique())
     
-    # Filter out 'BlueFlame Users' if other departments exist
-    non_blueflame = [d for d in unique_depts if d != 'BlueFlame Users']
+    # Filter out placeholder departments if real departments exist
+    real_depts = [d for d in unique_depts if d not in ('BlueFlame Users', 'Unknown')]
     
-    if non_blueflame:
-        return non_blueflame[0]  # Return first non-BlueFlame department
+    if real_depts:
+        return real_depts[0]  # Return first real department
+    
+    # If only placeholders available, prefer 'BlueFlame Users' over 'Unknown'
+    if 'BlueFlame Users' in unique_depts:
+        return 'BlueFlame Users'
     
     return unique_depts[0] if unique_depts else 'Unknown'
 
@@ -1332,6 +1663,48 @@ def get_user_message_breakdown(data, email):
                 breakdown['blueflame']['BlueFlame Messages'] = count
     
     return breakdown
+
+def get_department_message_breakdown(data, department):
+    """Get message type breakdown for a specific department."""
+    dept_data = data[data['department'] == department]
+    
+    breakdown = {}
+    
+    if not dept_data.empty:
+        # Get counts grouped by feature type
+        message_counts = dept_data.groupby('feature_used')['usage_count'].sum().to_dict()
+        breakdown = message_counts
+    
+    return breakdown
+
+def get_all_message_types(data):
+    """Get all unique message types from the data."""
+    if data.empty or 'feature_used' not in data.columns:
+        return []
+    return sorted(data['feature_used'].unique().tolist())
+
+def get_organization_message_breakdown(data):
+    """Get message type breakdown for the entire organization."""
+    breakdown = {}
+    
+    if not data.empty and 'feature_used' in data.columns:
+        # Get counts grouped by feature type
+        message_counts = data.groupby('feature_used')['usage_count'].sum().to_dict()
+        breakdown = message_counts
+    
+    return breakdown
+
+def format_message_breakdown_text(breakdown_dict):
+    """Format a message breakdown dictionary into readable text."""
+    if not breakdown_dict:
+        return "No data"
+    
+    parts = []
+    for msg_type, count in sorted(breakdown_dict.items()):
+        if count > 0:
+            parts.append(f"{msg_type}: {count:,}")
+    
+    return " | ".join(parts) if parts else "No messages"
 
 def display_tool_comparison(data):
     """Display side-by-side tool comparison."""
@@ -1421,6 +1794,184 @@ def display_tool_comparison(data):
     )
     st.plotly_chart(fig, use_container_width=True)
 
+def get_openai_data(data):
+    """
+    Filter dataset to only OpenAI/ChatGPT records.
+    
+    Args:
+        data: Full dataset DataFrame
+        
+    Returns:
+        DataFrame with only OpenAI records
+    """
+    if data.empty or 'tool_source' not in data.columns:
+        return pd.DataFrame()
+    
+    # Filter to ChatGPT/OpenAI only
+    openai_data = data[data['tool_source'].isin(['ChatGPT', 'OpenAI'])].copy()
+    
+    return openai_data
+
+
+def calculate_duau(data):
+    """
+    Calculate Daily Unique Active Users for OpenAI data.
+    
+    Args:
+        data: OpenAI-filtered DataFrame
+        
+    Returns:
+        float: Average daily unique active users
+    """
+    if data.empty or 'date' not in data.columns:
+        return 0
+    
+    # Group by date and count unique users
+    daily_users = data.groupby('date')['user_id'].nunique()
+    
+    # Calculate average
+    duau = daily_users.mean() if not daily_users.empty else 0
+    
+    return duau
+
+
+def calculate_days_active_per_month(data):
+    """
+    Calculate average days active per month for each user.
+    
+    Args:
+        data: OpenAI-filtered DataFrame
+        
+    Returns:
+        DataFrame with user-level days active statistics
+    """
+    if data.empty or 'date' not in data.columns:
+        return pd.DataFrame()
+    
+    # Parse dates
+    data_copy = data.copy()
+    data_copy['date'] = pd.to_datetime(data_copy['date'], errors='coerce')
+    data_copy = data_copy.dropna(subset=['date'])
+    
+    # Extract year-month
+    data_copy['year_month'] = data_copy['date'].dt.to_period('M')
+    
+    # Count unique days per user per month
+    user_days = data_copy.groupby(['user_id', 'user_name', 'year_month']).agg({
+        'date': 'nunique'
+    }).reset_index()
+    user_days.columns = ['user_id', 'user_name', 'year_month', 'days_active']
+    
+    # Calculate average days active per month per user
+    avg_days = user_days.groupby(['user_id', 'user_name'])['days_active'].mean().reset_index()
+    avg_days.columns = ['user_id', 'user_name', 'avg_days_per_month']
+    
+    return avg_days
+
+
+def get_user_activity_tiers(data):
+    """
+    Categorize users into activity tiers based on message volume.
+    
+    Tiers:
+    - Heavy: Top 20% of users by message count
+    - Moderate: Next 30% of users
+    - Light: Next 30% of users  
+    - Inactive: Bottom 20% of users
+    
+    Args:
+        data: OpenAI-filtered DataFrame
+        
+    Returns:
+        DataFrame with user tiers
+    """
+    if data.empty:
+        return pd.DataFrame()
+    
+    # Get total messages per user
+    user_totals = data.groupby(['user_id', 'user_name', 'email']).agg({
+        'usage_count': 'sum'
+    }).reset_index()
+    user_totals.columns = ['user_id', 'user_name', 'email', 'total_messages']
+    
+    # Calculate percentiles
+    p80 = user_totals['total_messages'].quantile(0.80)
+    p50 = user_totals['total_messages'].quantile(0.50)
+    p20 = user_totals['total_messages'].quantile(0.20)
+    
+    # Assign tiers
+    def assign_tier(messages):
+        if messages >= p80:
+            return 'Heavy'
+        elif messages >= p50:
+            return 'Moderate'
+        elif messages >= p20:
+            return 'Light'
+        else:
+            return 'Inactive'
+    
+    user_totals['activity_tier'] = user_totals['total_messages'].apply(assign_tier)
+    
+    return user_totals
+
+
+def get_feature_adoption_timeline(data):
+    """
+    Get timeline of feature adoption (when users started using each feature).
+    
+    Args:
+        data: OpenAI-filtered DataFrame
+        
+    Returns:
+        DataFrame with first usage date per feature per user
+    """
+    if data.empty or 'feature_used' not in data.columns:
+        return pd.DataFrame()
+    
+    # Parse dates
+    data_copy = data.copy()
+    data_copy['date'] = pd.to_datetime(data_copy['date'], errors='coerce')
+    data_copy = data_copy.dropna(subset=['date'])
+    
+    # Get first usage date per feature per user
+    first_usage = data_copy.groupby(['user_id', 'user_name', 'feature_used']).agg({
+        'date': 'min'
+    }).reset_index()
+    first_usage.columns = ['user_id', 'user_name', 'feature', 'first_used_date']
+    
+    return first_usage
+
+
+def calculate_weekly_trends(data):
+    """
+    Calculate weekly trends for OpenAI data.
+    
+    Args:
+        data: OpenAI-filtered DataFrame
+        
+    Returns:
+        DataFrame with weekly aggregated metrics
+    """
+    if data.empty or 'date' not in data.columns:
+        return pd.DataFrame()
+    
+    # Parse dates
+    data_copy = data.copy()
+    data_copy['date'] = pd.to_datetime(data_copy['date'], errors='coerce')
+    data_copy = data_copy.dropna(subset=['date'])
+    
+    # Extract week
+    data_copy['week'] = data_copy['date'].dt.to_period('W').astype(str)
+    
+    # Aggregate by week
+    weekly = data_copy.groupby('week').agg({
+        'user_id': 'nunique',
+        'usage_count': 'sum'
+    }).reset_index()
+    weekly.columns = ['week', 'active_users', 'total_messages']
+    
+    return weekly
+
 def main():
     # Main header - professional title without emoji
     col1, col2 = st.columns([4, 1])
@@ -1432,10 +1983,12 @@ def main():
         st.markdown('<div style="text-align: right; padding-top: 0.5rem;"></div>', unsafe_allow_html=True)
     
     # Create main tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab_openai, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Executive Overview", 
-        "🔄 Tool Comparison", 
+        "🔄 Tool Comparison",
+        "🤖 OpenAI Analytics",
         "⭐ Power Users",
+        "📈 Message Type Analytics",
         "🏢 Department Mapper",
         "🔧 Database Management"
     ])
@@ -1881,7 +2434,11 @@ def main():
         else:
             data = db.get_all_data()
     
-    # Apply department mappings
+    # Apply employee departments FIRST (authoritative source for employees)
+    # This ensures the employee master file drives all employee department tagging
+    data = apply_employee_departments(data)
+    
+    # Apply manual department mappings for non-employees (secondary/override)
     data = apply_department_mappings(data, dept_mappings)
     
     # Apply tool filter
@@ -1982,7 +2539,7 @@ def main():
             projected_annual_cost = total_cost * 12
         
         # Enterprise Pricing Model Information
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">💼 Enterprise Pricing Model</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Enterprise Pricing Model</h3>', unsafe_allow_html=True)
         
         with st.expander("ℹ️ About Cost Calculations - Based on Enterprise SaaS Licenses", expanded=False):
             st.markdown("""
@@ -2146,7 +2703,7 @@ def main():
         st.divider()
         
         # License Utilization Analysis
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📊 License Utilization & ROI Analysis</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">License Utilization & ROI Analysis</h3>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
@@ -2232,8 +2789,110 @@ def main():
         
         st.divider()
         
+        # Message Type Analytics Section
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📊 Feature Adoption Analytics</h3>', unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Message Type Breakdown:</strong> Understand which AI features your organization is using most.
+            This helps identify adoption patterns and feature-specific training needs.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Get organization-wide message breakdown
+        org_breakdown = get_organization_message_breakdown(data)
+        
+        if org_breakdown:
+            # Create visualization columns
+            viz_col1, viz_col2 = st.columns([2, 1])
+            
+            with viz_col1:
+                # Create pie chart for message type distribution
+                breakdown_df = pd.DataFrame([
+                    {'Feature': feature, 'Messages': count} 
+                    for feature, count in org_breakdown.items()
+                ])
+                
+                fig = px.pie(
+                    breakdown_df,
+                    values='Messages',
+                    names='Feature',
+                    title='Organization-Wide Feature Usage Distribution',
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                
+                fig.update_traces(
+                    textposition='inside',
+                    textinfo='percent+label',
+                    hovertemplate='<b>%{label}</b><br>Messages: %{value:,}<br>Percentage: %{percent}<extra></extra>'
+                )
+                
+                fig.update_layout(
+                    showlegend=True,
+                    legend=dict(
+                        orientation='v',
+                        yanchor='middle',
+                        y=0.5,
+                        xanchor='left',
+                        x=1.05
+                    ),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with viz_col2:
+                st.markdown("**Feature Usage Summary:**")
+                
+                total_messages = sum(org_breakdown.values())
+                
+                for feature, count in sorted(org_breakdown.items(), key=lambda x: x[1], reverse=True):
+                    percentage = (count / total_messages * 100) if total_messages > 0 else 0
+                    
+                    # Create a styled metric card for each feature
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
+                                padding: 0.75rem; border-radius: 0.375rem; margin: 0.5rem 0;
+                                border-left: 3px solid #667eea;">
+                        <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.25rem;">
+                            {feature}
+                        </div>
+                        <div style="font-size: 1.25rem; font-weight: 600; color: #1e293b;">
+                            {count:,}
+                        </div>
+                        <div style="font-size: 0.75rem; color: #94a3b8;">
+                            {percentage:.1f}% of total
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Add feature descriptions
+                st.markdown("---")
+                st.markdown("**Feature Descriptions:**", help="Learn what each message type represents")
+                
+                with st.expander("ℹ️ What do these features mean?"):
+                    st.markdown("""
+                    **ChatGPT Messages:** Standard conversational AI interactions with ChatGPT
+                    
+                    **GPT Messages:** Custom GPT usage (specialized AI assistants tailored for specific tasks)
+                    
+                    **Tool Messages:** Advanced features like Code Interpreter, web browsing, and data analysis
+                    
+                    **Project Messages:** Messages within ChatGPT Projects (organized workspaces for collaboration)
+                    
+                    **BlueFlame Messages:** BlueFlame AI platform interactions (investment research and analysis)
+                    """)
+        else:
+            st.info("📊 Message type analytics will appear here once data is loaded.")
+        
+        st.divider()
+        
         # Data Quality & Validation Panel
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1rem; margin-bottom: 1rem;">Data Quality & Validation</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Data Quality & Validation</h3>', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -2391,122 +3050,534 @@ def main():
         dept_stats['Cost per Message'] = (dept_stats['Total Cost'] / dept_stats['Total Usage']).round(3)
         dept_stats = dept_stats.sort_values('Total Usage', ascending=False)
         
-        # Add interactive filtering for departments
-        st.markdown("**🎯 Filter Chart Data**")
-        filter_col1, filter_col2 = st.columns([2, 1])
+        # Add efficiency category
+        conditions = [
+            (dept_stats['Avg Messages/User'] > 5000),
+            (dept_stats['Avg Messages/User'] > 2000),
+            (dept_stats['Avg Messages/User'] <= 2000)
+        ]
+        values = ['High', 'Medium', 'Low']
+        dept_stats['Efficiency'] = np.select(conditions, values, default='Medium')
         
-        with filter_col1:
-            # Department filter - allow excluding specific departments
-            all_departments = dept_stats['Department'].tolist()
-            excluded_depts = st.multiselect(
-                "Exclude departments from chart (e.g., to remove outliers)",
-                all_departments,
-                help="Select departments to exclude from the visualization below"
-            )
+        # Create tabs for different department views
+        dept_tab1, dept_tab2, dept_tab3 = st.tabs([
+            "📊 Department Comparison", 
+            "👥 User Distribution", 
+            "💡 Efficiency Analysis"
+        ])
         
-        with filter_col2:
-            # Minimum user threshold filter
-            min_users = st.number_input(
-                "Min. Active Users",
-                min_value=0,
-                max_value=int(dept_stats['Active Users'].max()),
-                value=0,
-                help="Only show departments with at least this many active users"
-            )
-        
-        # Apply filters to create filtered dataset for visualization
-        dept_stats_filtered = dept_stats.copy()
-        if excluded_depts:
-            dept_stats_filtered = dept_stats_filtered[~dept_stats_filtered['Department'].isin(excluded_depts)]
-        if min_users > 0:
-            dept_stats_filtered = dept_stats_filtered[dept_stats_filtered['Active Users'] >= min_users]
-        
-        # Create two-column layout for better space utilization
-        col1, col2 = st.columns([3, 2])
-        
-        with col1:
-            # Department comparison bar chart (filtered)
-            if not dept_stats_filtered.empty:
-                fig_dept_comparison = go.Figure()
-                
-                # Add usage bars
-                fig_dept_comparison.add_trace(go.Bar(
-                    name='Total Usage',
-                    x=dept_stats_filtered['Department'],
-                    y=dept_stats_filtered['Total Usage'],
-                    marker_color='#667eea',
-                    text=dept_stats_filtered['Total Usage'],
-                    texttemplate='%{text:,.0f}',
-                    textposition='outside',
-                    hovertemplate='<b>%{x}</b><br>Usage: %{y:,.0f}<extra></extra>'
-                ))
-                
-                # Update title based on filters
-                title_suffix = ""
-                if excluded_depts or min_users > 0:
-                    title_suffix = f" (Filtered: {len(dept_stats_filtered)} of {len(dept_stats)} depts)"
-                else:
-                    title_suffix = f" (All {len(dept_stats)} Departments)"
-                
-                fig_dept_comparison.update_layout(
-                    title=f'Department Usage Comparison{title_suffix}',
-                    xaxis_title='Department',
-                    yaxis_title='Total Messages',
-                    showlegend=False,
-                    height=350,
-                    hovermode='x unified',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
+        with dept_tab1:
+            st.markdown("### Department Usage Comparison")
+            
+            # Add interactive filtering for departments
+            st.markdown("**🎯 Filter Chart Data**")
+            filter_col1, filter_col2, filter_col3 = st.columns([2, 1, 1])
+            
+            with filter_col1:
+                # Department filter - allow excluding specific departments
+                all_departments = dept_stats['Department'].tolist()
+                excluded_depts = st.multiselect(
+                    "Exclude departments from chart (e.g., to remove outliers)",
+                    all_departments,
+                    help="Select departments to exclude from the visualization below"
                 )
-                
-                st.plotly_chart(fig_dept_comparison, use_container_width=True)
-            else:
-                st.info("No departments match the current filter criteria.")
-        
-        with col2:
-            # Top 3 departments with detailed insights
-            st.markdown("**Top 3 Departments by Usage**")
             
-            top_3_depts = dept_stats.head(3)
+            with filter_col2:
+                # Sort order
+                sort_by = st.selectbox(
+                    "Sort by:",
+                    ["Total Usage", "Active Users", "Avg Messages/User", "Total Cost"],
+                    index=0
+                )
             
-            for idx, row in top_3_depts.iterrows():
-                # Medal emojis instead of generic trophy
-                medal = ['🥇', '🥈', '🥉'][idx] if idx < 3 else '🏅'
+            with filter_col3:
+                # Number of departments to show
+                if len(dept_stats) > 1:
+                    num_depts = st.slider(
+                        "Show top:",
+                        min_value=1,
+                        max_value=len(dept_stats),
+                        value=min(7, len(dept_stats))
+                    )
+                else:
+                    num_depts = len(dept_stats)
+                    st.write(f"Showing: {num_depts} department" if num_depts == 1 else f"Showing: {num_depts} departments")
+            
+            # Apply filters
+            dept_stats_filtered = dept_stats.copy()
+            if excluded_depts:
+                dept_stats_filtered = dept_stats_filtered[~dept_stats_filtered['Department'].isin(excluded_depts)]
+            
+            # Ensure num_depts doesn't exceed available filtered departments
+            num_depts = min(num_depts, len(dept_stats_filtered))
+            
+            # Apply sorting
+            sort_mapping = {
+                "Total Usage": "Total Usage",
+                "Active Users": "Active Users",
+                "Avg Messages/User": "Avg Messages/User",
+                "Total Cost": "Total Cost"
+            }
+            dept_stats_filtered = dept_stats_filtered.sort_values(by=sort_mapping[sort_by], ascending=False).head(num_depts)
+            
+            # ENHANCED VISUALIZATION: Create a dual-axis chart for messages and users
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Add bars for message counts
+            bar = go.Bar(
+                x=dept_stats_filtered['Department'],
+                y=dept_stats_filtered['Total Usage'],
+                name='Total Messages',
+                text=dept_stats_filtered['Total Usage'].apply(lambda x: f"{x:,}"),
+                textposition='outside',
+                marker=dict(
+                    color=dept_stats_filtered['Avg Messages/User'],
+                    colorscale='Blues',
+                    colorbar=dict(title='Msg/User'),
+                    showscale=True
+                ),
+                hovertemplate='<b>%{x}</b><br>Messages: %{y:,}<br>Pct of Total: %{customdata[0]}%<extra></extra>',
+                customdata=dept_stats_filtered[['Usage Share %']]
+            )
+            
+            # Add line for active users
+            line = go.Scatter(
+                x=dept_stats_filtered['Department'],
+                y=dept_stats_filtered['Active Users'],
+                name='Active Users',
+                mode='markers+lines',
+                marker=dict(size=12, symbol='circle', color='#FFA500'),
+                line=dict(color='#FFA500', width=3),
+                hovertemplate='<b>%{x}</b><br>Active Users: %{y}<extra></extra>',
+                yaxis='y2'
+            )
+            
+            # Add the main traces
+            fig.add_trace(bar)
+            fig.add_trace(line, secondary_y=True)
+            
+            # Update layout with improved styling
+            fig.update_layout(
+                title=f"Department Usage Comparison ({len(dept_stats_filtered)} of {len(dept_stats)} depts)",
+                xaxis=dict(title='Department', tickangle=-45, tickfont=dict(size=11)),
+                yaxis=dict(title='Total Messages', gridcolor='rgba(255,255,255,0.1)'),
+                yaxis2=dict(title='Active Users', gridcolor='rgba(255,255,255,0)', range=[0, max(dept_stats_filtered['Active Users'])*1.2]),
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+                barmode='group',
+                height=500,
+                margin=dict(t=80, b=100),
+                hovermode='closest',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white')
+            )
+            
+            # Add avg messages per user annotations
+            for i, row in dept_stats_filtered.iterrows():
+                fig.add_annotation(
+                    x=row['Department'],
+                    y=row['Total Usage'],
+                    text=f"{row['Avg Messages/User']:,.0f}/user",
+                    showarrow=False,
+                    font=dict(size=10, color="#94A3B8"),
+                    xanchor='center',
+                    yanchor='bottom',
+                    yshift=10
+                )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # USING THE SPACE BELOW: Add a detailed data table
+            st.markdown("### Department Details")
+            
+            # Enhanced table with efficiency indicators
+            table_df = dept_stats_filtered.copy()
+            
+            # Format columns for display
+            table_df['Total Usage Formatted'] = table_df['Total Usage'].apply(lambda x: f"{x:,}")
+            table_df['Avg Messages/User Formatted'] = table_df['Avg Messages/User'].apply(lambda x: f"{x:,}")
+            table_df['Total Cost Formatted'] = table_df['Total Cost'].apply(lambda x: f"${x:,.2f}")
+            table_df['Usage Share % Formatted'] = table_df['Usage Share %'].apply(lambda x: f"{x:.1f}%")
+            
+            # Create display dataframe
+            display_df = table_df[[
+                'Department', 'Total Usage Formatted', 'Active Users', 
+                'Avg Messages/User Formatted', 'Usage Share % Formatted', 'Total Cost Formatted', 'Efficiency'
+            ]].copy()
+            display_df.columns = [
+                'Department', 'Total Messages', 'Active Users',
+                'Messages/User', '% of Total', 'Total Cost', 'Efficiency'
+            ]
+            
+            # Display styled table
+            st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
+            
+            # Function to highlight efficiency
+            def highlight_efficiency(row):
+                if row['Efficiency'] == 'High':
+                    return ['background-color: rgba(21, 128, 61, 0.3); color: #ffffff;'] * len(row)
+                elif row['Efficiency'] == 'Medium':
+                    return ['background-color: rgba(202, 138, 4, 0.3); color: #ffffff;'] * len(row)
+                else:
+                    return ['background-color: rgba(220, 38, 38, 0.3); color: #ffffff;'] * len(row)
+            
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Add expandable message type breakdown per department
+            st.markdown("---")
+            st.markdown("### 📊 Feature Usage by Department")
+            st.caption("Click on a department to see detailed feature usage breakdown")
+            
+            for _, dept_row in dept_stats_filtered.iterrows():
+                dept_name = dept_row['Department']
+                dept_breakdown = get_department_message_breakdown(data, dept_name)
                 
-                # Determine efficiency rating
-                avg_cost_per_msg = dept_stats['Cost per Message'].mean()
-                is_efficient = row['Cost per Message'] <= avg_cost_per_msg
-                efficiency_icon = '💰' if is_efficient else '💸'
-                
+                if dept_breakdown:
+                    with st.expander(f"🏢 {dept_name} - Feature Breakdown ({dept_row['Total Usage']:,} total messages)"):
+                        # Create columns for metrics
+                        breakdown_col1, breakdown_col2 = st.columns([2, 1])
+                        
+                        with breakdown_col1:
+                            # Create a bar chart for this department's feature usage
+                            breakdown_df = pd.DataFrame([
+                                {'Feature': feature, 'Messages': count} 
+                                for feature, count in dept_breakdown.items()
+                            ]).sort_values('Messages', ascending=False)
+                            
+                            fig_dept = px.bar(
+                                breakdown_df,
+                                x='Feature',
+                                y='Messages',
+                                title=f'{dept_name} - Feature Usage',
+                                text='Messages',
+                                color='Messages',
+                                color_continuous_scale='Blues'
+                            )
+                            
+                            fig_dept.update_traces(
+                                texttemplate='%{text:,}',
+                                textposition='outside'
+                            )
+                            
+                            fig_dept.update_layout(
+                                xaxis_title='Feature Type',
+                                yaxis_title='Message Count',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                font=dict(color='white'),
+                                height=300,
+                                showlegend=False
+                            )
+                            
+                            st.plotly_chart(fig_dept, use_container_width=True)
+                        
+                        with breakdown_col2:
+                            st.markdown("**Feature Details:**")
+                            total_dept_messages = sum(dept_breakdown.values())
+                            
+                            for feature, count in sorted(dept_breakdown.items(), key=lambda x: x[1], reverse=True):
+                                percentage = (count / total_dept_messages * 100) if total_dept_messages > 0 else 0
+                                st.markdown(f"""
+                                <div style="background: var(--card-bg); padding: 0.5rem; 
+                                            border-radius: 0.25rem; margin: 0.25rem 0;">
+                                    <div style="font-size: 0.75rem; color: #94a3b8;">{feature}</div>
+                                    <div style="font-size: 1rem; font-weight: 600;">{count:,}</div>
+                                    <div style="font-size: 0.7rem; color: #64748b;">{percentage:.1f}% of dept total</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                            
+                            # Add department-specific insights
+                            st.markdown("---")
+                            st.markdown(f"**Department Stats:**")
+                            st.write(f"• Active Users: {dept_row['Active Users']}")
+                            st.write(f"• Messages/User: {dept_row['Avg Messages/User']:,.0f}")
+                            st.write(f"• Total Cost: ${dept_row['Total Cost']:,.2f}")
+            
+            # Add key insights section
+            st.markdown("---")
+            st.markdown("### Key Insights")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Most efficient department
+                most_efficient = dept_stats.loc[dept_stats['Avg Messages/User'].idxmax()]
                 st.markdown(f"""
-                <div class="metric-card" style="margin-bottom: 1rem; padding: 1rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                        <h4 style="margin: 0; color: var(--text-primary);">{medal} {row['Department']}</h4>
-                        <span style="background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.75rem; font-weight: 600;">{row['Usage Share %']}% of total</span>
+                <div class="insight-card insight-success">
+                    <h4>Most Efficient Department</h4>
+                    <p><strong>{most_efficient['Department']}</strong></p>
+                    <p>{most_efficient['Avg Messages/User']:,.0f} messages per user</p>
+                    <p>Total messages: {most_efficient['Total Usage']:,.0f} | Users: {most_efficient['Active Users']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Department with most users
+                most_users = dept_stats.loc[dept_stats['Active Users'].idxmax()]
+                st.markdown(f"""
+                <div class="insight-card insight-info">
+                    <h4>Highest User Adoption</h4>
+                    <p><strong>{most_users['Department']}</strong></p>
+                    <p>{most_users['Active Users']} active users</p>
+                    <p>Average: {most_users['Avg Messages/User']:,.0f} messages per user</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                # Cost insights
+                highest_cost = dept_stats.loc[dept_stats['Total Cost'].idxmax()]
+                st.markdown(f"""
+                <div class="insight-card insight-warning">
+                    <h4>Highest Cost Department</h4>
+                    <p><strong>{highest_cost['Department']}</strong></p>
+                    <p>${highest_cost['Total Cost']:,.2f} total cost</p>
+                    <p>Cost per user: ${highest_cost['Total Cost']/highest_cost['Active Users']:,.2f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Efficiency distribution
+                efficiency_counts = dept_stats['Efficiency'].value_counts()
+                st.markdown(f"""
+                <div class="insight-card insight-success">
+                    <h4>Efficiency Distribution</h4>
+                    <div class="metric-row">
+                        <span class="metric-label">High Efficiency Departments:</span>
+                        <span class="metric-value">{efficiency_counts.get('High', 0)}</span>
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.75rem;">
-                        <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Total Messages</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--text-primary);">{row['Total Usage']:,.0f}</p>
-                        </div>
-                        <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Active Users</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--text-primary);">{row['Active Users']}</p>
-                        </div>
-                        <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Avg/User {efficiency_icon}</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--success-border);">{row['Avg Messages/User']:,.0f}</p>
-                        </div>
-                        <div>
-                            <p style="margin: 0; font-size: 0.75rem; color: var(--text-tertiary);">Total Cost</p>
-                            <p style="margin: 0; font-size: 1.25rem; font-weight: bold; color: var(--success-border);">${row['Total Cost']:,.2f}</p>
-                        </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Medium Efficiency Departments:</span>
+                        <span class="metric-value">{efficiency_counts.get('Medium', 0)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Low Efficiency Departments:</span>
+                        <span class="metric-value">{efficiency_counts.get('Low', 0)}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
         
-        # Department efficiency insights below
-        st.markdown("**Key Insights**")
+        with dept_tab2:
+            st.markdown("### User Distribution by Department")
+            
+            # Create a horizontal bar chart that shows users per department
+            fig = px.bar(
+                dept_stats.sort_values('Active Users', ascending=True),
+                y='Department',
+                x='Active Users',
+                orientation='h',
+                text='Active Users',
+                title='Active Users by Department',
+                color='Avg Messages/User',
+                color_continuous_scale='Blues',
+                hover_data=['Total Usage', 'Avg Messages/User', 'Total Cost']
+            )
+            
+            fig.update_layout(
+                xaxis_title="Active Users",
+                yaxis_title="Department",
+                height=600,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white')
+            )
+            
+            fig.update_traces(
+                textposition='outside',
+                textfont=dict(size=12)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Add user breakdown cards
+            st.markdown("### User Activity Breakdown")
+            
+            # Create a grid of cards for departments with user breakdown
+            cols = st.columns(3)
+            for i, (_, row) in enumerate(dept_stats.iterrows()):
+                with cols[i % 3]:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h4>{row['Department']}</h4>
+                        <div class="metric-row">
+                            <span class="metric-label">Active Users:</span>
+                            <span class="metric-value">{row['Active Users']}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Total Messages:</span>
+                            <span class="metric-value">{row['Total Usage']:,.0f}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Messages per User:</span>
+                            <span class="metric-value">{row['Avg Messages/User']:,.0f}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Efficiency:</span>
+                            <span class="metric-value">
+                                {row['Efficiency']}
+                                <span class="efficiency-badge {row['Efficiency'].lower()}">{row['Efficiency']}</span>
+                            </span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        with dept_tab3:
+            st.markdown("### Department Efficiency Analysis")
+            
+            # Create a scatter plot of messages vs users
+            fig = px.scatter(
+                dept_stats,
+                x='Active Users',
+                y='Total Usage',
+                size='Avg Messages/User',
+                color='Efficiency',
+                hover_name='Department',
+                text='Department',
+                color_discrete_map={
+                    'High': '#15803d',
+                    'Medium': '#ca8a04',
+                    'Low': '#dc2626'
+                },
+                title='Department Efficiency Matrix (Messages vs Users)',
+                size_max=50,
+                labels={
+                    'Total Usage': 'Total Messages',
+                    'Active Users': 'Active Users',
+                    'Efficiency': 'Efficiency'
+                }
+            )
+            
+            # Add reference lines for average efficiency
+            avg_msg_per_user = dept_stats['Avg Messages/User'].mean()
+            max_users = dept_stats['Active Users'].max()
+            max_messages = dept_stats['Total Usage'].max()
+            
+            # Add diagonal reference lines for different efficiency levels
+            for efficiency, color in zip([avg_msg_per_user/2, avg_msg_per_user, avg_msg_per_user*2], 
+                                       ['rgba(220, 38, 38, 0.4)', 'rgba(202, 138, 4, 0.4)', 'rgba(21, 128, 61, 0.4)']):
+                x_vals = list(range(1, int(max_users * 1.1)))
+                y_vals = [x * efficiency for x in x_vals]
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_vals,
+                        y=y_vals,
+                        mode='lines',
+                        line=dict(color=color, width=1, dash='dot'),
+                        name=f'{int(efficiency):,} msg/user',
+                        hoverinfo='name'
+                    )
+                )
+            
+            # Add annotations for diagonal reference lines
+            fig.add_annotation(
+                x=max_users * 0.7,
+                y=max_users * 0.7 * avg_msg_per_user,
+                text=f"Avg: {int(avg_msg_per_user):,} msg/user",
+                showarrow=False,
+                font=dict(color='rgba(202, 138, 4, 1)')
+            )
+            
+            # Update layout
+            fig.update_layout(
+                height=600,
+                xaxis=dict(title='Active Users'),
+                yaxis=dict(title='Total Messages'),
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white')
+            )
+            
+            # Update traces
+            fig.update_traces(
+                textposition='top center',
+                textfont=dict(size=10)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Add efficiency distribution
+            st.markdown("### Efficiency Distribution")
+            
+            # Create columns for metrics and chart
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                # Summary metrics
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h4>Efficiency Metrics</h4>
+                    <div class="metric-row">
+                        <span class="metric-label">Average Efficiency:</span>
+                        <span class="metric-value">{dept_stats['Avg Messages/User'].mean():,.0f} msgs/user</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Highest Efficiency:</span>
+                        <span class="metric-value">{dept_stats['Avg Messages/User'].max():,.0f} msgs/user</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Lowest Efficiency:</span>
+                        <span class="metric-value">{dept_stats['Avg Messages/User'].min():,.0f} msgs/user</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Median Efficiency:</span>
+                        <span class="metric-value">{dept_stats['Avg Messages/User'].median():,.0f} msgs/user</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Total Messages:</span>
+                        <span class="metric-value">{dept_stats['Total Usage'].sum():,}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Total Users:</span>
+                        <span class="metric-value">{dept_stats['Active Users'].sum()}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                # Create histogram of messages per user
+                hist_fig = px.histogram(
+                    dept_stats,
+                    x='Avg Messages/User',
+                    nbins=10,
+                    color='Efficiency',
+                    color_discrete_map={
+                        'High': '#15803d',
+                        'Medium': '#ca8a04',
+                        'Low': '#dc2626'
+                    },
+                    title='Distribution of Efficiency (Messages per User)',
+                    labels={'Avg Messages/User': 'Messages per User'}
+                )
+                
+                hist_fig.update_layout(
+                    bargap=0.1,
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    showlegend=True
+                )
+                
+                # Add mean line
+                hist_fig.add_vline(
+                    x=dept_stats['Avg Messages/User'].mean(),
+                    line_dash="solid",
+                    line_color="white",
+                    annotation_text="Mean",
+                    annotation_position="top right"
+                )
+                
+                st.plotly_chart(hist_fig, use_container_width=True)
+        
+        st.divider()
+        
+        # Original insights below (kept for backwards compatibility)
+        st.markdown("**Summary Insights**")
+        
+        # Original insights below (kept for backwards compatibility)
+        st.markdown("**Summary Insights**")
         insight_cols = st.columns(3)
         
         with insight_cols[0]:
@@ -2544,6 +3615,475 @@ def main():
     # TAB 2: Tool Comparison
     with tab2:
         display_tool_comparison(data)
+    
+    # TAB: OpenAI Analytics
+    with tab_openai:
+        st.header("🤖 OpenAI Usage Deep Dive")
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>OpenAI-Specific Analytics:</strong> Deep dive into ChatGPT Enterprise usage patterns,
+            feature adoption, and user engagement metrics. This view shows ONLY OpenAI data.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Filter to OpenAI data only
+        openai_data = get_openai_data(data)
+        
+        if openai_data.empty:
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">🤖</div>
+                <div class="empty-state-title">No OpenAI Data Available</div>
+                <div class="empty-state-text">
+                    Upload OpenAI ChatGPT Enterprise exports to see detailed analytics here.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # Executive Summary Metrics
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📊 Executive Summary</h3>', unsafe_allow_html=True)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                total_active = openai_data['user_id'].nunique()
+                st.metric(
+                    "Total Active Users",
+                    f"{total_active:,}",
+                    help="Unique users with OpenAI ChatGPT activity"
+                )
+                with st.expander("📊 Details"):
+                    st.write("**Calculation:**")
+                    st.code(f"COUNT(DISTINCT user_id) = {total_active:,}")
+                    st.write(f"Users with any ChatGPT message activity in the selected period")
+            
+            with col2:
+                duau = calculate_duau(openai_data)
+                st.metric(
+                    "Daily Unique Active Users",
+                    f"{duau:,.0f}",
+                    help="Average unique users active per day"
+                )
+                with st.expander("📊 Details"):
+                    st.write("**Calculation:**")
+                    st.code(f"AVG(daily unique users) = {duau:,.0f}")
+                    st.write("Average number of unique users active on any given day")
+            
+            with col3:
+                total_messages = openai_data['usage_count'].sum()
+                avg_per_user = total_messages / max(total_active, 1)
+                st.metric(
+                    "Messages per User",
+                    f"{avg_per_user:,.0f}",
+                    help="Average messages per user"
+                )
+                with st.expander("📊 Details"):
+                    st.write("**Calculation:**")
+                    st.code(f"{total_messages:,} messages ÷ {total_active} users = {avg_per_user:,.0f}")
+                    st.write(f"Total messages: {total_messages:,}")
+            
+            with col4:
+                # Calculate days active per month
+                days_active_df = calculate_days_active_per_month(openai_data)
+                avg_days = days_active_df['avg_days_per_month'].mean() if not days_active_df.empty else 0
+                st.metric(
+                    "Avg Days Active/Month",
+                    f"{avg_days:.1f}",
+                    help="Average days per month users are active"
+                )
+                with st.expander("📊 Details"):
+                    st.write("**Calculation:**")
+                    st.code(f"AVG(days active per user per month) = {avg_days:.1f}")
+                    st.write("Average number of distinct days each user was active in a month")
+            
+            st.divider()
+            
+            # Message Type Breakdown
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">💬 Message Type Distribution</h3>', unsafe_allow_html=True)
+            
+            # Get message breakdown
+            message_breakdown = openai_data.groupby('feature_used')['usage_count'].sum().reset_index()
+            message_breakdown.columns = ['Feature', 'Messages']
+            message_breakdown = message_breakdown.sort_values('Messages', ascending=False)
+            
+            col1, col2 = st.columns([3, 2])
+            
+            with col1:
+                # Create donut chart
+                fig = px.pie(
+                    message_breakdown,
+                    values='Messages',
+                    names='Feature',
+                    title='OpenAI Feature Usage Distribution',
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Set2
+                )
+                
+                fig.update_traces(
+                    textposition='inside',
+                    textinfo='percent+label',
+                    hovertemplate='<b>%{label}</b><br>Messages: %{value:,}<br>Percentage: %{percent}<extra></extra>'
+                )
+                
+                fig.update_layout(
+                    showlegend=True,
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.markdown("**Feature Breakdown:**")
+                
+                total_msgs = message_breakdown['Messages'].sum()
+                
+                for _, row in message_breakdown.iterrows():
+                    pct = (row['Messages'] / total_msgs * 100) if total_msgs > 0 else 0
+                    
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
+                                padding: 0.75rem; border-radius: 0.375rem; margin: 0.5rem 0;
+                                border-left: 3px solid #667eea;">
+                        <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.25rem;">
+                            {row['Feature']}
+                        </div>
+                        <div style="font-size: 1.25rem; font-weight: 600; color: #1e293b;">
+                            {row['Messages']:,}
+                        </div>
+                        <div style="font-size: 0.75rem; color: #94a3b8;">
+                            {pct:.1f}% of total
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Feature descriptions
+                with st.expander("ℹ️ What are these features?"):
+                    st.markdown("""
+                    **ChatGPT Messages:** Standard conversational interactions with ChatGPT
+                    
+                    **GPT Messages:** Custom GPT usage (specialized AI assistants)
+                    
+                    **Tool Messages:** Advanced features - Code Interpreter, web browsing, DALL-E, data analysis
+                    
+                    **Project Messages:** Messages within ChatGPT Projects (organized collaborative workspaces)
+                    """)
+            
+            st.divider()
+            
+            # User Activity Tiers
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">👥 User Engagement Analysis</h3>', unsafe_allow_html=True)
+            
+            user_tiers = get_user_activity_tiers(openai_data)
+            
+            if not user_tiers.empty:
+                # Tier distribution
+                tier_counts = user_tiers['activity_tier'].value_counts()
+                
+                col1, col2, col3 = st.columns([2, 2, 2])
+                
+                with col1:
+                    # Tier distribution pie chart
+                    fig_tiers = px.pie(
+                        values=tier_counts.values,
+                        names=tier_counts.index,
+                        title='User Engagement Tiers',
+                        color=tier_counts.index,
+                        color_discrete_map={
+                            'Heavy': '#15803d',
+                            'Moderate': '#ca8a04',
+                            'Light': '#dc2626',
+                            'Inactive': '#94a3b8'
+                        }
+                    )
+                    
+                    fig_tiers.update_traces(
+                        textinfo='percent+label',
+                        hovertemplate='<b>%{label}</b><br>Users: %{value}<br>Percentage: %{percent}<extra></extra>'
+                    )
+                    
+                    fig_tiers.update_layout(
+                        showlegend=True,
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        height=350
+                    )
+                    
+                    st.plotly_chart(fig_tiers, use_container_width=True)
+                
+                with col2:
+                    st.markdown("**Tier Definitions:**")
+                    
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h4 style="color: #15803d;">🔥 Heavy Users</h4>
+                        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            Top 20% by message volume
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Count:</span>
+                            <span class="metric-value">{tier_counts.get('Heavy', 0)} users</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg Messages:</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Heavy']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Heavy']) > 0 else 0:,.0f}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card" style="margin-top: 1rem;">
+                        <h4 style="color: #ca8a04;">📊 Moderate Users</h4>
+                        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            50th-80th percentile
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Count:</span>
+                            <span class="metric-value">{tier_counts.get('Moderate', 0)} users</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg Messages:</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Moderate']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Moderate']) > 0 else 0:,.0f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h4 style="color: #dc2626;">💡 Light Users</h4>
+                        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            20th-50th percentile
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Count:</span>
+                            <span class="metric-value">{tier_counts.get('Light', 0)} users</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg Messages:</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Light']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Light']) > 0 else 0:,.0f}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card" style="margin-top: 1rem;">
+                        <h4 style="color: #94a3b8;">😴 Inactive Users</h4>
+                        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            Bottom 20% by usage
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Count:</span>
+                            <span class="metric-value">{tier_counts.get('Inactive', 0)} users</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg Messages:</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Inactive']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Inactive']) > 0 else 0:,.0f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            st.divider()
+            
+            # Weekly Trends
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📅 Weekly Activity Trends</h3>', unsafe_allow_html=True)
+            
+            weekly_data = calculate_weekly_trends(openai_data)
+            
+            if not weekly_data.empty:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Active users trend
+                    fig_users = px.line(
+                        weekly_data,
+                        x='week',
+                        y='active_users',
+                        title='Weekly Active Users',
+                        markers=True,
+                        labels={'week': 'Week', 'active_users': 'Active Users'}
+                    )
+                    
+                    fig_users.update_traces(
+                        line_color='#667eea',
+                        line_width=3,
+                        marker=dict(size=8)
+                    )
+                    
+                    fig_users.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        hovermode='x unified',
+                        height=350
+                    )
+                    
+                    st.plotly_chart(fig_users, use_container_width=True)
+                
+                with col2:
+                    # Message volume trend
+                    fig_messages = px.bar(
+                        weekly_data,
+                        x='week',
+                        y='total_messages',
+                        title='Weekly Message Volume',
+                        labels={'week': 'Week', 'total_messages': 'Total Messages'},
+                        color='total_messages',
+                        color_continuous_scale='Blues'
+                    )
+                    
+                    fig_messages.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        showlegend=False,
+                        height=350
+                    )
+                    
+                    st.plotly_chart(fig_messages, use_container_width=True)
+                
+                # Weekly summary stats
+                st.markdown("**Weekly Summary:**")
+                col_a, col_b, col_c = st.columns(3)
+                
+                with col_a:
+                    avg_weekly_users = weekly_data['active_users'].mean()
+                    st.metric("Avg Weekly Active Users", f"{avg_weekly_users:,.0f}")
+                
+                with col_b:
+                    avg_weekly_messages = weekly_data['total_messages'].mean()
+                    st.metric("Avg Weekly Messages", f"{avg_weekly_messages:,.0f}")
+                
+                with col_c:
+                    # Growth rate (last week vs average)
+                    if len(weekly_data) > 1:
+                        last_week_users = weekly_data.iloc[-1]['active_users']
+                        growth = ((last_week_users - avg_weekly_users) / avg_weekly_users * 100) if avg_weekly_users > 0 else 0
+                        st.metric(
+                            "Latest Week vs Avg",
+                            f"{last_week_users:,.0f}",
+                            delta=f"{growth:+.1f}%"
+                        )
+            
+            st.divider()
+            
+            # Feature Adoption Timeline
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">🚀 Feature Adoption Timeline</h3>', unsafe_allow_html=True)
+            
+            adoption_timeline = get_feature_adoption_timeline(openai_data)
+            
+            if not adoption_timeline.empty:
+                # Count new adopters by feature over time
+                adoption_timeline['month'] = pd.to_datetime(adoption_timeline['first_used_date']).dt.to_period('M').astype(str)
+                
+                monthly_adoption = adoption_timeline.groupby(['month', 'feature']).size().reset_index(name='new_users')
+                
+                # Create stacked area chart
+                fig_adoption = px.area(
+                    monthly_adoption,
+                    x='month',
+                    y='new_users',
+                    color='feature',
+                    title='Feature Adoption Over Time (New Users per Month)',
+                    labels={'month': 'Month', 'new_users': 'New Users Adopting Feature', 'feature': 'Feature'}
+                )
+                
+                fig_adoption.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    hovermode='x unified',
+                    height=400
+                )
+                
+                st.plotly_chart(fig_adoption, use_container_width=True)
+                
+                # Feature adoption summary
+                st.markdown("**Feature Adoption Summary:**")
+                
+                feature_adoption_summary = adoption_timeline.groupby('feature').agg({
+                    'user_id': 'count',
+                    'first_used_date': 'min'
+                }).reset_index()
+                feature_adoption_summary.columns = ['Feature', 'Total Adopters', 'First Adoption Date']
+                feature_adoption_summary = feature_adoption_summary.sort_values('Total Adopters', ascending=False)
+                
+                st.dataframe(
+                    feature_adoption_summary,
+                    use_container_width=True,
+                    hide_index=True
+                )
+            
+            st.divider()
+            
+            # Export Options
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📥 OpenAI Data Export</h3>', unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # CSV export
+                csv_data = openai_data.to_csv(index=False)
+                st.download_button(
+                    label="📄 Download OpenAI Data (CSV)",
+                    data=csv_data,
+                    file_name=f"openai_data_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    help="Download all OpenAI ChatGPT usage data as CSV"
+                )
+            
+            with col2:
+                # Excel export with summary
+                try:
+                    from io import BytesIO
+                    from openpyxl import Workbook
+                    from openpyxl.utils.dataframe import dataframe_to_rows
+                    
+                    output = BytesIO()
+                    wb = Workbook()
+                    
+                    # Remove default sheet
+                    wb.remove(wb.active)
+                    
+                    # Add data sheet
+                    ws_data = wb.create_sheet("OpenAI Data")
+                    for r in dataframe_to_rows(openai_data, index=False, header=True):
+                        ws_data.append(r)
+                    
+                    # Add summary sheet
+                    ws_summary = wb.create_sheet("Summary", 0)
+                    ws_summary.append(["Metric", "Value"])
+                    ws_summary.append(["Total Active Users", total_active])
+                    ws_summary.append(["Daily Unique Active Users", f"{duau:.0f}"])
+                    ws_summary.append(["Total Messages", total_messages])
+                    ws_summary.append(["Avg Messages per User", f"{avg_per_user:.0f}"])
+                    ws_summary.append(["Avg Days Active per Month", f"{avg_days:.1f}"])
+                    
+                    # Add message breakdown sheet
+                    ws_breakdown = wb.create_sheet("Message Breakdown")
+                    for r in dataframe_to_rows(message_breakdown, index=False, header=True):
+                        ws_breakdown.append(r)
+                    
+                    # Add user tiers sheet
+                    if not user_tiers.empty:
+                        ws_tiers = wb.create_sheet("User Tiers")
+                        for r in dataframe_to_rows(user_tiers, index=False, header=True):
+                            ws_tiers.append(r)
+                    
+                    wb.save(output)
+                    excel_data = output.getvalue()
+                    
+                    st.download_button(
+                        label="📊 Download OpenAI Report (Excel)",
+                        data=excel_data,
+                        file_name=f"openai_report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        help="Download comprehensive Excel report with multiple sheets"
+                    )
+                except ImportError:
+                    st.info("Install openpyxl to enable Excel export: pip install openpyxl")
     
     # TAB 3: Power Users
     with tab3:
@@ -2696,12 +4236,191 @@ def main():
             </div>
             """, unsafe_allow_html=True)
     
-    # TAB 4: Department Mapper
+    # TAB 4: Message Type Analytics
     with tab4:
+        st.header("📈 Message Type Analytics")
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Feature Adoption Tracking:</strong> Analyze which AI features are most popular across your organization.
+            Use this to identify training opportunities, measure feature adoption, and understand usage patterns.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if data.empty:
+            st.info("📊 Upload usage data to see message type analytics.")
+        else:
+            # Organization-wide feature breakdown
+            st.markdown("### 🌐 Organization-Wide Feature Usage")
+            
+            org_breakdown = get_organization_message_breakdown(data)
+            
+            if org_breakdown:
+                col1, col2 = st.columns([3, 2])
+                
+                with col1:
+                    # Create stacked bar chart showing feature adoption over time
+                    st.markdown("**Feature Adoption Trends**")
+                    
+                    # Get time-series data for each feature
+                    time_data = data.copy()
+                    time_data['date'] = pd.to_datetime(time_data['date'], errors='coerce')
+                    time_data = time_data.dropna(subset=['date'])
+                    
+                    if not time_data.empty:
+                        # Group by month and feature
+                        time_data['month'] = time_data['date'].dt.to_period('M').astype(str)
+                        feature_trends = time_data.groupby(['month', 'feature_used'])['usage_count'].sum().reset_index()
+                        
+                        # Create line chart for trends
+                        fig_trends = px.line(
+                            feature_trends,
+                            x='month',
+                            y='usage_count',
+                            color='feature_used',
+                            title='Feature Usage Trends Over Time',
+                            labels={'usage_count': 'Message Count', 'month': 'Month', 'feature_used': 'Feature'},
+                            markers=True
+                        )
+                        
+                        fig_trends.update_layout(
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='white'),
+                            height=400,
+                            xaxis=dict(title='Month'),
+                            yaxis=dict(title='Messages'),
+                            legend=dict(
+                                orientation='v',
+                                yanchor='top',
+                                y=1,
+                                xanchor='left',
+                                x=1.02
+                            )
+                        )
+                        
+                        st.plotly_chart(fig_trends, use_container_width=True)
+                    else:
+                        st.info("Time-series data not available")
+                
+                with col2:
+                    # Feature usage distribution
+                    st.markdown("**Current Distribution**")
+                    
+                    breakdown_df = pd.DataFrame([
+                        {'Feature': feature, 'Messages': count} 
+                        for feature, count in org_breakdown.items()
+                    ])
+                    
+                    fig_pie = px.pie(
+                        breakdown_df,
+                        values='Messages',
+                        names='Feature',
+                        hole=0.5,
+                        color_discrete_sequence=px.colors.qualitative.Pastel
+                    )
+                    
+                    fig_pie.update_traces(
+                        textposition='auto',
+                        textinfo='percent+label',
+                        hovertemplate='<b>%{label}</b><br>Messages: %{value:,}<br>Percentage: %{percent}<extra></extra>'
+                    )
+                    
+                    fig_pie.update_layout(
+                        showlegend=False,
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                
+                st.divider()
+                
+                # Department-level feature comparison
+                st.markdown("### 🏢 Feature Usage by Department")
+                st.caption("Compare which features different departments are using")
+                
+                # Create heatmap of department vs feature usage
+                dept_feature_data = data.groupby(['department', 'feature_used'])['usage_count'].sum().reset_index()
+                dept_feature_pivot = dept_feature_data.pivot(index='department', columns='feature_used', values='usage_count').fillna(0)
+                
+                if not dept_feature_pivot.empty:
+                    fig_heatmap = px.imshow(
+                        dept_feature_pivot,
+                        labels=dict(x='Feature Type', y='Department', color='Messages'),
+                        aspect='auto',
+                        color_continuous_scale='Blues',
+                        title='Department vs Feature Usage Heatmap'
+                    )
+                    
+                    fig_heatmap.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        height=max(400, len(dept_feature_pivot) * 30)
+                    )
+                    
+                    fig_heatmap.update_xaxes(side='bottom')
+                    
+                    st.plotly_chart(fig_heatmap, use_container_width=True)
+                    
+                    # Add insights
+                    st.markdown("### 💡 Feature Adoption Insights")
+                    
+                    insight_col1, insight_col2, insight_col3 = st.columns(3)
+                    
+                    with insight_col1:
+                        # Most popular feature
+                        most_popular_feature = max(org_breakdown.items(), key=lambda x: x[1])
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Most Popular Feature</h4>
+                            <div class="metric-value">{most_popular_feature[0]}</div>
+                            <div class="metric-label">{most_popular_feature[1]:,} messages</div>
+                            <div class="metric-label">{(most_popular_feature[1] / sum(org_breakdown.values()) * 100):.1f}% of total</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with insight_col2:
+                        # Feature diversity score (number of features being used)
+                        active_features = len([f for f, c in org_breakdown.items() if c > 0])
+                        all_possible_features = len(get_all_message_types(data))
+                        
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Feature Adoption Rate</h4>
+                            <div class="metric-value">{active_features} / {all_possible_features}</div>
+                            <div class="metric-label">Features being used</div>
+                            <div class="metric-label">{(active_features / max(all_possible_features, 1) * 100):.0f}% adoption</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with insight_col3:
+                        # Department with highest feature diversity
+                        dept_diversity = dept_feature_pivot.apply(lambda row: (row > 0).sum(), axis=1)
+                        most_diverse_dept = dept_diversity.idxmax()
+                        
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Most Diverse Usage</h4>
+                            <div class="metric-value">{most_diverse_dept}</div>
+                            <div class="metric-label">Uses {dept_diversity[most_diverse_dept]} features</div>
+                            <div class="metric-label">Highest feature variety</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("Not enough data for department comparison")
+            else:
+                st.info("No feature usage data available")
+    
+    # TAB 5: Department Mapper
+    with tab5:
         display_department_mapper()
     
-    # TAB 5: Database Management
-    with tab5:
+    # TAB 6: Database Management
+    with tab6:
         st.header("🔧 Database Management")
         
         st.markdown("""
@@ -2774,7 +4493,94 @@ def main():
                 employees_df = pd.DataFrame()
             
             if not employees_df.empty:
-                st.dataframe(employees_df, use_container_width=True)
+                st.markdown("**Employee Actions:**")
+                st.caption("⚠️ Deleting an employee will remove them from the roster and optionally remove their usage data from all analytics.")
+                
+                # Add search filter for employees
+                search_emp = st.text_input("🔍 Search employees by name or email", "", key="employee_search")
+                
+                # Filter employees if search is active
+                if search_emp:
+                    employees_filtered = employees_df[
+                        employees_df['first_name'].str.contains(search_emp, case=False, na=False) |
+                        employees_df['last_name'].str.contains(search_emp, case=False, na=False) |
+                        employees_df['email'].str.contains(search_emp, case=False, na=False)
+                    ]
+                else:
+                    employees_filtered = employees_df
+                
+                if employees_filtered.empty:
+                    st.info(f"No employees match '{search_emp}'")
+                else:
+                    st.write(f"**Showing {len(employees_filtered)} of {len(employees_df)} employees:**")
+                    
+                    # Display employees with delete options
+                    for idx, row in employees_filtered.iterrows():
+                        col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 1])
+                        
+                        with col1:
+                            st.write(f"**{row['first_name']} {row['last_name']}**")
+                        
+                        with col2:
+                            if pd.notna(row['email']) and row['email']:
+                                st.write(f"📧 {row['email']}")
+                            else:
+                                st.write("📧 _No email_")
+                        
+                        with col3:
+                            if pd.notna(row['department']) and row['department']:
+                                st.write(f"🏢 {row['department']}")
+                            else:
+                                st.write("🏢 _Unknown_")
+                        
+                        with col4:
+                            if pd.notna(row['status']) and row['status']:
+                                st.write(f"Status: {row['status']}")
+                            else:
+                                st.write("Status: _Unknown_")
+                        
+                        with col5:
+                            # Delete button with confirmation
+                            delete_key = f"delete_emp_{row['employee_id']}"
+                            if st.button("🗑️", key=delete_key, help=f"Delete {row['first_name']} {row['last_name']}"):
+                                st.session_state[f"confirm_{delete_key}"] = True
+                        
+                        # Confirmation dialog if delete was clicked
+                        confirm_key = f"confirm_delete_emp_{row['employee_id']}"
+                        if st.session_state.get(confirm_key, False):
+                            st.error(f"⚠️ **Confirm deletion of {row['first_name']} {row['last_name']}**")
+                            
+                            col_a, col_b, col_c = st.columns(3)
+                            
+                            with col_a:
+                                if st.button("❌ Cancel", key=f"cancel_{delete_key}"):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
+                            
+                            with col_b:
+                                if st.button("🗑️ Delete Employee Only", key=f"confirm_emp_{delete_key}", 
+                                           help="Remove from employee roster but keep usage data"):
+                                    success, message = db.delete_employee(row['employee_id'])
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        st.session_state[confirm_key] = False
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {message}")
+                            
+                            with col_c:
+                                if st.button("💣 Delete All Data", key=f"confirm_all_{delete_key}", 
+                                           help="Remove employee AND all their usage data from analytics"):
+                                    success, message = db.delete_employee_and_usage(row['employee_id'])
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        st.session_state[confirm_key] = False
+                                        st.cache_resource.clear()  # Clear cache to refresh metrics
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {message}")
+                        
+                        st.divider()
             else:
                 st.info("No employees loaded yet")
         
