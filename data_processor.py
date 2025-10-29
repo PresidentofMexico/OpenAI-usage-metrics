@@ -18,9 +18,9 @@ class DataProcessor:
         self.db = db_manager
         self.cost_calculator = EnterpriseCostCalculator()
     
-    def process_monthly_data(self, df, filename, skip_duplicates=True):
+    def process_monthly_data(self, df, filename):
         """
-        Process uploaded AI tool data with duplicate detection.
+        Process uploaded AI tool data.
         
         This method now accepts either:
         1. Already-normalized data from app.py (has 'tool_source' column)
@@ -29,7 +29,6 @@ class DataProcessor:
         Args:
             df: DataFrame with usage data
             filename: Source filename for tracking
-            skip_duplicates: If True, check if file was already processed and skip if found
             
         Returns:
             tuple: (success: bool, message: str)
@@ -37,20 +36,6 @@ class DataProcessor:
         try:
             print(f"Processing {len(df)} rows from {filename}")
             print(f"DataFrame columns: {list(df.columns)}")
-            
-            # Check if this file has already been processed (duplicate detection)
-            if skip_duplicates:
-                file_check = self.db.check_file_exists(filename)
-                if file_check['exists']:
-                    warning_msg = (
-                        f"⚠️ File '{filename}' was already processed!\n"
-                        f"Existing data: {file_check['record_count']} records, "
-                        f"{file_check['user_count']} users, "
-                        f"date range: {file_check['date_range'][0]} to {file_check['date_range'][1]}\n"
-                        f"Skipping to prevent duplicate data."
-                    )
-                    print(warning_msg)
-                    return False, warning_msg
             
             # Check if data is already normalized (from new app.py)
             if 'tool_source' in df.columns and 'feature_used' in df.columns:
