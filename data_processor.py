@@ -125,21 +125,18 @@ class DataProcessor:
                 department = self.extract_department(row.get('department', 'Unknown'))
                 
                 # Get date - use period_start or first_day_active_in_period
-                period_start = row.get('period_start', row.get('first_day_active_in_period', datetime.now().strftime('%Y-%m-%d')))
+                # If neither exists, use first day of current month as fallback
+                period_start = row.get('period_start', row.get('first_day_active_in_period'))
                 
                 # Preserve actual period_start date - validate and format only
                 # This enables week-over-week analysis for weekly files
-                try:
-                    # Use errors='coerce' to handle invalid dates gracefully
-                    parsed_date = pd.to_datetime(period_start, errors='coerce')
-                    if pd.isna(parsed_date):
-                        # If date is invalid, use current date
-                        period_start = datetime.now().strftime('%Y-%m-%d')
-                    else:
-                        period_start = parsed_date.strftime('%Y-%m-%d')
-                except Exception:
-                    # Fallback to current date if any other error occurs
-                    period_start = datetime.now().strftime('%Y-%m-%d')
+                parsed_date = pd.to_datetime(period_start, errors='coerce')
+                if pd.isna(parsed_date):
+                    # If date is invalid or missing, use first day of current month for consistency
+                    now = datetime.now()
+                    period_start = f"{now.year}-{now.month:02d}-01"
+                else:
+                    period_start = parsed_date.strftime('%Y-%m-%d')
                 
                 messages = row.get('messages', 0)
                 
