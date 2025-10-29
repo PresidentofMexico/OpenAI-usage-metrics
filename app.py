@@ -1577,6 +1577,48 @@ def get_user_message_breakdown(data, email):
     
     return breakdown
 
+def get_department_message_breakdown(data, department):
+    """Get message type breakdown for a specific department."""
+    dept_data = data[data['department'] == department]
+    
+    breakdown = {}
+    
+    if not dept_data.empty:
+        # Get counts grouped by feature type
+        message_counts = dept_data.groupby('feature_used')['usage_count'].sum().to_dict()
+        breakdown = message_counts
+    
+    return breakdown
+
+def get_all_message_types(data):
+    """Get all unique message types from the data."""
+    if data.empty or 'feature_used' not in data.columns:
+        return []
+    return sorted(data['feature_used'].unique().tolist())
+
+def get_organization_message_breakdown(data):
+    """Get message type breakdown for the entire organization."""
+    breakdown = {}
+    
+    if not data.empty and 'feature_used' in data.columns:
+        # Get counts grouped by feature type
+        message_counts = data.groupby('feature_used')['usage_count'].sum().to_dict()
+        breakdown = message_counts
+    
+    return breakdown
+
+def format_message_breakdown_text(breakdown_dict):
+    """Format a message breakdown dictionary into readable text."""
+    if not breakdown_dict:
+        return "No data"
+    
+    parts = []
+    for msg_type, count in sorted(breakdown_dict.items()):
+        if count > 0:
+            parts.append(f"{msg_type}: {count:,}")
+    
+    return " | ".join(parts) if parts else "No messages"
+
 def display_tool_comparison(data):
     """Display side-by-side tool comparison."""
     st.subheader("🔄 Tool Comparison View")
@@ -1676,10 +1718,11 @@ def main():
         st.markdown('<div style="text-align: right; padding-top: 0.5rem;"></div>', unsafe_allow_html=True)
     
     # Create main tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Executive Overview", 
         "🔄 Tool Comparison", 
         "⭐ Power Users",
+        "📈 Message Type Analytics",
         "🏢 Department Mapper",
         "🔧 Database Management"
     ])
@@ -2480,6 +2523,108 @@ def main():
         
         st.divider()
         
+        # Message Type Analytics Section
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📊 Feature Adoption Analytics</h3>', unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Message Type Breakdown:</strong> Understand which AI features your organization is using most.
+            This helps identify adoption patterns and feature-specific training needs.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Get organization-wide message breakdown
+        org_breakdown = get_organization_message_breakdown(data)
+        
+        if org_breakdown:
+            # Create visualization columns
+            viz_col1, viz_col2 = st.columns([2, 1])
+            
+            with viz_col1:
+                # Create pie chart for message type distribution
+                breakdown_df = pd.DataFrame([
+                    {'Feature': feature, 'Messages': count} 
+                    for feature, count in org_breakdown.items()
+                ])
+                
+                fig = px.pie(
+                    breakdown_df,
+                    values='Messages',
+                    names='Feature',
+                    title='Organization-Wide Feature Usage Distribution',
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                
+                fig.update_traces(
+                    textposition='inside',
+                    textinfo='percent+label',
+                    hovertemplate='<b>%{label}</b><br>Messages: %{value:,}<br>Percentage: %{percent}<extra></extra>'
+                )
+                
+                fig.update_layout(
+                    showlegend=True,
+                    legend=dict(
+                        orientation='v',
+                        yanchor='middle',
+                        y=0.5,
+                        xanchor='left',
+                        x=1.05
+                    ),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with viz_col2:
+                st.markdown("**Feature Usage Summary:**")
+                
+                total_messages = sum(org_breakdown.values())
+                
+                for feature, count in sorted(org_breakdown.items(), key=lambda x: x[1], reverse=True):
+                    percentage = (count / total_messages * 100) if total_messages > 0 else 0
+                    
+                    # Create a styled metric card for each feature
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
+                                padding: 0.75rem; border-radius: 0.375rem; margin: 0.5rem 0;
+                                border-left: 3px solid #667eea;">
+                        <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.25rem;">
+                            {feature}
+                        </div>
+                        <div style="font-size: 1.25rem; font-weight: 600; color: #1e293b;">
+                            {count:,}
+                        </div>
+                        <div style="font-size: 0.75rem; color: #94a3b8;">
+                            {percentage:.1f}% of total
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Add feature descriptions
+                st.markdown("---")
+                st.markdown("**Feature Descriptions:**", help="Learn what each message type represents")
+                
+                with st.expander("ℹ️ What do these features mean?"):
+                    st.markdown("""
+                    **ChatGPT Messages:** Standard conversational AI interactions with ChatGPT
+                    
+                    **GPT Messages:** Custom GPT usage (specialized AI assistants tailored for specific tasks)
+                    
+                    **Tool Messages:** Advanced features like Code Interpreter, web browsing, and data analysis
+                    
+                    **Project Messages:** Messages within ChatGPT Projects (organized workspaces for collaboration)
+                    
+                    **BlueFlame Messages:** BlueFlame AI platform interactions (investment research and analysis)
+                    """)
+        else:
+            st.info("📊 Message type analytics will appear here once data is loaded.")
+        
+        st.divider()
+        
         # Data Quality & Validation Panel
         st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Data Quality & Validation</h3>', unsafe_allow_html=True)
         
@@ -2817,7 +2962,78 @@ def main():
             )
             st.markdown('</div>', unsafe_allow_html=True)
             
+            # Add expandable message type breakdown per department
+            st.markdown("---")
+            st.markdown("### 📊 Feature Usage by Department")
+            st.caption("Click on a department to see detailed feature usage breakdown")
+            
+            for _, dept_row in dept_stats_filtered.iterrows():
+                dept_name = dept_row['Department']
+                dept_breakdown = get_department_message_breakdown(data, dept_name)
+                
+                if dept_breakdown:
+                    with st.expander(f"🏢 {dept_name} - Feature Breakdown ({dept_row['Total Usage']:,} total messages)"):
+                        # Create columns for metrics
+                        breakdown_col1, breakdown_col2 = st.columns([2, 1])
+                        
+                        with breakdown_col1:
+                            # Create a bar chart for this department's feature usage
+                            breakdown_df = pd.DataFrame([
+                                {'Feature': feature, 'Messages': count} 
+                                for feature, count in dept_breakdown.items()
+                            ]).sort_values('Messages', ascending=False)
+                            
+                            fig_dept = px.bar(
+                                breakdown_df,
+                                x='Feature',
+                                y='Messages',
+                                title=f'{dept_name} - Feature Usage',
+                                text='Messages',
+                                color='Messages',
+                                color_continuous_scale='Blues'
+                            )
+                            
+                            fig_dept.update_traces(
+                                texttemplate='%{text:,}',
+                                textposition='outside'
+                            )
+                            
+                            fig_dept.update_layout(
+                                xaxis_title='Feature Type',
+                                yaxis_title='Message Count',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                font=dict(color='white'),
+                                height=300,
+                                showlegend=False
+                            )
+                            
+                            st.plotly_chart(fig_dept, use_container_width=True)
+                        
+                        with breakdown_col2:
+                            st.markdown("**Feature Details:**")
+                            total_dept_messages = sum(dept_breakdown.values())
+                            
+                            for feature, count in sorted(dept_breakdown.items(), key=lambda x: x[1], reverse=True):
+                                percentage = (count / total_dept_messages * 100) if total_dept_messages > 0 else 0
+                                st.markdown(f"""
+                                <div style="background: var(--card-bg); padding: 0.5rem; 
+                                            border-radius: 0.25rem; margin: 0.25rem 0;">
+                                    <div style="font-size: 0.75rem; color: #94a3b8;">{feature}</div>
+                                    <div style="font-size: 1rem; font-weight: 600;">{count:,}</div>
+                                    <div style="font-size: 0.7rem; color: #64748b;">{percentage:.1f}% of dept total</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                            
+                            # Add department-specific insights
+                            st.markdown("---")
+                            st.markdown(f"**Department Stats:**")
+                            st.write(f"• Active Users: {dept_row['Active Users']}")
+                            st.write(f"• Messages/User: {dept_row['Avg Messages/User']:,.0f}")
+                            st.write(f"• Total Cost: ${dept_row['Total Cost']:,.2f}")
+            
             # Add key insights section
+            st.markdown("---")
             st.markdown("### Key Insights")
             
             col1, col2 = st.columns(2)
@@ -3285,12 +3501,191 @@ def main():
             </div>
             """, unsafe_allow_html=True)
     
-    # TAB 4: Department Mapper
+    # TAB 4: Message Type Analytics
     with tab4:
+        st.header("📈 Message Type Analytics")
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Feature Adoption Tracking:</strong> Analyze which AI features are most popular across your organization.
+            Use this to identify training opportunities, measure feature adoption, and understand usage patterns.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if data.empty:
+            st.info("📊 Upload usage data to see message type analytics.")
+        else:
+            # Organization-wide feature breakdown
+            st.markdown("### 🌐 Organization-Wide Feature Usage")
+            
+            org_breakdown = get_organization_message_breakdown(data)
+            
+            if org_breakdown:
+                col1, col2 = st.columns([3, 2])
+                
+                with col1:
+                    # Create stacked bar chart showing feature adoption over time
+                    st.markdown("**Feature Adoption Trends**")
+                    
+                    # Get time-series data for each feature
+                    time_data = data.copy()
+                    time_data['date'] = pd.to_datetime(time_data['date'], errors='coerce')
+                    time_data = time_data.dropna(subset=['date'])
+                    
+                    if not time_data.empty:
+                        # Group by month and feature
+                        time_data['month'] = time_data['date'].dt.to_period('M').astype(str)
+                        feature_trends = time_data.groupby(['month', 'feature_used'])['usage_count'].sum().reset_index()
+                        
+                        # Create line chart for trends
+                        fig_trends = px.line(
+                            feature_trends,
+                            x='month',
+                            y='usage_count',
+                            color='feature_used',
+                            title='Feature Usage Trends Over Time',
+                            labels={'usage_count': 'Message Count', 'month': 'Month', 'feature_used': 'Feature'},
+                            markers=True
+                        )
+                        
+                        fig_trends.update_layout(
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='white'),
+                            height=400,
+                            xaxis=dict(title='Month'),
+                            yaxis=dict(title='Messages'),
+                            legend=dict(
+                                orientation='v',
+                                yanchor='top',
+                                y=1,
+                                xanchor='left',
+                                x=1.02
+                            )
+                        )
+                        
+                        st.plotly_chart(fig_trends, use_container_width=True)
+                    else:
+                        st.info("Time-series data not available")
+                
+                with col2:
+                    # Feature usage distribution
+                    st.markdown("**Current Distribution**")
+                    
+                    breakdown_df = pd.DataFrame([
+                        {'Feature': feature, 'Messages': count} 
+                        for feature, count in org_breakdown.items()
+                    ])
+                    
+                    fig_pie = px.pie(
+                        breakdown_df,
+                        values='Messages',
+                        names='Feature',
+                        hole=0.5,
+                        color_discrete_sequence=px.colors.qualitative.Pastel
+                    )
+                    
+                    fig_pie.update_traces(
+                        textposition='auto',
+                        textinfo='percent+label',
+                        hovertemplate='<b>%{label}</b><br>Messages: %{value:,}<br>Percentage: %{percent}<extra></extra>'
+                    )
+                    
+                    fig_pie.update_layout(
+                        showlegend=False,
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                
+                st.divider()
+                
+                # Department-level feature comparison
+                st.markdown("### 🏢 Feature Usage by Department")
+                st.caption("Compare which features different departments are using")
+                
+                # Create heatmap of department vs feature usage
+                dept_feature_data = data.groupby(['department', 'feature_used'])['usage_count'].sum().reset_index()
+                dept_feature_pivot = dept_feature_data.pivot(index='department', columns='feature_used', values='usage_count').fillna(0)
+                
+                if not dept_feature_pivot.empty:
+                    fig_heatmap = px.imshow(
+                        dept_feature_pivot,
+                        labels=dict(x='Feature Type', y='Department', color='Messages'),
+                        aspect='auto',
+                        color_continuous_scale='Blues',
+                        title='Department vs Feature Usage Heatmap'
+                    )
+                    
+                    fig_heatmap.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        height=max(400, len(dept_feature_pivot) * 30)
+                    )
+                    
+                    fig_heatmap.update_xaxes(side='bottom')
+                    
+                    st.plotly_chart(fig_heatmap, use_container_width=True)
+                    
+                    # Add insights
+                    st.markdown("### 💡 Feature Adoption Insights")
+                    
+                    insight_col1, insight_col2, insight_col3 = st.columns(3)
+                    
+                    with insight_col1:
+                        # Most popular feature
+                        most_popular_feature = max(org_breakdown.items(), key=lambda x: x[1])
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Most Popular Feature</h4>
+                            <div class="metric-value">{most_popular_feature[0]}</div>
+                            <div class="metric-label">{most_popular_feature[1]:,} messages</div>
+                            <div class="metric-label">{(most_popular_feature[1] / sum(org_breakdown.values()) * 100):.1f}% of total</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with insight_col2:
+                        # Feature diversity score (number of features being used)
+                        active_features = len([f for f, c in org_breakdown.items() if c > 0])
+                        all_possible_features = len(get_all_message_types(data))
+                        
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Feature Adoption Rate</h4>
+                            <div class="metric-value">{active_features} / {all_possible_features}</div>
+                            <div class="metric-label">Features being used</div>
+                            <div class="metric-label">{(active_features / max(all_possible_features, 1) * 100):.0f}% adoption</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with insight_col3:
+                        # Department with highest feature diversity
+                        dept_diversity = dept_feature_pivot.apply(lambda row: (row > 0).sum(), axis=1)
+                        most_diverse_dept = dept_diversity.idxmax()
+                        
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Most Diverse Usage</h4>
+                            <div class="metric-value">{most_diverse_dept}</div>
+                            <div class="metric-label">Uses {dept_diversity[most_diverse_dept]} features</div>
+                            <div class="metric-label">Highest feature variety</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("Not enough data for department comparison")
+            else:
+                st.info("No feature usage data available")
+    
+    # TAB 5: Department Mapper
+    with tab5:
         display_department_mapper()
     
-    # TAB 5: Database Management
-    with tab5:
+    # TAB 6: Database Management
+    with tab6:
         st.header("🔧 Database Management")
         
         st.markdown("""
