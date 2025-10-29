@@ -104,8 +104,8 @@ class DataProcessor:
         Now calculates costs based on enterprise license pricing ($60/user/month)
         rather than per-message pricing.
         
-        For weekly files spanning two months, assigns data to the correct month
-        based on actual usage dates.
+        Preserves actual period_start dates for both weekly and monthly files,
+        enabling week-over-week and month-over-month analysis.
         """
         try:
             processed_data = []
@@ -113,9 +113,6 @@ class DataProcessor:
             # Get pricing info for enterprise licenses
             pricing_info = self.cost_calculator.get_pricing_info('ChatGPT')
             monthly_license_cost = pricing_info['license_cost_per_user_monthly']
-            
-            # Detect if this is a weekly file
-            is_weekly = self._is_weekly_file(filename)
             
             for _, row in df.iterrows():
                 # Skip rows with no messages
@@ -129,28 +126,20 @@ class DataProcessor:
                 
                 # Get date - use period_start or first_day_active_in_period
                 period_start = row.get('period_start', row.get('first_day_active_in_period', datetime.now().strftime('%Y-%m-%d')))
-                period_end = row.get('period_end', row.get('last_day_active_in_period', datetime.now().strftime('%Y-%m-%d')))
-                first_active = row.get('first_day_active_in_period')
-                last_active = row.get('last_day_active_in_period')
                 
-                # Determine the correct date based on file type
-                if is_weekly:
-                    # For weekly files, use smart date assignment
-                    period_start = self._determine_record_month(period_start, period_end, first_active, last_active)
-                else:
-                    # For monthly files, use period_start as before
-                    # Ensure date is in proper format with robust error handling
-                    try:
-                        # Use errors='coerce' to handle invalid dates gracefully
-                        parsed_date = pd.to_datetime(period_start, errors='coerce')
-                        if pd.isna(parsed_date):
-                            # If date is invalid, use current date
-                            period_start = datetime.now().strftime('%Y-%m-%d')
-                        else:
-                            period_start = parsed_date.strftime('%Y-%m-%d')
-                    except Exception:
-                        # Fallback to current date if any other error occurs
+                # Preserve actual period_start date - validate and format only
+                # This enables week-over-week analysis for weekly files
+                try:
+                    # Use errors='coerce' to handle invalid dates gracefully
+                    parsed_date = pd.to_datetime(period_start, errors='coerce')
+                    if pd.isna(parsed_date):
+                        # If date is invalid, use current date
                         period_start = datetime.now().strftime('%Y-%m-%d')
+                    else:
+                        period_start = parsed_date.strftime('%Y-%m-%d')
+                except Exception:
+                    # Fallback to current date if any other error occurs
+                    period_start = datetime.now().strftime('%Y-%m-%d')
                 
                 messages = row.get('messages', 0)
                 
