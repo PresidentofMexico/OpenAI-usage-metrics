@@ -15,15 +15,17 @@ import pandas as pd
 class FileScanner:
     """Scans folders for CSV/Excel files and tracks their processing status."""
     
-    def __init__(self, tracking_file: str = "file_tracking.json"):
+    def __init__(self, tracking_file: str = "file_tracking.json", recursive_folders: List[str] = None):
         """
         Initialize the file scanner.
         
         Args:
             tracking_file: Path to JSON file that tracks processed files
+            recursive_folders: List of folder paths that should be scanned recursively
         """
         self.tracking_file = tracking_file
         self.processed_files = self._load_tracking()
+        self.recursive_folders = recursive_folders or []
     
     def _load_tracking(self) -> Dict:
         """Load the file tracking database from JSON."""
@@ -47,6 +49,7 @@ class FileScanner:
     def scan_folders(self, folder_paths: List[str]) -> List[Dict]:
         """
         Scan multiple folders for CSV and Excel files.
+        For folders in recursive_folders list, scan subdirectories recursively.
         
         Args:
             folder_paths: List of folder paths to scan
@@ -55,7 +58,7 @@ class FileScanner:
             List of file information dictionaries with:
                 - path: Full file path
                 - filename: File name
-                - folder: Parent folder name
+                - folder: Parent folder name (or subfolder path for recursive scans)
                 - size_mb: File size in MB
                 - modified: Last modified timestamp
                 - status: 'new', 'processed', or 'error'
@@ -68,64 +71,141 @@ class FileScanner:
                 print(f"Warning: Folder not found: {folder_path}")
                 continue
             
-            try:
-                # Get all CSV and Excel files in the folder
-                for filename in os.listdir(folder_path):
-                    if filename.endswith(('.csv', '.xlsx', '.xls')):
-                        file_path = os.path.join(folder_path, filename)
-                        
-                        # Skip if it's a directory
-                        if os.path.isdir(file_path):
-                            continue
-                        
-                        # Get file info
-                        try:
-                            file_stat = os.stat(file_path)
-                            size_mb = file_stat.st_size / (1024 * 1024)
-                            modified = datetime.fromtimestamp(file_stat.st_mtime)
-                            
-                            # Check processing status
-                            file_key = self._get_file_key(file_path)
-                            
-                            if file_key in self.processed_files:
-                                file_info = self.processed_files[file_key]
-                                # Check if file was modified since last processing
-                                if file_info.get('modified') == modified.isoformat():
-                                    status = 'processed'
-                                else:
-                                    status = 'modified'
-                                last_processed = file_info.get('processed_at', 'Unknown')
-                            else:
-                                status = 'new'
-                                last_processed = None
-                            
-                            files.append({
-                                'path': file_path,
-                                'filename': filename,
-                                'folder': os.path.basename(folder_path),
-                                'size_mb': round(size_mb, 2),
-                                'modified': modified.isoformat(),
-                                'status': status,
-                                'last_processed': last_processed
-                            })
-                        
-                        except Exception as e:
-                            print(f"Error getting info for {filename}: {e}")
-                            files.append({
-                                'path': file_path,
-                                'filename': filename,
-                                'folder': os.path.basename(folder_path),
-                                'size_mb': 0,
-                                'modified': None,
-                                'status': 'error',
-                                'last_processed': None,
-                                'error': str(e)
-                            })
+            # Check if this folder should be scanned recursively
+            should_scan_recursively = any(
+                os.path.abspath(folder_path) == os.path.abspath(rec_folder) 
+                for rec_folder in self.recursive_folders
+            )
             
-            except Exception as e:
-                print(f"Error scanning folder {folder_path}: {e}")
+            if should_scan_recursively:
+                # Recursive scan for OpenAI User Data structure
+                files.extend(self._scan_folder_recursive(folder_path))
+            else:
+                # Flat scan for BlueFlame and other data
+                files.extend(self._scan_folder_flat(folder_path))
         
         return files
+    
+    def _scan_folder_flat(self, folder_path: str) -> List[Dict]:
+        """
+        Scan a single folder (non-recursive) for CSV and Excel files.
+        
+        Args:
+            folder_path: Path to the folder to scan
+            
+        Returns:
+            List of file information dictionaries
+        """
+        files = []
+        
+        try:
+            # Get all CSV and Excel files in the folder
+            for filename in os.listdir(folder_path):
+                if filename.endswith(('.csv', '.xlsx', '.xls')):
+                    file_path = os.path.join(folder_path, filename)
+                    
+                    # Skip if it's a directory
+                    if os.path.isdir(file_path):
+                        continue
+                    
+                    # Get file info
+                    file_info = self._get_file_info(file_path, os.path.basename(folder_path))
+                    if file_info:
+                        files.append(file_info)
+        
+        except Exception as e:
+            print(f"Error scanning folder {folder_path}: {e}")
+        
+        return files
+    
+    def _scan_folder_recursive(self, folder_path: str) -> List[Dict]:
+        """
+        Recursively scan a folder and its subdirectories for CSV and Excel files.
+        
+        Args:
+            folder_path: Path to the folder to scan
+            
+        Returns:
+            List of file information dictionaries
+        """
+        files = []
+        
+        try:
+            for root, dirs, filenames in os.walk(folder_path):
+                for filename in filenames:
+                    if filename.endswith(('.csv', '.xlsx', '.xls')):
+                        file_path = os.path.join(root, filename)
+                        
+                        # Get relative path from base folder for better display
+                        rel_path = os.path.relpath(root, folder_path)
+                        if rel_path == '.':
+                            folder_display = os.path.basename(folder_path)
+                        else:
+                            folder_display = f"{os.path.basename(folder_path)}/{rel_path}"
+                        
+                        # Get file info
+                        file_info = self._get_file_info(file_path, folder_display)
+                        if file_info:
+                            files.append(file_info)
+        
+        except Exception as e:
+            print(f"Error recursively scanning folder {folder_path}: {e}")
+        
+        return files
+    
+    def _get_file_info(self, file_path: str, folder_display: str) -> Optional[Dict]:
+        """
+        Get file information for a single file.
+        
+        Args:
+            file_path: Full path to the file
+            folder_display: Display name for the folder
+            
+        Returns:
+            File information dictionary or None if error
+        """
+        try:
+            file_stat = os.stat(file_path)
+            size_mb = file_stat.st_size / (1024 * 1024)
+            modified = datetime.fromtimestamp(file_stat.st_mtime)
+            
+            # Check processing status
+            file_key = self._get_file_key(file_path)
+            
+            if file_key in self.processed_files:
+                file_info = self.processed_files[file_key]
+                # Check if file was modified since last processing
+                if file_info.get('modified') == modified.isoformat():
+                    status = 'processed'
+                else:
+                    status = 'modified'
+                last_processed = file_info.get('processed_at', 'Unknown')
+            else:
+                status = 'new'
+                last_processed = None
+            
+            return {
+                'path': file_path,
+                'filename': os.path.basename(file_path),
+                'folder': folder_display,
+                'size_mb': round(size_mb, 2),
+                'modified': modified.isoformat(),
+                'status': status,
+                'last_processed': last_processed
+            }
+        
+        except Exception as e:
+            print(f"Error getting info for {file_path}: {e}")
+            return {
+                'path': file_path,
+                'filename': os.path.basename(file_path),
+                'folder': folder_display,
+                'size_mb': 0,
+                'modified': None,
+                'status': 'error',
+                'last_processed': None,
+                'error': str(e)
+            }
     
     def _get_file_key(self, file_path: str) -> str:
         """Generate a unique key for a file based on its absolute path."""
