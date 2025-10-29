@@ -3743,7 +3743,7 @@ def main():
                         </div>
                         <div class="metric-row">
                             <span class="metric-label">Avg Messages:</span>
-                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Heavy']['total_messages'].mean():,.0f}</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Heavy']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Heavy']) > 0 else 0:,.0f}</span>
                         </div>
                     </div>
                     
@@ -3758,7 +3758,7 @@ def main():
                         </div>
                         <div class="metric-row">
                             <span class="metric-label">Avg Messages:</span>
-                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Moderate']['total_messages'].mean():,.0f}</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Moderate']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Moderate']) > 0 else 0:,.0f}</span>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -3776,7 +3776,7 @@ def main():
                         </div>
                         <div class="metric-row">
                             <span class="metric-label">Avg Messages:</span>
-                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Light']['total_messages'].mean():,.0f}</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Light']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Light']) > 0 else 0:,.0f}</span>
                         </div>
                     </div>
                     
@@ -3791,7 +3791,7 @@ def main():
                         </div>
                         <div class="metric-row">
                             <span class="metric-label">Avg Messages:</span>
-                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Inactive']['total_messages'].mean():,.0f}</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Inactive']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Inactive']) > 0 else 0:,.0f}</span>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
