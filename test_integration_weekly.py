@@ -10,7 +10,9 @@ This test validates the complete flow:
 
 import sys
 import os
-sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+
+# Use relative path from the script location
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pandas as pd
 from file_scanner import FileScanner
@@ -51,7 +53,9 @@ def test_end_to_end_integration():
     
     # Step 3: Process a weekly file
     print("\n🔄 Step 3: Processing weekly file...")
-    weekly_test_file = [f for f in weekly_files if '2025-03-30' in f['filename']][0]
+    weekly_test_files = [f for f in weekly_files if '2025-03-30' in f['filename']]
+    assert len(weekly_test_files) > 0, "Could not find weekly test file with date 2025-03-30"
+    weekly_test_file = weekly_test_files[0]
     print(f"   Processing: {weekly_test_file['filename']}")
     
     # Read the file
@@ -112,7 +116,9 @@ def test_end_to_end_integration():
     
     # Step 7: Test monthly file for backward compatibility
     print("\n🔄 Step 7: Testing monthly file (backward compatibility)...")
-    monthly_test_file = [f for f in monthly_files if 'March' in f['filename']][0]
+    monthly_test_files = [f for f in monthly_files if 'March' in f['filename']]
+    assert len(monthly_test_files) > 0, "Could not find monthly test file for March"
+    monthly_test_file = monthly_test_files[0]
     print(f"   Processing: {monthly_test_file['filename']}")
     
     df_monthly, error = read_file_from_path(monthly_test_file['path'])
