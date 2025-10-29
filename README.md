@@ -141,6 +141,59 @@ Combined database: 187 unique users, 444 records
 
 ---
 
+### 📊 Message Type Analytics & Feature Breakdown
+
+**NEW!** Detailed message type breakdowns across all dashboard sections to understand feature adoption and usage patterns.
+
+**Key Capabilities:**
+- **Organization-Wide Analytics** - See which AI features are most popular (ChatGPT Messages, GPT Messages, Tool Messages, Project Messages)
+- **Department Breakdowns** - Expandable feature usage details for each department with interactive charts
+- **Feature Adoption Tracking** - Dedicated analytics tab with trends, heatmaps, and insights
+- **Power User Analysis** - Already-existing feature showing message type composition for top users
+
+**What You'll See:**
+
+1. **Executive Summary**
+   - Pie chart showing organization-wide feature distribution
+   - Detailed statistics for each message type with percentages
+   - Feature descriptions with expandable help text
+
+2. **Department Performance**
+   - Click any department to expand and see feature-specific breakdown
+   - Bar charts showing message type distribution per department
+   - Department-specific statistics (active users, messages/user, total cost)
+
+3. **Message Type Analytics Tab**
+   - Feature usage trends over time (line chart)
+   - Current distribution visualization (donut chart)
+   - Department vs Feature heatmap showing adoption patterns
+   - Key insights: most popular feature, adoption rate, most diverse usage
+
+**Message Types Tracked:**
+- **ChatGPT Messages** - Standard conversational AI interactions
+- **GPT Messages** - Custom GPT usage (specialized assistants)
+- **Tool Messages** - Code Interpreter, web browsing, data analysis
+- **Project Messages** - ChatGPT Projects (organized workspaces)
+- **BlueFlame Messages** - BlueFlame AI platform interactions
+
+**Example Insights:**
+```
+Tool Messages: 62,970 (74.1% of total)
+ChatGPT Messages: 18,732 (22.0%)
+Project Messages: 2,613 (3.1%)
+GPT Messages: 640 (0.8%)
+```
+
+**Screenshots:**
+
+![Executive Summary - Feature Adoption Analytics](https://github.com/user-attachments/assets/aba9e9d0-76bf-4d43-a327-2b26f3a6dfdb)
+
+![Message Type Analytics Tab](https://github.com/user-attachments/assets/3896f061-918e-41da-ba9c-af72af24fb92)
+
+![Department Feature Breakdown](https://github.com/user-attachments/assets/469ae88e-5eb4-4c4f-9681-6049fe60a821)
+
+---
+
 ### 💰 Cost Model & Enterprise Pricing
 
 The dashboard uses **enterprise license-based pricing**, not per-message costs, reflecting how organizations actually pay for AI tools.
