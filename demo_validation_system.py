@@ -16,12 +16,16 @@ import os
 from chatgpt_data_validator import ChatGPTDataValidator
 from data_handlers import WeeklyDataHandler, MonthlyDataHandler, DataReconciliationTool
 
+# Constants for formatting
+SECTION_WIDTH = 80
+TITLE = "ChatGPT Data Validation System Demo"
+
 
 def print_section(title):
     """Print a section header."""
-    print("\n" + "=" * 80)
+    print("\n" + "=" * SECTION_WIDTH)
     print(f"  {title}")
-    print("=" * 80 + "\n")
+    print("=" * SECTION_WIDTH + "\n")
 
 
 def demo_validation():
@@ -213,9 +217,13 @@ def demo_full_workflow():
 if __name__ == "__main__":
     import sys
     
-    print("╔" + "=" * 78 + "╗")
-    print("║" + " " * 15 + "ChatGPT Data Validation System Demo" + " " * 27 + "║")
-    print("╚" + "=" * 78 + "╝")
+    # Calculate box dimensions dynamically based on title
+    box_width = SECTION_WIDTH - 2  # Account for border characters
+    title_padding = (box_width - len(TITLE)) // 2
+    
+    print("╔" + "=" * box_width + "╗")
+    print("║" + " " * title_padding + TITLE + " " * (box_width - len(TITLE) - title_padding) + "║")
+    print("╚" + "=" * box_width + "╝")
     
     success = demo_full_workflow()
     sys.exit(0 if success else 1)
