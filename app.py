@@ -24,6 +24,7 @@ from file_scanner import FileScanner
 from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING, RECURSIVE_SCAN_FOLDERS
 from export_utils import generate_excel_export, generate_pdf_report_html
 from cost_calculator import EnterpriseCostCalculator
+from duplicate_validator import DuplicateValidator
 
 # Page configuration
 st.set_page_config(
@@ -1975,13 +1976,14 @@ def main():
         st.markdown('<div style="text-align: right; padding-top: 0.5rem;"></div>', unsafe_allow_html=True)
     
     # Create main tabs
-    tab1, tab2, tab_openai, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab_openai, tab3, tab4, tab5, tab_validation, tab6 = st.tabs([
         "📊 Executive Overview", 
         "🔄 Tool Comparison",
         "🤖 OpenAI Analytics",
         "⭐ Power Users",
         "📈 Message Type Analytics",
         "🏢 Department Mapper",
+        "✅ Data Validation",
         "🔧 Database Management"
     ])
     
@@ -4232,6 +4234,339 @@ def main():
     # TAB 5: Department Mapper
     with tab5:
         display_department_mapper()
+    
+    # TAB 7: Data Validation
+    with tab_validation:
+        st.header("✅ Data Validation")
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 Validate that message counts are not duplicated due to overlapping weekly and monthly data imports
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Get current database stats
+        db_stats = db.get_database_stats()
+        
+        # Show overview of data in database
+        st.markdown('<div class="section-header"><h3>📊 Data Overview</h3></div>', unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Records", f"{db_stats['total_records']:,}")
+        with col2:
+            st.metric("Unique Users", db_stats['unique_users'])
+        with col3:
+            st.metric("Files Loaded", len(db_stats['records_by_file']))
+        with col4:
+            st.metric("Date Range", db_stats.get('date_range', 'N/A'))
+        
+        st.markdown("---")
+        
+        # Validation controls
+        st.markdown('<div class="section-header"><h3>🔍 Run Duplicate Validation</h3></div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+        This validation tool checks for duplicate message counts that may occur when both weekly 
+        and monthly data files are imported. It identifies:
+        
+        - **Duplicate Records**: Same user/period/feature combinations appearing multiple times
+        - **Overlapping Data**: Weekly and monthly files covering the same periods
+        - **Per-User Validation**: Confirms each user's total matches unique message counts
+        """)
+        
+        if st.button("🚀 Run Validation", type="primary", use_container_width=True):
+            with st.spinner("🔍 Analyzing data for duplicates..."):
+                # Initialize validator
+                validator = DuplicateValidator(db)
+                
+                # Run validation
+                results = validator.validate_duplicates()
+                
+                # Display results
+                st.markdown("---")
+                
+                # Overall status
+                status = results.get('overall_status', 'UNKNOWN')
+                if status == 'PASS':
+                    st.success("✅ **VALIDATION PASSED** - No duplicates detected!")
+                elif status == 'DUPLICATES_FOUND':
+                    st.warning("⚠️ **DUPLICATES DETECTED** - Review details below")
+                else:
+                    st.error(f"🚫 **VALIDATION ERROR** - {results.get('error', 'Unknown error')}")
+                
+                # Summary metrics
+                st.markdown('<div class="section-header"><h3>📈 Validation Summary</h3></div>', unsafe_allow_html=True)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(
+                        "Users Checked",
+                        results.get('total_users_checked', 0),
+                        help="Total number of users analyzed"
+                    )
+                with col2:
+                    users_with_dups = results.get('users_with_duplicates', 0)
+                    st.metric(
+                        "Users with Duplicates",
+                        users_with_dups,
+                        delta=f"-{users_with_dups}" if users_with_dups > 0 else None,
+                        delta_color="inverse",
+                        help="Users with duplicate message counts"
+                    )
+                with col3:
+                    st.metric(
+                        "Duplicate Records",
+                        results.get('duplicate_records_found', 0),
+                        help="Total duplicate records in database"
+                    )
+                
+                # Message count summary
+                if 'summary' in results and results['summary']:
+                    st.markdown("---")
+                    st.markdown('<div class="section-header"><h3>💬 Message Count Analysis</h3></div>', unsafe_allow_html=True)
+                    
+                    summary = results['summary']
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric(
+                            "Total Messages in DB",
+                            f"{summary.get('total_messages_in_db', 0):,}",
+                            help="Sum of all message records (including duplicates)"
+                        )
+                    with col2:
+                        st.metric(
+                            "Unique Messages",
+                            f"{summary.get('unique_messages', 0):,}",
+                            help="True count after removing duplicates"
+                        )
+                    with col3:
+                        dup_msgs = summary.get('duplicate_messages', 0)
+                        st.metric(
+                            "Duplicate Messages",
+                            f"{dup_msgs:,}",
+                            delta=f"-{dup_msgs}" if dup_msgs > 0 else None,
+                            delta_color="inverse",
+                            help="Messages counted multiple times"
+                        )
+                    with col4:
+                        st.metric(
+                            "Duplication Rate",
+                            f"{summary.get('duplication_percentage', 0):.2f}%",
+                            help="Percentage of duplicate messages"
+                        )
+                
+                # User-level details
+                if 'users' in results and results['users']:
+                    st.markdown("---")
+                    st.markdown('<div class="section-header"><h3>👥 Per-User Validation</h3></div>', unsafe_allow_html=True)
+                    
+                    # Create user dataframe
+                    users_data = []
+                    for user in results['users']:
+                        users_data.append({
+                            'User': user['user_name'],
+                            'Email': user['email'],
+                            'Department': user['department'],
+                            'Total Messages': user['total_messages'],
+                            'Unique Messages': user['unique_messages'],
+                            'Duplicates': user['duplicate_messages'],
+                            'Status': user['validation_status']
+                        })
+                    
+                    users_df = pd.DataFrame(users_data)
+                    
+                    # Filter options
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        filter_option = st.selectbox(
+                            "Filter Users",
+                            ["All Users", "Only Users with Duplicates", "Only Valid Users"],
+                            key="user_filter"
+                        )
+                    with col2:
+                        sort_option = st.selectbox(
+                            "Sort By",
+                            ["Total Messages (High to Low)", "Duplicates (High to Low)", "Name (A-Z)"],
+                            key="user_sort"
+                        )
+                    
+                    # Apply filters
+                    if filter_option == "Only Users with Duplicates":
+                        display_df = users_df[users_df['Status'] == 'FAIL']
+                    elif filter_option == "Only Valid Users":
+                        display_df = users_df[users_df['Status'] == 'PASS']
+                    else:
+                        display_df = users_df.copy()
+                    
+                    # Apply sorting
+                    if sort_option == "Total Messages (High to Low)":
+                        display_df = display_df.sort_values('Total Messages', ascending=False)
+                    elif sort_option == "Duplicates (High to Low)":
+                        display_df = display_df.sort_values('Duplicates', ascending=False)
+                    else:
+                        display_df = display_df.sort_values('User')
+                    
+                    # Display table
+                    st.dataframe(
+                        display_df,
+                        use_container_width=True,
+                        height=400,
+                        column_config={
+                            'Status': st.column_config.TextColumn(
+                                'Status',
+                                help='PASS = No duplicates, FAIL = Duplicates found'
+                            ),
+                            'Total Messages': st.column_config.NumberColumn(
+                                'Total Messages',
+                                help='Sum of all message records in database'
+                            ),
+                            'Unique Messages': st.column_config.NumberColumn(
+                                'Unique Messages',
+                                help='True unique message count (deduplicated)'
+                            ),
+                            'Duplicates': st.column_config.NumberColumn(
+                                'Duplicates',
+                                help='Number of duplicate messages'
+                            )
+                        }
+                    )
+                    
+                    # Export validation results
+                    st.markdown("---")
+                    st.markdown('<div class="section-header"><h3>📥 Export Results</h3></div>', unsafe_allow_html=True)
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Export as CSV
+                        csv = display_df.to_csv(index=False)
+                        st.download_button(
+                            label="📊 Download CSV",
+                            data=csv,
+                            file_name=f"validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    
+                    with col2:
+                        # Export full report
+                        full_report = validator.generate_report(results, format='text')
+                        st.download_button(
+                            label="📄 Download Full Report",
+                            data=full_report,
+                            file_name=f"validation_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                
+                # Duplicate record details
+                if 'duplicate_details' in results and results['duplicate_details']:
+                    st.markdown("---")
+                    st.markdown('<div class="section-header"><h3>🔍 Duplicate Record Details</h3></div>', unsafe_allow_html=True)
+                    
+                    st.info(f"Found {len(results['duplicate_details'])} sets of duplicate records")
+                    
+                    # Show duplicate details in expandable sections
+                    for i, dup in enumerate(results['duplicate_details'][:10], 1):
+                        with st.expander(f"Duplicate #{i}: {dup['user_name']} - {dup['feature_used']} ({dup['date']})"):
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.write("**User Information:**")
+                                st.write(f"- Name: {dup['user_name']}")
+                                st.write(f"- Email: {dup['email']}")
+                                st.write(f"- Date: {dup['date']}")
+                                st.write(f"- Feature: {dup['feature_used']}")
+                            
+                            with col2:
+                                st.write("**Duplication Details:**")
+                                st.write(f"- Duplicate Records: {dup['record_count']}")
+                                st.write(f"- Total Usage: {dup['total_usage']}")
+                                st.write(f"- Tool: {dup['tool_source']}")
+                                st.write(f"- Files: {dup['files']}")
+                            
+                            # Get detailed records for this duplicate
+                            detailed_df = validator.get_duplicate_details(dup['email'])
+                            if not detailed_df.empty:
+                                # Filter to just this date/feature combination
+                                filtered = detailed_df[
+                                    (detailed_df['date'] == dup['date']) &
+                                    (detailed_df['feature_used'] == dup['feature_used'])
+                                ]
+                                if not filtered.empty:
+                                    st.write("**Individual Records:**")
+                                    st.dataframe(
+                                        filtered[['id', 'usage_count', 'file_source', 'created_at']],
+                                        use_container_width=True
+                                    )
+        
+        # Help section
+        st.markdown("---")
+        st.markdown('<div class="section-header"><h3>ℹ️ About This Validation</h3></div>', unsafe_allow_html=True)
+        
+        with st.expander("📖 How does this validation work?"):
+            st.markdown("""
+            ### Validation Process
+            
+            This tool performs a comprehensive analysis to detect duplicate message counts:
+            
+            1. **Record-Level Check**: Identifies duplicate records where the same user/period/feature 
+               combination appears multiple times in the database
+            
+            2. **User-Level Validation**: For each user, compares:
+               - Total messages (sum of all records)
+               - Unique messages (deduplicated count)
+               - Identifies any discrepancies
+            
+            3. **File Source Tracking**: Shows which files contributed to duplicates, helping identify 
+               overlapping weekly/monthly imports
+            
+            ### Understanding Results
+            
+            - **PASS**: No duplicates detected - all message counts are accurate
+            - **DUPLICATES_FOUND**: Some users have duplicate records - review details for specific users
+            - **Duplication Factor**: Shows how many times data is duplicated (1.0 = no duplicates, 2.0 = double-counted)
+            
+            ### Recommended Actions
+            
+            If duplicates are found:
+            1. Review the "Duplicate Record Details" section to identify overlapping files
+            2. Consider removing one of the overlapping file imports via Database Management
+            3. Re-run validation to confirm duplicates are resolved
+            """)
+        
+        with st.expander("🎯 Example: Tyler White Case"):
+            st.markdown("""
+            ### Scenario
+            
+            Tyler White shows 7,189 ChatGPT messages in the Power User Directory. 
+            This validation helps confirm whether that count is accurate or inflated by overlapping data.
+            
+            ### What the Validation Checks
+            
+            1. **Searches database** for all records for Tyler White
+            2. **Groups records** by date and feature type
+            3. **Detects duplicates** if same date/feature appears in multiple files
+            4. **Calculates unique count** by deduplicating overlapping periods
+            
+            ### Example Results
+            
+            **If No Duplicates:**
+            - Total Messages: 7,189
+            - Unique Messages: 7,189
+            - Status: ✅ PASS
+            
+            **If Duplicates Found:**
+            - Total Messages: 7,189 (from database sum)
+            - Unique Messages: 3,595 (actual unique count)
+            - Duplicate Messages: 3,594 (double-counted)
+            - Status: ⚠️ DUPLICATES_FOUND
+            
+            This would indicate that approximately 50% of Tyler's messages were counted twice 
+            due to overlapping weekly and monthly files.
+            """)
     
     # TAB 6: Database Management
     with tab6:
