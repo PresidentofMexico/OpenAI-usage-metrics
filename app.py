@@ -2770,14 +2770,14 @@ def main():
             st.write("**Data Sources:**")
             source_summary = data.groupby('tool_source').agg({
                 'user_id': 'nunique',
-                'usage_count': 'sum',
-                'cost_usd': 'sum'
+                'usage_count': 'sum'
             }).reset_index()
-            source_summary.columns = ['Provider', 'Users', 'Messages', 'Cost']
+            source_summary.columns = ['Provider', 'Users', 'Messages']
             
+            total_messages = data['usage_count'].sum()
             for _, row in source_summary.iterrows():
-                cost_pct = (row['Cost'] / total_cost * 100) if total_cost > 0 else 0
-                st.write(f"**{row['Provider']}**: {row['Users']} users, {row['Messages']:,} messages, ${row['Cost']:,.2f} ({cost_pct:.1f}% of total)")
+                usage_pct = (row['Messages'] / total_messages * 100) if total_messages > 0 else 0
+                st.write(f"**{row['Provider']}**: {row['Users']} users, {row['Messages']:,} messages ({usage_pct:.1f}% of total)")
             st.markdown('</div>', unsafe_allow_html=True)
         
         st.divider()
