@@ -55,3 +55,7 @@ file_tracking.json
 
 # Employee file load markers
 .*.loaded
+
+# Validation reports (generated files)
+validation_report.txt
+validation_report.json
