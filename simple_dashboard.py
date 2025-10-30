@@ -113,23 +113,19 @@ try:
     
     if not data.empty:
         # Key metrics
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             total_users = data['user_id'].nunique()
-            st.metric("Total Users", total_users)
+            st.metric("Total Active Users", total_users)
         
         with col2:
             total_usage = data['usage_count'].sum()
-            st.metric("Total Usage", f"{total_usage:,}")
+            st.metric("Total Messages", f"{total_usage:,}")
         
         with col3:
-            total_cost = data['cost_usd'].sum()
-            st.metric("Total Cost", f"${total_cost:,.2f}")
-        
-        with col4:
-            avg_cost = total_cost / max(total_users, 1)
-            st.metric("Avg Cost/User", f"${avg_cost:.2f}")
+            avg_usage = total_usage / max(total_users, 1)
+            st.metric("Messages per User", f"{avg_usage:,.0f}")
         
         # Charts
         st.subheader("📈 Usage Analytics")

@@ -1247,17 +1247,11 @@ def display_department_mapper():
                         st.write(f"📊 {int(row['total_usage']):,} messages")
                     else:
                         st.write("📊 0 messages")
-                    
-                    # Handle NaN/NULL total_cost
-                    if pd.notna(row['total_cost']):
-                        st.caption(f"${row['total_cost']:.2f}")
-                    else:
-                        st.caption("$0.00")
                 
                 with col4:
                     # Handle NaN/NULL days_active
                     if pd.notna(row['days_active']):
-                        st.caption(f"{int(row['days_active'])} days")
+                        st.caption(f"{int(row['days_active'])} days active")
                     else:
                         st.caption("0 days")
                 
@@ -1728,15 +1722,13 @@ def display_tool_comparison(data):
             badge_class = f"tool-{tool.lower().replace(' ', '')}"
             st.markdown(f'<div class="tool-badge {badge_class}">{tool}</div>', unsafe_allow_html=True)
             
-            # Key metrics
+            # Key metrics - USAGE ONLY, NO COSTS
             active_users = tool_data['user_id'].nunique()
             total_usage = tool_data['usage_count'].sum()
-            total_cost = tool_data['cost_usd'].sum()
             
             st.metric("Active Users", f"{active_users}")
-            st.metric("Total Usage", f"{total_usage:,}")
-            st.metric("Total Cost", f"${total_cost:,.2f}")
-            st.metric("Avg per User", f"{total_usage / max(active_users, 1):.0f}")
+            st.metric("Total Messages", f"{total_usage:,}")
+            st.metric("Messages per User", f"{total_usage / max(active_users, 1):.0f}")
     
     st.divider()
     
@@ -1769,7 +1761,7 @@ def display_tool_comparison(data):
         <ul>
             <li>Surveying users about distinct use cases for each tool</li>
             <li>Evaluating if tools have redundant capabilities</li>
-            <li>Assessing potential cost savings from consolidation</li>
+            <li>Understanding workflow patterns across tools</li>
         </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1781,15 +1773,15 @@ def display_tool_comparison(data):
         </div>
         """, unsafe_allow_html=True)
     
-    # Cost comparison
-    tool_costs = data.groupby('tool_source')['cost_usd'].sum().reset_index()
+    # Usage comparison by volume (NOT cost)
+    tool_usage = data.groupby('tool_source')['usage_count'].sum().reset_index()
     
     fig = px.bar(
-        tool_costs,
+        tool_usage,
         x='tool_source',
-        y='cost_usd',
-        title='Total Cost by Tool',
-        labels={'tool_source': 'Tool', 'cost_usd': 'Total Cost (USD)'},
+        y='usage_count',
+        title='Message Volume by Tool',
+        labels={'tool_source': 'Tool', 'usage_count': 'Total Messages'},
         color='tool_source'
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -2276,17 +2268,21 @@ def main():
             st.markdown("""
             ### 📊 Understanding Key Metrics
             
-            **YTD Spending**
-            - Total cost spent on AI tools this year
-            - Based on usage counts and estimated per-message rates
+            **Total Active Users**
+            - Unique users with activity across all AI platforms
+            - Indicates reach and adoption of AI tools
             
-            **Projected Annual Cost**
-            - Estimated full-year spending based on current trends
-            - Calculated from months of available data
+            **Total Messages**
+            - All interactions across AI platforms
+            - Key indicator of overall AI engagement
             
-            **Cost per User**
-            - Average spending per active user
-            - Helps identify cost efficiency
+            **Messages per User**
+            - Average engagement per user
+            - Higher values indicate more active tool utilization
+            
+            **Active Departments**
+            - Number of departments using AI tools
+            - Measures organizational adoption breadth
             
             **Cost Efficiency**
             - Average cost per message/interaction
@@ -2509,187 +2505,93 @@ def main():
         
         st.divider()
         
-        # Calculate key financial metrics
-        total_cost = data['cost_usd'].sum()
+        # Calculate key usage metrics
         total_users = data['user_id'].nunique()
         total_usage = data['usage_count'].sum()
+        avg_usage_per_user = total_usage / max(total_users, 1)
         
-        # Calculate YTD and projections
-        try:
-            data_with_dates = data.copy()
-            data_with_dates['date'] = pd.to_datetime(data_with_dates['date'], errors='coerce')
-            data_with_dates = data_with_dates.dropna(subset=['date'])
-            
-            # Get current year data
-            current_year = datetime.now().year
-            ytd_data = data_with_dates[data_with_dates['date'].dt.year == current_year]
-            ytd_cost = ytd_data['cost_usd'].sum()
-            
-            # Calculate months of data for projection
-            if not ytd_data.empty:
-                min_month = ytd_data['date'].min().month
-                max_month = ytd_data['date'].max().month
-                months_of_data = max_month - min_month + 1
-                projected_annual_cost = (ytd_cost / months_of_data) * 12 if months_of_data > 0 else ytd_cost * 12
-            else:
-                ytd_cost = total_cost
-                projected_annual_cost = total_cost * 12
-        except:
-            ytd_cost = total_cost
-            projected_annual_cost = total_cost * 12
+        # Enterprise License Notice
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Enterprise License Notice</h3>', unsafe_allow_html=True)
         
-        # Enterprise Pricing Model Information
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Enterprise Pricing Model</h3>', unsafe_allow_html=True)
-        
-        with st.expander("ℹ️ About Cost Calculations - Based on Enterprise SaaS Licenses", expanded=False):
+        with st.expander("ℹ️ About Enterprise AI Tool Licensing", expanded=False):
             st.markdown("""
-            **Cost Model:** Enterprise license-based pricing (per user per month)
+            **Why Costs Are Not Tracked in This Dashboard:**
             
-            This dashboard calculates costs based on **actual enterprise SaaS license fees**, not per-message usage.
-            Each active user in a month incurs the full monthly license cost, regardless of message volume.
+            Enterprise AI tools (ChatGPT Enterprise, BlueFlame AI, etc.) use **license-based pricing models** 
+            where costs are determined by:
+            - Number of seats/licenses purchased (not message volume)
+            - Contractual agreements negotiated at the enterprise level
+            - Additional services and support packages
             
-            ### Current Enterprise Pricing:
-            """)
+            ### This Dashboard Focuses On:
             
-            col_info1, col_info2 = st.columns(2)
-            
-            with col_info1:
-                st.markdown("""
-                **🤖 ChatGPT Enterprise**
-                - **License Cost:** $60 per user per month
-                - **Annual Cost:** $720 per user per year
-                - **Minimum Seats:** 150 users
-                - **Included Features:**
-                  - Standard messages (unlimited)
-                  - Custom GPTs
-                  - Tool usage (code interpreter, browsing)
-                  - Project messages
-                
-                *Source: Reported enterprise pricing (~$60/user/month)*
-                """)
-            
-            with col_info2:
-                st.markdown("""
-                **🔥 BlueFlame AI**
-                - **License Cost:** $125 per user per month
-                - **Annual Cost:** $1,500 per user per year
-                - **Minimum Seats:** 1 user
-                - **Included Features:**
-                  - AI-powered insights
-                  - Document analysis
-                  - Investment workflow automation
-                  - Data integration
-                
-                *Source: Estimated based on typical enterprise AI software ($100-150/user/month)*
-                """)
-            
-            st.markdown("""
-            ---
-            ### Key Metrics to Monitor:
-            
-            1. **Cost per User** - Primary metric for license efficiency
-            2. **Messages per User** - Indicates engagement and value delivered
-            3. **Annual Cost Projection** - Budget planning and ROI analysis
-            4. **License Utilization** - Which users are actively using their licenses
+            1. **Usage Analytics** - How actively teams and individuals are using AI tools
+            2. **Engagement Metrics** - Messages per user, active user trends, feature adoption
+            3. **Department Insights** - Which departments are leveraging AI most effectively
+            4. **Adoption Patterns** - Understanding which features resonate with users
             
             ### Why This Matters:
             
-            - **Budget Accuracy:** True costs are based on seat licenses, not message volume
-            - **ROI Analysis:** Cost per user helps justify software investments
-            - **Utilization Insights:** Identify underutilized licenses to optimize spending
-            - **Future Planning:** Better annual cost projections for budgeting
+            - **ROI Understanding:** Usage volume and patterns indicate value delivered, regardless of pricing
+            - **Training Opportunities:** Low usage may indicate need for training or awareness
+            - **Feature Planning:** Popular features should be promoted and supported
+            - **Resource Allocation:** High-usage departments may benefit from additional resources
+            
+            ### Key Metrics to Monitor:
+            
+            - **Active Users** - How many people are using the tools
+            - **Messages per User** - Engagement depth and tool adoption
+            - **Department Breakdown** - Understanding usage across the organization
+            - **Feature Adoption** - Which capabilities are being utilized
+            - **Trend Analysis** - Is usage growing, stable, or declining
             """)
         
-        # Executive Summary Cards with detailed breakdowns
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Financial Overview</h3>', unsafe_allow_html=True)
+        # Usage Analytics Overview
+        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Usage Analytics Overview</h3>', unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
-                "YTD Spending", 
-                f"${ytd_cost:,.2f}",
-                help="Year-to-date total spending on AI tools"
+                "Total Active Users", 
+                f"{total_users:,}",
+                help="Unique users with AI tool activity across all platforms"
             )
             with st.expander("📊 Details"):
                 st.write("**Calculation:**")
-                st.code(f"Total cost for {datetime.now().year}")
-                if not data.empty and 'tool_source' in data.columns:
-                    st.write("**By Provider:**")
-                    provider_costs = data.groupby('tool_source')['cost_usd'].sum().sort_values(ascending=False)
-                    for provider, cost in provider_costs.items():
-                        pct = (cost / ytd_cost * 100) if ytd_cost > 0 else 0
-                        st.write(f"• {provider}: ${cost:,.2f} ({pct:.1f}%)")
+                st.code(f"COUNT(DISTINCT user_id) = {total_users:,}")
+                st.write("Users with any message activity in the analyzed period")
         
         with col2:
             st.metric(
-                "Projected Annual Cost", 
-                f"${projected_annual_cost:,.2f}", 
-                delta=f"{((projected_annual_cost - ytd_cost) / max(ytd_cost, 1) * 100):.0f}% vs YTD",
-                help="Projected full-year cost based on current usage trends"
+                "Total Messages",
+                f"{total_usage:,}",
+                help="Total interactions across all AI platforms"
             )
             with st.expander("📊 Details"):
-                st.write("**Calculation:**")
-                try:
-                    data_with_dates = data.copy()
-                    data_with_dates['date'] = pd.to_datetime(data_with_dates['date'], errors='coerce')
-                    ytd_data = data_with_dates[data_with_dates['date'].dt.year == datetime.now().year]
-                    if not ytd_data.empty:
-                        min_month = ytd_data['date'].min().month
-                        max_month = ytd_data['date'].max().month
-                        months_of_data = max_month - min_month + 1
-                        st.code(f"({ytd_cost:,.2f} / {months_of_data} months) × 12 = ${projected_annual_cost:,.2f}")
-                        st.write(f"**Data Coverage:** {months_of_data} months")
-                    else:
-                        st.code(f"${ytd_cost:,.2f} × 12 = ${projected_annual_cost:,.2f}")
-                except:
-                    st.code(f"${ytd_cost:,.2f} × 12 = ${projected_annual_cost:,.2f}")
+                st.write("**Total Interactions:**")
+                st.code(f"SUM(usage_count) = {total_usage:,}")
+                if not data.empty and 'tool_source' in data.columns:
+                    st.write("**By Provider:**")
+                    provider_usage = data.groupby('tool_source')['usage_count'].sum().sort_values(ascending=False)
+                    for provider, usage in provider_usage.items():
+                        pct = (usage / total_usage * 100) if total_usage > 0 else 0
+                        st.write(f"• {provider}: {usage:,} messages ({pct:.1f}%)")
         
         with col3:
-            avg_cost_per_user = total_cost / max(total_users, 1)
-            st.metric(
-                "Avg Monthly Cost per User", 
-                f"${avg_cost_per_user:.2f}", 
-                help="Average monthly license cost per active user - key metric for enterprise SaaS ROI"
-            )
-            with st.expander("📊 Details"):
-                st.write("**Enterprise License Pricing:**")
-                st.code(f"${total_cost:,.2f} ÷ {total_users} users = ${avg_cost_per_user:.2f}/user/month")
-                st.write("**Context:**")
-                st.write(f"• Total active users: {total_users:,}")
-                st.write(f"• Total monthly cost: ${total_cost:,.2f}")
-                
-                # Show pricing by provider
-                if not data.empty and 'tool_source' in data.columns:
-                    st.write("**Cost per User by Provider:**")
-                    provider_user_cost = data.groupby('tool_source').agg({
-                        'user_id': 'nunique',
-                        'cost_usd': 'sum'
-                    })
-                    provider_user_cost['cost_per_user'] = provider_user_cost['cost_usd'] / provider_user_cost['user_id']
-                    for provider, row in provider_user_cost.iterrows():
-                        st.write(f"• {provider}: ${row['cost_per_user']:.2f}/user ({row['user_id']} users)")
-                
-                # Annual cost per user
-                annual_cost_per_user = avg_cost_per_user * 12
-                st.write("**Annual Projection:**")
-                st.write(f"• ${annual_cost_per_user:,.2f} per user per year")
-        
-        with col4:
-            cost_per_interaction = total_cost / max(total_usage, 1)
             st.metric(
                 "Messages per User", 
-                f"{total_usage / max(total_users, 1):,.0f}", 
-                help="Average messages per user - indicates engagement and license utilization"
+                f"{avg_usage_per_user:,.0f}",
+                help="Average messages per user - key engagement indicator"
             )
             with st.expander("📊 Details"):
-                st.write("**Engagement Metrics:**")
-                st.code(f"{total_usage:,} messages ÷ {total_users} users = {total_usage / max(total_users, 1):,.0f} msgs/user")
-                st.write("**License Value:**")
-                st.write(f"• Cost per message: ${cost_per_interaction:.3f}")
+                st.write("**Engagement Calculation:**")
+                st.code(f"{total_usage:,} messages ÷ {total_users} users = {avg_usage_per_user:,.0f} msgs/user")
+                st.write("**Context:**")
                 st.write(f"• Total messages: {total_usage:,}")
+                st.write(f"• Total active users: {total_users:,}")
                 
-                # Show message volume by provider
+                # Show engagement by provider
                 if not data.empty and 'tool_source' in data.columns:
                     st.write("**Messages per User by Provider:**")
                     provider_engagement = data.groupby('tool_source').agg({
@@ -2700,92 +2602,21 @@ def main():
                     for provider, row in provider_engagement.iterrows():
                         st.write(f"• {provider}: {row['msgs_per_user']:,.0f} msgs/user")
         
-        st.divider()
-        
-        # License Utilization Analysis
-        st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">License Utilization & ROI Analysis</h3>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown('<div style="background: var(--card-bg); padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--primary-color);">', unsafe_allow_html=True)
-            st.markdown("**🎯 Cost Justification Analysis**")
-            
-            if not data.empty and 'tool_source' in data.columns:
-                for provider in data['tool_source'].unique():
-                    provider_data = data[data['tool_source'] == provider]
-                    provider_users = provider_data['user_id'].nunique()
-                    provider_cost = provider_data['cost_usd'].sum()
-                    provider_messages = provider_data['usage_count'].sum()
-                    
-                    # Get pricing info
-                    cost_calc = EnterpriseCostCalculator()
-                    pricing_info = cost_calc.get_pricing_info(provider)
-                    monthly_cost_per_user = pricing_info['license_cost_per_user_monthly']
-                    annual_cost_per_user = pricing_info['annual_cost_per_user']
-                    
-                    st.write(f"**{provider}:**")
-                    st.write(f"• Active users: {provider_users}")
-                    st.write(f"• Total messages: {provider_messages:,}")
-                    st.write(f"• Monthly cost: ${provider_cost:,.2f}")
-                    st.write(f"• Annual projection: ${provider_cost * 12:,.2f}")
-                    st.write(f"• Cost per user: ${monthly_cost_per_user}/month (${annual_cost_per_user}/year)")
-                    
-                    # Calculate engagement
-                    msgs_per_user = provider_messages / max(provider_users, 1)
-                    st.write(f"• Engagement: {msgs_per_user:.0f} messages/user/month")
-                    
-                    # License efficiency
-                    if msgs_per_user > 50:
-                        st.success(f"✅ High utilization - strong license value")
-                    elif msgs_per_user > 20:
-                        st.info(f"ℹ️ Moderate utilization - good license value")
-                    else:
-                        st.warning(f"⚠️ Low utilization - review license needs")
-                    
-                    st.write("")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown('<div style="background: var(--card-bg); padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--success-border);">', unsafe_allow_html=True)
-            st.markdown("**💡 Key Insights**")
-            
-            # Calculate overall metrics
-            msgs_per_user_overall = total_usage / max(total_users, 1)
-            cost_per_msg_overall = total_cost / max(total_usage, 1)
-            
-            st.write("**License Value Metrics:**")
-            st.write(f"• Average messages per user: {msgs_per_user_overall:.0f}/month")
-            st.write(f"• Effective cost per message: ${cost_per_msg_overall:.3f}")
-            st.write(f"• Total active user licenses: {total_users}")
-            
-            st.write("")
-            st.write("**Budget Planning:**")
-            st.write(f"• Current monthly spend: ${total_cost:,.2f}")
-            st.write(f"• Projected annual spend: ${projected_annual_cost:,.2f}")
-            
-            # Calculate savings opportunities
-            if not data.empty:
-                # Find low-usage users (less than 10 messages per month)
-                user_usage = data.groupby('user_id')['usage_count'].sum()
-                low_usage_users = (user_usage < 10).sum()
-                
-                if low_usage_users > 0:
-                    st.write("")
-                    st.write("**Optimization Opportunities:**")
-                    st.write(f"• {low_usage_users} users with <10 messages/month")
-                    
-                    # Calculate potential savings
-                    if 'tool_source' in data.columns:
-                        # Estimate potential savings (assuming ChatGPT $60/user/month)
-                        potential_monthly_savings = low_usage_users * 60
-                        potential_annual_savings = potential_monthly_savings * 12
-                        st.write(f"• Potential monthly savings: ~${potential_monthly_savings:,.2f}")
-                        st.write(f"• Potential annual savings: ~${potential_annual_savings:,.2f}")
-                        st.info(f"💡 Consider reviewing license needs for low-usage users")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
+        with col4:
+            # Calculate active departments
+            active_depts = data['department'].nunique() if 'department' in data.columns else 0
+            st.metric(
+                "Active Departments", 
+                f"{active_depts}",
+                help="Number of departments using AI tools"
+            )
+            with st.expander("📊 Details"):
+                st.write("**Department Distribution:**")
+                if not data.empty and 'department' in data.columns:
+                    dept_counts = data['department'].value_counts().head(5)
+                    st.write(f"**Top Departments by Activity:**")
+                    for dept, count in dept_counts.items():
+                        st.write(f"• {dept}: {count} records")
         
         st.divider()
         
@@ -2939,14 +2770,14 @@ def main():
             st.write("**Data Sources:**")
             source_summary = data.groupby('tool_source').agg({
                 'user_id': 'nunique',
-                'usage_count': 'sum',
-                'cost_usd': 'sum'
+                'usage_count': 'sum'
             }).reset_index()
-            source_summary.columns = ['Provider', 'Users', 'Messages', 'Cost']
+            source_summary.columns = ['Provider', 'Users', 'Messages']
             
+            total_messages = data['usage_count'].sum()
             for _, row in source_summary.iterrows():
-                cost_pct = (row['Cost'] / total_cost * 100) if total_cost > 0 else 0
-                st.write(f"**{row['Provider']}**: {row['Users']} users, {row['Messages']:,} messages, ${row['Cost']:,.2f} ({cost_pct:.1f}% of total)")
+                usage_pct = (row['Messages'] / total_messages * 100) if total_messages > 0 else 0
+                st.write(f"**{row['Provider']}**: {row['Users']} users, {row['Messages']:,} messages ({usage_pct:.1f}% of total)")
             st.markdown('</div>', unsafe_allow_html=True)
         
         st.divider()
@@ -2964,16 +2795,14 @@ def main():
             # Calculate monthly metrics
             monthly_metrics = monthly_data.groupby('month').agg({
                 'user_id': 'nunique',
-                'usage_count': 'sum',
-                'cost_usd': 'sum'
+                'usage_count': 'sum'
             }).reset_index()
-            monthly_metrics.columns = ['Month', 'Active Users', 'Total Usage', 'Total Cost']
+            monthly_metrics.columns = ['Month', 'Active Users', 'Total Usage']
             
             # Calculate MoM changes
             if len(monthly_metrics) > 1:
                 monthly_metrics['User Growth %'] = monthly_metrics['Active Users'].pct_change() * 100
                 monthly_metrics['Usage Growth %'] = monthly_metrics['Total Usage'].pct_change() * 100
-                monthly_metrics['Cost Growth %'] = monthly_metrics['Total Cost'].pct_change() * 100
             
             col1, col2 = st.columns(2)
             
@@ -2995,13 +2824,13 @@ def main():
                 st.plotly_chart(fig, use_container_width=True)
             
             with col2:
-                # Cost trend
+                # Usage trend
                 fig = px.bar(
                     monthly_metrics, 
                     x='Month', 
-                    y='Total Cost',
-                    title='Monthly Cost Trend',
-                    color='Total Cost',
+                    y='Total Usage',
+                    title='Monthly Message Volume Trend',
+                    color='Total Usage',
                     color_continuous_scale='Blues'
                 )
                 fig.update_layout(
@@ -3014,15 +2843,13 @@ def main():
             # MoM Summary Table
             if len(monthly_metrics) > 1:
                 st.markdown("**Month-over-Month Growth Summary:**")
-                display_cols = ['Month', 'Active Users', 'User Growth %', 'Total Usage', 'Usage Growth %', 'Total Cost', 'Cost Growth %']
+                display_cols = ['Month', 'Active Users', 'User Growth %', 'Total Usage', 'Usage Growth %']
                 st.dataframe(
                     monthly_metrics[display_cols].tail(6).style.format({
                         'Active Users': '{:,.0f}',
                         'User Growth %': '{:+.1f}%',
                         'Total Usage': '{:,.0f}',
-                        'Usage Growth %': '{:+.1f}%',
-                        'Total Cost': '${:,.2f}',
-                        'Cost Growth %': '{:+.1f}%'
+                        'Usage Growth %': '{:+.1f}%'
                     }),
                     use_container_width=True,
                     hide_index=True
@@ -3038,16 +2865,14 @@ def main():
         # Calculate comprehensive department statistics
         dept_stats = data.groupby('department').agg({
             'user_id': 'nunique',
-            'usage_count': 'sum',
-            'cost_usd': 'sum'
+            'usage_count': 'sum'
         }).reset_index()
-        dept_stats.columns = ['Department', 'Active Users', 'Total Usage', 'Total Cost']
+        dept_stats.columns = ['Department', 'Active Users', 'Total Usage']
         
         # Calculate derived metrics
         total_usage_all = dept_stats['Total Usage'].sum()
         dept_stats['Usage Share %'] = (dept_stats['Total Usage'] / total_usage_all * 100).round(1)
         dept_stats['Avg Messages/User'] = (dept_stats['Total Usage'] / dept_stats['Active Users']).round(0)
-        dept_stats['Cost per Message'] = (dept_stats['Total Cost'] / dept_stats['Total Usage']).round(3)
         dept_stats = dept_stats.sort_values('Total Usage', ascending=False)
         
         # Add efficiency category
@@ -3086,7 +2911,7 @@ def main():
                 # Sort order
                 sort_by = st.selectbox(
                     "Sort by:",
-                    ["Total Usage", "Active Users", "Avg Messages/User", "Total Cost"],
+                    ["Total Usage", "Active Users", "Avg Messages/User"],
                     index=0
                 )
             
@@ -3115,8 +2940,7 @@ def main():
             sort_mapping = {
                 "Total Usage": "Total Usage",
                 "Active Users": "Active Users",
-                "Avg Messages/User": "Avg Messages/User",
-                "Total Cost": "Total Cost"
+                "Avg Messages/User": "Avg Messages/User"
             }
             dept_stats_filtered = dept_stats_filtered.sort_values(by=sort_mapping[sort_by], ascending=False).head(num_depts)
             
@@ -3196,17 +3020,16 @@ def main():
             # Format columns for display
             table_df['Total Usage Formatted'] = table_df['Total Usage'].apply(lambda x: f"{x:,}")
             table_df['Avg Messages/User Formatted'] = table_df['Avg Messages/User'].apply(lambda x: f"{x:,}")
-            table_df['Total Cost Formatted'] = table_df['Total Cost'].apply(lambda x: f"${x:,.2f}")
             table_df['Usage Share % Formatted'] = table_df['Usage Share %'].apply(lambda x: f"{x:.1f}%")
             
             # Create display dataframe
             display_df = table_df[[
                 'Department', 'Total Usage Formatted', 'Active Users', 
-                'Avg Messages/User Formatted', 'Usage Share % Formatted', 'Total Cost Formatted', 'Efficiency'
+                'Avg Messages/User Formatted', 'Usage Share % Formatted', 'Efficiency'
             ]].copy()
             display_df.columns = [
                 'Department', 'Total Messages', 'Active Users',
-                'Messages/User', '% of Total', 'Total Cost', 'Efficiency'
+                'Messages/User', '% of Total', 'Efficiency'
             ]
             
             # Display styled table
@@ -3296,7 +3119,6 @@ def main():
                             st.markdown(f"**Department Stats:**")
                             st.write(f"• Active Users: {dept_row['Active Users']}")
                             st.write(f"• Messages/User: {dept_row['Avg Messages/User']:,.0f}")
-                            st.write(f"• Total Cost: ${dept_row['Total Cost']:,.2f}")
             
             # Add key insights section
             st.markdown("---")
@@ -3328,14 +3150,14 @@ def main():
                 """, unsafe_allow_html=True)
             
             with col2:
-                # Cost insights
-                highest_cost = dept_stats.loc[dept_stats['Total Cost'].idxmax()]
+                # Usage insights
+                highest_share = dept_stats.loc[dept_stats['Usage Share %'].idxmax()]
                 st.markdown(f"""
                 <div class="insight-card insight-warning">
-                    <h4>Highest Cost Department</h4>
-                    <p><strong>{highest_cost['Department']}</strong></p>
-                    <p>${highest_cost['Total Cost']:,.2f} total cost</p>
-                    <p>Cost per user: ${highest_cost['Total Cost']/highest_cost['Active Users']:,.2f}</p>
+                    <h4>Largest Usage Share</h4>
+                    <p><strong>{highest_share['Department']}</strong></p>
+                    <p>{highest_share['Usage Share %']:.1f}% of total usage</p>
+                    <p>{highest_share['Total Usage']:,} messages ({highest_share['Active Users']} users)</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -3372,7 +3194,7 @@ def main():
                 title='Active Users by Department',
                 color='Avg Messages/User',
                 color_continuous_scale='Blues',
-                hover_data=['Total Usage', 'Avg Messages/User', 'Total Cost']
+                hover_data=['Total Usage', 'Avg Messages/User']
             )
             
             fig.update_layout(
@@ -3575,18 +3397,15 @@ def main():
         
         # Original insights below (kept for backwards compatibility)
         st.markdown("**Summary Insights**")
-        
-        # Original insights below (kept for backwards compatibility)
-        st.markdown("**Summary Insights**")
         insight_cols = st.columns(3)
         
         with insight_cols[0]:
-            most_efficient = dept_stats.loc[dept_stats['Cost per Message'].idxmin()]
+            highest_volume = dept_stats.loc[dept_stats['Total Usage'].idxmax()]
             st.markdown(f"""
             <div class="insight-card insight-success">
-                <h4 style="margin: 0 0 0.5rem 0; color: var(--success-text);">🎯 Most Cost-Efficient</h4>
-                <p style="margin: 0; font-weight: 600; color: var(--success-text);">{most_efficient['Department']}</p>
-                <p style="margin: 0; font-size: 0.875rem; color: var(--success-text);">${most_efficient['Cost per Message']:.3f} per message</p>
+                <h4 style="margin: 0 0 0.5rem 0; color: var(--success-text);">📊 Highest Volume</h4>
+                <p style="margin: 0; font-weight: 600; color: var(--success-text);">{highest_volume['Department']}</p>
+                <p style="margin: 0; font-size: 0.875rem; color: var(--success-text);">{highest_volume['Total Usage']:,} total messages</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -4212,11 +4031,6 @@ def main():
                 
                 with col3:
                     st.write(f"**Total: {total_messages:,}**")
-                    # Handle NaN/NULL cost_usd
-                    if pd.notna(row['cost_usd']):
-                        st.caption(f"💰 ${row['cost_usd']:.2f} cost")
-                    else:
-                        st.caption("💰 $0.00 cost")
                     # Handle NULL/empty tool_source
                     display_tools = row['tool_source'] if pd.notna(row['tool_source']) and row['tool_source'] else 'Unknown'
                     st.markdown(f'<span class="power-user-badge">{display_tools}</span>', 
@@ -4434,7 +4248,7 @@ def main():
         # Enhanced database stats
         st.markdown('<div class="section-header"><h3>📊 Database Statistics</h3></div>', unsafe_allow_html=True)
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.metric(
                 "Total Records", 
@@ -4452,12 +4266,6 @@ def main():
                 "Date Range", 
                 f"{db_info['total_stats']['total_days']} days",
                 help="Total days of data coverage"
-            )
-        with col4:
-            st.metric(
-                "Total Cost", 
-                f"${db_info['total_stats']['total_cost']:,.2f}",
-                help="Total estimated cost across all records"
             )
         
         st.divider()
