@@ -59,3 +59,5 @@ file_tracking.json
 # Validation reports (generated files)
 validation_report.txt
 validation_report.json
+demo_validation_report.txt
+demo_validation_report.json
