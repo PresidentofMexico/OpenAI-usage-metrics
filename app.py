@@ -24,6 +24,7 @@ from file_scanner import FileScanner
 from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING, RECURSIVE_SCAN_FOLDERS
 from export_utils import generate_excel_export, generate_pdf_report_html
 from cost_calculator import EnterpriseCostCalculator
+from frequency_utils import openai_weekly_to_monthly, blueflame_monthly_to_weekly_estimated
 
 # Page configuration
 st.set_page_config(
@@ -2431,6 +2432,31 @@ def main():
             else:
                 selected_tool = 'All Tools'
             
+            # Frequency selector
+            st.divider()
+            st.markdown("""
+            <div class="help-tooltip">
+                📆 <strong>Frequency View:</strong> Toggle between weekly and monthly aggregations
+            </div>
+            """, unsafe_allow_html=True)
+            
+            frequency = st.radio(
+                "Frequency",
+                options=['Monthly (default)', 'Weekly'],
+                index=0,
+                help="📊 View data aggregated by month or week. Weekly views show BlueFlame as estimated.",
+                label_visibility="collapsed"
+            )
+            
+            # Partial period toggle
+            exclude_partial = st.checkbox(
+                "Exclude current in-progress period", 
+                value=True,
+                help="⏱️ Exclude the current incomplete week/month from charts"
+            )
+            
+            st.divider()
+            
             # Department filter with count
             departments = db.get_unique_departments()
             selected_depts = st.multiselect(
@@ -2473,6 +2499,141 @@ def main():
     if selected_tool != 'All Tools' and not data.empty:
         data = data[data['tool_source'] == selected_tool]
     
+    # Apply frequency transformations (keep original data for other uses)
+    display_data = data.copy() if not data.empty else pd.DataFrame()
+    is_weekly_view = frequency.startswith('Weekly')
+    show_estimated_badge = False
+    
+    if not display_data.empty and 'tool_source' in display_data.columns and 'date' in display_data.columns:
+        # Ensure date column is datetime
+        display_data['date'] = pd.to_datetime(display_data['date'], errors='coerce')
+        
+        if is_weekly_view:
+            # WEEKLY VIEW: Keep OpenAI native, estimate BlueFlame from monthly
+            openai_data = display_data[display_data['tool_source'] == 'ChatGPT'].copy()
+            blueflame_data = display_data[display_data['tool_source'] == 'BlueFlame AI'].copy()
+            
+            transformed_parts = []
+            
+            # OpenAI: Native weekly - just assign ISO week start
+            if not openai_data.empty:
+                openai_data['period_start'] = openai_data['date'] - pd.to_timedelta(
+                    openai_data['date'].dt.weekday, unit='D'
+                )
+                # Group by week and other dimensions
+                openai_weekly = openai_data.groupby(
+                    ['period_start', 'user_id', 'user_name', 'email', 'department', 
+                     'feature_used', 'tool_source', 'file_source'],
+                    as_index=False
+                ).agg({'usage_count': 'sum'})
+                transformed_parts.append(openai_weekly)
+            
+            # BlueFlame: Estimate weekly from monthly (if we have monthly data)
+            if not blueflame_data.empty:
+                show_estimated_badge = True
+                # Group by month first to get monthly totals
+                blueflame_data['month'] = blueflame_data['date'].dt.to_period('M').dt.to_timestamp()
+                blueflame_monthly = blueflame_data.groupby(
+                    ['month', 'user_id', 'user_name', 'email', 'department', 
+                     'feature_used', 'tool_source', 'file_source'],
+                    as_index=False
+                ).agg({'usage_count': 'sum'})
+                
+                # Allocate each monthly total to weeks
+                bf_weekly_parts = []
+                for _, row in blueflame_monthly.iterrows():
+                    month_df = pd.DataFrame({
+                        'date': [row['month']],
+                        'usage_count': [row['usage_count']]
+                    })
+                    weekly_alloc = blueflame_monthly_to_weekly_estimated(
+                        month_df, 
+                        date_col='date',
+                        value_col='usage_count',
+                        method='even_by_day'
+                    )
+                    if not weekly_alloc.empty:
+                        # Add back user/metadata
+                        for col in ['user_id', 'user_name', 'email', 'department', 
+                                   'feature_used', 'tool_source', 'file_source']:
+                            weekly_alloc[col] = row[col]
+                        weekly_alloc.rename(columns={'iso_week_start': 'period_start'}, inplace=True)
+                        bf_weekly_parts.append(weekly_alloc)
+                
+                if bf_weekly_parts:
+                    blueflame_weekly = pd.concat(bf_weekly_parts, ignore_index=True)
+                    transformed_parts.append(blueflame_weekly)
+            
+            # Combine transformed data
+            if transformed_parts:
+                display_data = pd.concat(transformed_parts, ignore_index=True)
+                
+                # Exclude partial week if requested
+                if exclude_partial:
+                    today = pd.Timestamp.today().normalize()
+                    current_week_start = today - pd.to_timedelta(today.weekday(), unit='D')
+                    display_data = display_data[display_data['period_start'] < current_week_start]
+        
+        else:
+            # MONTHLY VIEW: Prorate OpenAI weekly to monthly, keep BlueFlame native
+            openai_data = display_data[display_data['tool_source'] == 'ChatGPT'].copy()
+            blueflame_data = display_data[display_data['tool_source'] == 'BlueFlame AI'].copy()
+            
+            transformed_parts = []
+            
+            # OpenAI: Prorate weekly to monthly
+            if not openai_data.empty:
+                # Process each user/feature combination separately
+                oa_monthly_parts = []
+                grouped = openai_data.groupby(
+                    ['user_id', 'user_name', 'email', 'department', 
+                     'feature_used', 'tool_source', 'file_source'],
+                    as_index=False
+                )
+                
+                for name, group in grouped:
+                    weekly_df = group[['date', 'usage_count']].copy()
+                    monthly_alloc = openai_weekly_to_monthly(
+                        weekly_df,
+                        date_col='date',
+                        value_col='usage_count'
+                    )
+                    if not monthly_alloc.empty:
+                        # Add back metadata
+                        for i, col in enumerate(['user_id', 'user_name', 'email', 'department', 
+                                                 'feature_used', 'tool_source', 'file_source']):
+                            monthly_alloc[col] = name[i]
+                        oa_monthly_parts.append(monthly_alloc)
+                
+                if oa_monthly_parts:
+                    openai_monthly = pd.concat(oa_monthly_parts, ignore_index=True)
+                    transformed_parts.append(openai_monthly)
+            
+            # BlueFlame: Already monthly, just group by month
+            if not blueflame_data.empty:
+                blueflame_data['period_start'] = blueflame_data['date'].dt.to_period('M').dt.to_timestamp()
+                blueflame_monthly = blueflame_data.groupby(
+                    ['period_start', 'user_id', 'user_name', 'email', 'department', 
+                     'feature_used', 'tool_source', 'file_source'],
+                    as_index=False
+                ).agg({'usage_count': 'sum'})
+                transformed_parts.append(blueflame_monthly)
+            
+            # Combine transformed data
+            if transformed_parts:
+                display_data = pd.concat(transformed_parts, ignore_index=True)
+                
+                # Exclude partial month if requested
+                if exclude_partial:
+                    today = pd.Timestamp.today().normalize()
+                    current_month = today.to_period('M').to_timestamp()
+                    display_data = display_data[display_data['period_start'] < current_month]
+        
+        # Re-aggregate the transformed data for charts (sum by period)
+        if not display_data.empty and 'period_start' in display_data.columns:
+            # Keep the date column as period_start for compatibility
+            display_data['date'] = display_data['period_start']
+    
     if data.empty:
         # Enhanced empty state for no filtered data
         st.markdown("""
@@ -2499,6 +2660,10 @@ def main():
     
     # TAB 1: Executive Overview
     with tab1:
+        # Show estimated data badge for weekly views with BlueFlame
+        if show_estimated_badge:
+            st.info("ℹ️ **BlueFlame weekly values are estimated** from monthly totals using even-by-day allocation. OpenAI data is shown at native weekly grain.")
+        
         # Clean header without emoji, with compact export menu
         col1, col2 = st.columns([4, 1])
         with col1:
