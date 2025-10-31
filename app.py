@@ -3042,7 +3042,7 @@ def main():
             
             # Update layout with improved styling
             fig.update_layout(
-                title=f"Department Usage Comparison ({len(dept_stats_filtered)} of {len(dept_stats)} depts) - Click a bar to view users",
+                title=f"Department Usage Comparison - Message Type Breakdown ({len(dept_stats_filtered)} of {len(dept_stats)} depts)",
                 xaxis=dict(title='Department', tickangle=-45, tickfont=dict(size=11)),
                 yaxis=dict(title='Total Messages', gridcolor='rgba(255,255,255,0.1)'),
                 yaxis2=dict(title='Active Users', gridcolor='rgba(255,255,255,0)', range=[0, max(dept_stats_filtered['Active Users'])*1.2]),
@@ -3082,68 +3082,84 @@ def main():
                     yanchor='middle'
                 )
             
-            # Display chart with click event handling
-            clicked_dept = st.plotly_chart(fig, use_container_width=True, key='dept_comparison_chart', on_select='rerun')
+            # Display chart
+            st.plotly_chart(fig, use_container_width=True, key='dept_comparison_chart')
             
-            # Handle department bar clicks for drilldown
-            if clicked_dept and clicked_dept.selection and clicked_dept.selection.points:
-                selected_point = clicked_dept.selection.points[0]
-                if 'x' in selected_point:
-                    selected_dept = selected_point['x']
+            # Department drilldown selector
+            st.markdown("---")
+            st.markdown("### 👥 Department User Drilldown")
+            st.caption("Select a department to view detailed user-level statistics")
+            
+            # Create department selector
+            dept_selector_col, spacer_col = st.columns([3, 2])
+            with dept_selector_col:
+                selected_dept = st.selectbox(
+                    "Choose a department:",
+                    options=['[Select a department]'] + dept_stats_filtered['Department'].tolist(),
+                    key='dept_drilldown_selector'
+                )
+            
+            # Show user details if a department is selected
+            if selected_dept and selected_dept != '[Select a department]':
+                st.markdown(f"#### 📊 Users in {selected_dept}")
+                
+                # Get users for this department
+                dept_users = data[data['department'] == selected_dept].copy()
+                
+                if not dept_users.empty:
+                    # Aggregate by user
+                    user_stats = dept_users.groupby(['email', 'user_name']).agg({
+                        'usage_count': 'sum',
+                        'date': ['min', 'max']
+                    }).reset_index()
                     
-                    st.markdown(f"### 👥 Users in {selected_dept}")
-                    st.caption(f"Detailed user-level statistics for {selected_dept} department")
+                    # Flatten multi-level columns
+                    user_stats.columns = ['email', 'user_name', 'total_messages', 'first_active', 'last_active']
                     
-                    # Get users for this department
-                    dept_users = data[data['department'] == selected_dept].copy()
+                    # Get message type breakdown for each user
+                    for msg_type in message_type_cols:
+                        user_msg_type = dept_users[dept_users['feature_used'] == msg_type].groupby('email')['usage_count'].sum()
+                        user_stats[msg_type] = user_stats['email'].map(user_msg_type).fillna(0).astype(int)
                     
-                    if not dept_users.empty:
-                        # Aggregate by user
-                        user_stats = dept_users.groupby(['email', 'user_name']).agg({
-                            'usage_count': 'sum',
-                            'date': ['min', 'max']
-                        }).reset_index()
-                        
-                        # Flatten multi-level columns
-                        user_stats.columns = ['email', 'user_name', 'total_messages', 'first_active', 'last_active']
-                        
-                        # Get message type breakdown for each user
-                        for msg_type in message_type_cols:
-                            user_msg_type = dept_users[dept_users['feature_used'] == msg_type].groupby('email')['usage_count'].sum()
-                            user_stats[msg_type] = user_stats['email'].map(user_msg_type).fillna(0).astype(int)
-                        
-                        # Sort by total messages
-                        user_stats = user_stats.sort_values('total_messages', ascending=False)
-                        
-                        # Display user table
-                        st.dataframe(
-                            user_stats,
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                'email': st.column_config.TextColumn('Email', width='medium'),
-                                'user_name': st.column_config.TextColumn('Name', width='medium'),
-                                'total_messages': st.column_config.NumberColumn('Total Messages', format='%d'),
-                                'first_active': st.column_config.DateColumn('First Active'),
-                                'last_active': st.column_config.DateColumn('Last Active'),
-                                **{msg_type: st.column_config.NumberColumn(msg_type, format='%d') for msg_type in message_type_cols}
-                            }
-                        )
-                        
-                        # Add download button for this department's users
-                        csv = user_stats.to_csv(index=False)
-                        st.download_button(
-                            label=f"📥 Download {selected_dept} Users CSV",
-                            data=csv,
-                            file_name=f"{selected_dept.lower().replace(' ', '_')}_users.csv",
-                            mime="text/csv"
-                        )
-                        
-                        # Add close button
-                        if st.button("✖ Close User Details"):
-                            st.rerun()
-                    else:
-                        st.info(f"No user data available for {selected_dept}")
+                    # Sort by total messages
+                    user_stats = user_stats.sort_values('total_messages', ascending=False)
+                    
+                    # Summary metrics for selected department
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Users", len(user_stats))
+                    with col2:
+                        st.metric("Total Messages", f"{user_stats['total_messages'].sum():,}")
+                    with col3:
+                        st.metric("Avg Messages/User", f"{user_stats['total_messages'].mean():,.0f}")
+                    
+                    st.markdown("**User Details:**")
+                    
+                    # Display user table
+                    st.dataframe(
+                        user_stats,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            'email': st.column_config.TextColumn('Email', width='medium'),
+                            'user_name': st.column_config.TextColumn('Name', width='medium'),
+                            'total_messages': st.column_config.NumberColumn('Total Messages', format='%d'),
+                            'first_active': st.column_config.DateColumn('First Active'),
+                            'last_active': st.column_config.DateColumn('Last Active'),
+                            **{msg_type: st.column_config.NumberColumn(msg_type, format='%d') for msg_type in message_type_cols if msg_type in user_stats.columns}
+                        }
+                    )
+                    
+                    # Add download button for this department's users
+                    csv = user_stats.to_csv(index=False)
+                    st.download_button(
+                        label=f"📥 Download {selected_dept} Users CSV",
+                        data=csv,
+                        file_name=f"{selected_dept.lower().replace(' ', '_')}_users.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info(f"No user data available for {selected_dept}")
             
             
             # USING THE SPACE BELOW: Add a detailed data table
