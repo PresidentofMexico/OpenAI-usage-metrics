@@ -2004,7 +2004,6 @@ def calculate_weekly_trends(data):
     weekly['week_display'] = weekly['week_start'].dt.strftime(WEEK_DISPLAY_FORMAT)
     
     return weekly
-    return weekly
 
 def main():
     # Main header - professional title without emoji
