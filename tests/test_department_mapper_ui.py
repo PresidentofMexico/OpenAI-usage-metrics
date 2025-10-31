@@ -7,8 +7,8 @@ import pandas as pd
 import sys
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
-    sys.path.insert(0, project_root)
+project_root = os.path.dirname(script_dir)
+sys.path.insert(0, project_root)
 from app import _select_primary_department
 
 # Create test data with users from multiple tools

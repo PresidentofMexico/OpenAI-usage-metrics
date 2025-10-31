@@ -9,8 +9,8 @@ import json
 import os
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
-    sys.path.insert(0, project_root)
+project_root = os.path.dirname(script_dir)
+sys.path.insert(0, project_root)
 
 from database import DatabaseManager
 from app import _select_primary_department
