@@ -6,7 +6,9 @@ This test shows how the pagination works for the exact scenario described in the
 import pandas as pd
 import sys
 
-sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+sys.path.insert(0, project_root)
 
 def simulate_department_mapper_pagination():
     """

@@ -17,7 +17,9 @@ import os
 from datetime import datetime
 
 # Add project root to path
-sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+sys.path.insert(0, project_root)
 
 from chatgpt_data_validator import ChatGPTDataValidator
 from data_handlers import WeeklyDataHandler, MonthlyDataHandler, DataReconciliationTool

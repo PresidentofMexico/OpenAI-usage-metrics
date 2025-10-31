@@ -5,7 +5,9 @@ Test script to verify Department Mapper pagination functionality.
 import pandas as pd
 import sys
 
-sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
 
 # Simulate pagination logic
 def test_pagination():

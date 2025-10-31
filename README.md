@@ -384,7 +384,7 @@ print(f"Annual projection: {projection['projections']['simple_annual']:,}")
 
 Run the comprehensive test suite:
 ```bash
-python test_data_validation.py
+python tests/test_data_validation.py
 ```
 
 **Expected Output:**
@@ -600,7 +600,7 @@ http://localhost:8501
 **Automated Test Suite:**
 ```bash
 # Run critical fixes test
-python test_critical_fixes.py
+python tests/test_critical_fixes.py
 ```
 
 Expected output:
@@ -732,7 +732,7 @@ We welcome contributions! To get started:
 1. **Fork the repository**
 2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
 3. **Make your changes** with tests
-4. **Run the test suite** (`python test_critical_fixes.py`)
+4. **Run the test suite** (`python tests/test_critical_fixes.py`)
 5. **Commit your changes** (`git commit -m 'Add amazing feature'`)
 6. **Push to the branch** (`git push origin feature/amazing-feature`)
 7. **Open a Pull Request**
