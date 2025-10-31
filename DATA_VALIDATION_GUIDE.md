@@ -197,7 +197,7 @@ messages,gpt_messages,tool_messages,project_messages,...
 ### Run All Tests
 
 ```bash
-python test_data_validation.py
+python tests/test_data_validation.py
 ```
 
 ### Test Coverage

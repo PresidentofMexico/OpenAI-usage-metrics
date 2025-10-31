@@ -31,15 +31,16 @@ def setup_test_database():
     processor = DataProcessor(db)
     
     # Load sample employees from existing test file
-    print("\n1. Loading employees from test_employees.csv...")
+    print("\n1. Loading employees from tests/data/test_employees.csv...")
     
     # Use relative path and check if file exists
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    employee_file = os.path.join(script_dir, 'test_employees.csv')
+    # Go up to tests/ then into data/
+    employee_file = os.path.join(script_dir, '..', 'data', 'test_employees.csv')
     
     if not os.path.exists(employee_file):
         print(f"ERROR: Employee file not found: {employee_file}")
-        print("Please ensure test_employees.csv exists in the same directory as this script.")
+        print("Please ensure test_employees.csv exists in tests/data/ directory.")
         return None
     
     emp_df = pd.read_csv(employee_file)

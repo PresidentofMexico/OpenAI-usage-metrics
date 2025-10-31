@@ -6,7 +6,9 @@ This script creates test data and shows how the deduplication works.
 import pandas as pd
 import sys
 
-sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
 from app import _select_primary_department
 
 # Create test data with users from multiple tools

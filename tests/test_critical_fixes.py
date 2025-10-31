@@ -10,6 +10,7 @@ Tests the following critical fixes:
 
 import pandas as pd
 import sys
+import os
 from datetime import datetime
 
 def test_date_calculation_fix():
@@ -36,7 +37,9 @@ def test_power_user_deduplication():
     print("\n🧪 Testing Power User Deduplication...")
     
     # Import the function
-    sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
     from app import calculate_power_users, _select_primary_department
     
     # Create test data with duplicate user in different departments
@@ -73,7 +76,9 @@ def test_department_selection():
     """Test that department selection prioritizes non-BlueFlame departments."""
     print("\n🧪 Testing Department Selection Logic...")
     
-    sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
     from app import _select_primary_department
     
     # Test case 1: Multiple departments including BlueFlame
@@ -100,7 +105,9 @@ def test_blueflame_format_detection():
     """Test that BlueFlame data format is properly detected."""
     print("\n🧪 Testing BlueFlame Format Detection...")
     
-    sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
     from app import detect_data_source
     
     # Test combined format (with Table column)

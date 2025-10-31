@@ -12,7 +12,9 @@ def test_department_mapper_deduplication():
     """Test that department mapper deduplicates users by email only."""
     print("\n🧪 Testing Department Mapper Deduplication...")
     
-    sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
     from app import _select_primary_department
     
     # Simulate data from database with duplicate user across different tools/departments

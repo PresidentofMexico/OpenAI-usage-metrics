@@ -148,8 +148,8 @@ Jane,Smith,jane.smith@company.com,Product Manager,Product,Active
 ## 📚 Documentation
 
 - [EMPLOYEE_INTEGRATION_GUIDE.md](EMPLOYEE_INTEGRATION_GUIDE.md) - Complete user guide
-- [test_employee_integration.py](test_employee_integration.py) - Comprehensive test suite
-- [test_employees.csv](test_employees.csv) - Sample employee data
+- [../tests/test_employee_integration.py](../tests/test_employee_integration.py) - Comprehensive test suite
+- [../tests/data/test_employees.csv](../tests/data/test_employees.csv) - Sample employee data
 - [README.md](README.md) - Updated with feature reference
 
 ## 🔍 Code Quality
@@ -187,8 +187,8 @@ print(f"Found {len(unidentified)} unidentified users")
 2. **app.py** - Updated normalization and UI components
 3. **README.md** - Added feature reference
 4. **EMPLOYEE_INTEGRATION_GUIDE.md** - New comprehensive guide
-5. **test_employee_integration.py** - New test suite
-6. **test_employees.csv** - Sample data
+5. **tests/test_employee_integration.py** - New test suite
+6. **tests/data/test_employees.csv** - Sample data
 
 ## ✨ Next Steps (Future Enhancements)
 

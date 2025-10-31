@@ -97,7 +97,7 @@ Monthly Total: 750 messages
   ✅ Sum: 750 messages
 ```
 
-### 4. Comprehensive Testing (`test_data_validation.py`)
+### 4. Comprehensive Testing (`tests/test_data_validation.py`)
 
 **Test Coverage:** 9/9 tests passing
 
@@ -189,7 +189,7 @@ Tested with actual OpenAI data from May 2025:
 **Total Lines of Code:** ~1,350 lines
 - `chatgpt_data_validator.py`: ~550 lines
 - `data_handlers.py`: ~650 lines
-- `test_data_validation.py`: ~350 lines
+- `tests/test_data_validation.py`: ~350 lines
 - `DATA_VALIDATION_GUIDE.md`: ~450 lines
 
 **Dependencies:** Minimal
