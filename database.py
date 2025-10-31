@@ -32,6 +32,9 @@ class DatabaseManager:
                     cost_usd REAL,
                     tool_source TEXT DEFAULT 'ChatGPT',
                     file_source TEXT,
+                    last_day_active TEXT,
+                    first_day_active_in_period TEXT,
+                    last_day_active_in_period TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -87,6 +90,40 @@ class DatabaseManager:
                     conn.commit()
                 except Exception as e:
                     print(f"Error adding tool_source column: {e}")
+                    conn.close()
+                    raise
+            
+            # Migrate activity date columns if needed
+            cursor = conn.execute("PRAGMA table_info(usage_metrics)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'last_day_active' not in columns:
+                try:
+                    print("Migrating database: Adding 'last_day_active' column...")
+                    conn.execute("ALTER TABLE usage_metrics ADD COLUMN last_day_active TEXT")
+                    conn.commit()
+                except Exception as e:
+                    print(f"Error adding last_day_active column: {e}")
+                    conn.close()
+                    raise
+            
+            if 'first_day_active_in_period' not in columns:
+                try:
+                    print("Migrating database: Adding 'first_day_active_in_period' column...")
+                    conn.execute("ALTER TABLE usage_metrics ADD COLUMN first_day_active_in_period TEXT")
+                    conn.commit()
+                except Exception as e:
+                    print(f"Error adding first_day_active_in_period column: {e}")
+                    conn.close()
+                    raise
+            
+            if 'last_day_active_in_period' not in columns:
+                try:
+                    print("Migrating database: Adding 'last_day_active_in_period' column...")
+                    conn.execute("ALTER TABLE usage_metrics ADD COLUMN last_day_active_in_period TEXT")
+                    conn.commit()
+                except Exception as e:
+                    print(f"Error adding last_day_active_in_period column: {e}")
                     conn.close()
                     raise
             
