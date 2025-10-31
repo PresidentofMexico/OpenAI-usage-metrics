@@ -2504,6 +2504,10 @@ def main():
     is_weekly_view = frequency.startswith('Weekly')
     show_estimated_badge = False
     
+    # Column list for grouping operations
+    GROUPBY_COLS = ['user_id', 'user_name', 'email', 'department', 
+                    'feature_used', 'tool_source', 'file_source']
+    
     if not display_data.empty and 'tool_source' in display_data.columns and 'date' in display_data.columns:
         # Ensure date column is datetime
         display_data['date'] = pd.to_datetime(display_data['date'], errors='coerce')
@@ -2522,8 +2526,7 @@ def main():
                 )
                 # Group by week and other dimensions
                 openai_weekly = openai_data.groupby(
-                    ['period_start', 'user_id', 'user_name', 'email', 'department', 
-                     'feature_used', 'tool_source', 'file_source'],
+                    ['period_start'] + GROUPBY_COLS,
                     as_index=False
                 ).agg({'usage_count': 'sum'})
                 transformed_parts.append(openai_weekly)
@@ -2534,8 +2537,7 @@ def main():
                 # Group by month first to get monthly totals
                 blueflame_data['month'] = blueflame_data['date'].dt.to_period('M').dt.to_timestamp()
                 blueflame_monthly = blueflame_data.groupby(
-                    ['month', 'user_id', 'user_name', 'email', 'department', 
-                     'feature_used', 'tool_source', 'file_source'],
+                    ['month'] + GROUPBY_COLS,
                     as_index=False
                 ).agg({'usage_count': 'sum'})
                 
@@ -2554,8 +2556,7 @@ def main():
                     )
                     if not weekly_alloc.empty:
                         # Add back user/metadata
-                        for col in ['user_id', 'user_name', 'email', 'department', 
-                                   'feature_used', 'tool_source', 'file_source']:
+                        for col in GROUPBY_COLS:
                             weekly_alloc[col] = row[col]
                         weekly_alloc.rename(columns={'iso_week_start': 'period_start'}, inplace=True)
                         bf_weekly_parts.append(weekly_alloc)
@@ -2585,11 +2586,7 @@ def main():
             if not openai_data.empty:
                 # Process each user/feature combination separately
                 oa_monthly_parts = []
-                grouped = openai_data.groupby(
-                    ['user_id', 'user_name', 'email', 'department', 
-                     'feature_used', 'tool_source', 'file_source'],
-                    as_index=False
-                )
+                grouped = openai_data.groupby(GROUPBY_COLS, as_index=False)
                 
                 for name, group in grouped:
                     weekly_df = group[['date', 'usage_count']].copy()
@@ -2600,8 +2597,7 @@ def main():
                     )
                     if not monthly_alloc.empty:
                         # Add back metadata
-                        for i, col in enumerate(['user_id', 'user_name', 'email', 'department', 
-                                                 'feature_used', 'tool_source', 'file_source']):
+                        for i, col in enumerate(GROUPBY_COLS):
                             monthly_alloc[col] = name[i]
                         oa_monthly_parts.append(monthly_alloc)
                 
@@ -2613,8 +2609,7 @@ def main():
             if not blueflame_data.empty:
                 blueflame_data['period_start'] = blueflame_data['date'].dt.to_period('M').dt.to_timestamp()
                 blueflame_monthly = blueflame_data.groupby(
-                    ['period_start', 'user_id', 'user_name', 'email', 'department', 
-                     'feature_used', 'tool_source', 'file_source'],
+                    ['period_start'] + GROUPBY_COLS,
                     as_index=False
                 ).agg({'usage_count': 'sum'})
                 transformed_parts.append(blueflame_monthly)

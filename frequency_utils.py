@@ -143,8 +143,10 @@ def blueflame_monthly_to_weekly_estimated(df, date_col="date", value_col="usage_
         # Renormalize to preserve monthly total (only across business days)
         month_key = days.groupby(level=0).ngroup()
         month_sums = days.groupby(month_key)[value_col].transform("sum").replace(0, np.nan)
-        days[value_col] = days[value_col] / month_sums
-        days[value_col] = days[value_col].fillna(0) * base.loc[days.index.get_level_values(0), value_col].values
+        
+        # Scale back up to match original monthly totals
+        original_values = base.loc[days.index.get_level_values(0), value_col].values
+        days[value_col] = (days[value_col] / month_sums * original_values).fillna(0)
 
     elif method == "proportional_to_openai" and openai_weekly is not None:
         # Allocate based on OpenAI's weekly proportions within each month
@@ -179,7 +181,7 @@ def blueflame_monthly_to_weekly_estimated(df, date_col="date", value_col="usage_
                 week_starts = pd.date_range(m, m + pd.offsets.MonthEnd(0), freq=ISO_WEEK_START_DAY)
                 
                 # Ensure we include the week containing the month start
-                if len(week_starts) == 0 or week_starts[0] != m.normalize():
+                if len(week_starts) == 0 or (len(week_starts) > 0 and week_starts[0] != m.normalize()):
                     week_starts = pd.date_range(
                         m - pd.offsets.Week(weekday=0), 
                         m + pd.offsets.MonthEnd(0), 
