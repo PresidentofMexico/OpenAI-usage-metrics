@@ -26,6 +26,9 @@ from export_utils import generate_excel_export, generate_pdf_report_html
 from cost_calculator import EnterpriseCostCalculator
 from frequency_utils import openai_weekly_to_monthly, blueflame_monthly_to_weekly_estimated
 
+# Constants
+WEEKLY_CHART_DATE_FORMAT = '%m/%d/%Y'  # Format for displaying week dates in weekly trend charts
+
 # Page configuration
 st.set_page_config(
     page_title="AI Usage Analytics Dashboard",
@@ -1985,8 +1988,8 @@ def calculate_weekly_trends(data):
     data_copy['date'] = pd.to_datetime(data_copy['date'], errors='coerce')
     data_copy = data_copy.dropna(subset=['date'])
     
-    # Extract week
-    data_copy['week'] = data_copy['date'].dt.to_period('W').astype(str)
+    # Extract week - keep period for grouping
+    data_copy['week'] = data_copy['date'].dt.to_period('W')
     
     # Aggregate by week
     weekly = data_copy.groupby('week').agg({
@@ -1994,6 +1997,9 @@ def calculate_weekly_trends(data):
         'usage_count': 'sum'
     }).reset_index()
     weekly.columns = ['week', 'active_users', 'total_messages']
+    
+    # Format week for display as MM/DD/YYYY (vectorized)
+    weekly['week_display'] = weekly['week'].dt.start_time.dt.strftime(WEEKLY_CHART_DATE_FORMAT)
     
     return weekly
 
@@ -4010,6 +4016,7 @@ def main():
             
             # Weekly Trends
             st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📅 Weekly Activity Trends</h3>', unsafe_allow_html=True)
+            st.caption("📊 OpenAI weekly data only (no Blueflame data included)")
             
             weekly_data = calculate_weekly_trends(openai_data)
             
@@ -4020,17 +4027,18 @@ def main():
                     # Active users trend
                     fig_users = px.line(
                         weekly_data,
-                        x='week',
+                        x='week_display',
                         y='active_users',
                         title='Weekly Active Users',
                         markers=True,
-                        labels={'week': 'Week', 'active_users': 'Active Users'}
+                        labels={'week_display': 'Week Starting', 'active_users': 'Active Users'}
                     )
                     
                     fig_users.update_traces(
                         line_color='#667eea',
                         line_width=3,
-                        marker=dict(size=8)
+                        marker=dict(size=8),
+                        hovertemplate='%{y}<extra></extra>'  # Show only value; <extra></extra> removes trace name box
                     )
                     
                     fig_users.update_layout(
@@ -4038,7 +4046,12 @@ def main():
                         paper_bgcolor='rgba(0,0,0,0)',
                         font=dict(color='white'),
                         hovermode='x unified',
-                        height=350
+                        height=350,
+                        xaxis=dict(
+                            tickangle=-45,
+                            tickmode='auto',
+                            nticks=10
+                        )
                     )
                     
                     st.plotly_chart(fig_users, use_container_width=True)
@@ -4047,12 +4060,16 @@ def main():
                     # Message volume trend
                     fig_messages = px.bar(
                         weekly_data,
-                        x='week',
+                        x='week_display',
                         y='total_messages',
                         title='Weekly Message Volume',
-                        labels={'week': 'Week', 'total_messages': 'Total Messages'},
+                        labels={'week_display': 'Week Starting', 'total_messages': 'Total Messages'},
                         color='total_messages',
                         color_continuous_scale='Blues'
+                    )
+                    
+                    fig_messages.update_traces(
+                        hovertemplate='%{y}<extra></extra>'  # Show only value; <extra></extra> removes trace name box
                     )
                     
                     fig_messages.update_layout(
@@ -4060,7 +4077,12 @@ def main():
                         paper_bgcolor='rgba(0,0,0,0)',
                         font=dict(color='white'),
                         showlegend=False,
-                        height=350
+                        height=350,
+                        xaxis=dict(
+                            tickangle=-45,
+                            tickmode='auto',
+                            nticks=10
+                        )
                     )
                     
                     st.plotly_chart(fig_messages, use_container_width=True)
