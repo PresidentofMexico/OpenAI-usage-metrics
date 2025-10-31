@@ -2900,12 +2900,25 @@ def main():
         # Department Performance Analytics
         st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Department Performance</h3>', unsafe_allow_html=True)
         
-        # Calculate comprehensive department statistics
+        # Calculate comprehensive department statistics with message type breakdown
         dept_stats = data.groupby('department').agg({
             'user_id': 'nunique',
             'usage_count': 'sum'
         }).reset_index()
         dept_stats.columns = ['Department', 'Active Users', 'Total Usage']
+        
+        # Calculate message type breakdown for each department
+        dept_message_breakdown = data.groupby(['department', 'feature_used'])['usage_count'].sum().reset_index()
+        dept_message_pivot = dept_message_breakdown.pivot(index='department', columns='feature_used', values='usage_count').fillna(0)
+        
+        # Merge message type breakdown with dept_stats
+        for col in dept_message_pivot.columns:
+            dept_stats = dept_stats.merge(
+                dept_message_pivot[[col]].reset_index().rename(columns={'department': 'Department', col: col}),
+                on='Department',
+                how='left'
+            )
+            dept_stats[col] = dept_stats[col].fillna(0)
         
         # Calculate derived metrics
         total_usage_all = dept_stats['Total Usage'].sum()
@@ -2982,25 +2995,35 @@ def main():
             }
             dept_stats_filtered = dept_stats_filtered.sort_values(by=sort_mapping[sort_by], ascending=False).head(num_depts)
             
-            # ENHANCED VISUALIZATION: Create a dual-axis chart for messages and users
+            # ENHANCED VISUALIZATION: Create a dual-axis chart with stacked bars for message types
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # Add bars for message counts
-            bar = go.Bar(
-                x=dept_stats_filtered['Department'],
-                y=dept_stats_filtered['Total Usage'],
-                name='Total Messages',
-                text=dept_stats_filtered['Total Usage'].apply(lambda x: f"{x:,}"),
-                textposition='outside',
-                marker=dict(
-                    color=dept_stats_filtered['Avg Messages/User'],
-                    colorscale='Blues',
-                    colorbar=dict(title='Msg/User'),
-                    showscale=True
-                ),
-                hovertemplate='<b>%{x}</b><br>Messages: %{y:,}<br>Pct of Total: %{customdata[0]}%<extra></extra>',
-                customdata=dept_stats_filtered[['Usage Share %']]
-            )
+            # Get all available message types from the filtered data
+            message_type_cols = [col for col in dept_stats_filtered.columns 
+                               if col not in ['Department', 'Active Users', 'Total Usage', 'Usage Share %', 'Avg Messages/User', 'Efficiency']]
+            
+            # Define color scheme for message types
+            message_type_colors = {
+                'ChatGPT Messages': '#10a37f',
+                'GPT Messages': '#0d8c6d',
+                'Tool Messages': '#0e7a63',
+                'Project Messages': '#0a6854',
+                'BlueFlame Messages': '#4f46e5'
+            }
+            
+            # Add stacked bars for each message type
+            for msg_type in message_type_cols:
+                if msg_type in dept_stats_filtered.columns:
+                    fig.add_trace(
+                        go.Bar(
+                            x=dept_stats_filtered['Department'],
+                            y=dept_stats_filtered[msg_type],
+                            name=msg_type,
+                            marker=dict(color=message_type_colors.get(msg_type, '#667eea')),
+                            hovertemplate=f'<b>{msg_type}</b><br>%{{y:,}} messages<extra></extra>'
+                        ),
+                        secondary_y=False
+                    )
             
             # Add line for active users
             line = go.Scatter(
@@ -3014,18 +3037,17 @@ def main():
                 yaxis='y2'
             )
             
-            # Add the main traces
-            fig.add_trace(bar)
+            # Add the line trace
             fig.add_trace(line, secondary_y=True)
             
             # Update layout with improved styling
             fig.update_layout(
-                title=f"Department Usage Comparison ({len(dept_stats_filtered)} of {len(dept_stats)} depts)",
+                title=f"Department Usage Comparison ({len(dept_stats_filtered)} of {len(dept_stats)} depts) - Click a bar to view users",
                 xaxis=dict(title='Department', tickangle=-45, tickfont=dict(size=11)),
                 yaxis=dict(title='Total Messages', gridcolor='rgba(255,255,255,0.1)'),
                 yaxis2=dict(title='Active Users', gridcolor='rgba(255,255,255,0)', range=[0, max(dept_stats_filtered['Active Users'])*1.2]),
                 legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
-                barmode='group',
+                barmode='stack',  # Changed to stack for message types
                 height=500,
                 margin=dict(t=80, b=100),
                 hovermode='closest',
@@ -3034,20 +3056,95 @@ def main():
                 font=dict(color='white')
             )
             
-            # Add avg messages per user annotations
+            # Add total messages and avg messages per user annotations
+            # Place 'Total Messages' at the top, 'Messages per User' inside bars
             for i, row in dept_stats_filtered.iterrows():
+                # Total messages at top of stacked bar
                 fig.add_annotation(
                     x=row['Department'],
                     y=row['Total Usage'],
-                    text=f"{row['Avg Messages/User']:,.0f}/user",
+                    text=f"{row['Total Usage']:,}",
                     showarrow=False,
-                    font=dict(size=10, color="#94A3B8"),
+                    font=dict(size=10, color="white", weight='bold'),
                     xanchor='center',
                     yanchor='bottom',
-                    yshift=10
+                    yshift=5
+                )
+                
+                # Messages per user inside the bar (at midpoint)
+                fig.add_annotation(
+                    x=row['Department'],
+                    y=row['Total Usage'] / 2,  # Middle of the bar
+                    text=f"{row['Avg Messages/User']:,.0f}/user",
+                    showarrow=False,
+                    font=dict(size=9, color="rgba(255,255,255,0.8)"),
+                    xanchor='center',
+                    yanchor='middle'
                 )
             
-            st.plotly_chart(fig, use_container_width=True)
+            # Display chart with click event handling
+            clicked_dept = st.plotly_chart(fig, use_container_width=True, key='dept_comparison_chart', on_select='rerun')
+            
+            # Handle department bar clicks for drilldown
+            if clicked_dept and clicked_dept.selection and clicked_dept.selection.points:
+                selected_point = clicked_dept.selection.points[0]
+                if 'x' in selected_point:
+                    selected_dept = selected_point['x']
+                    
+                    st.markdown(f"### 👥 Users in {selected_dept}")
+                    st.caption(f"Detailed user-level statistics for {selected_dept} department")
+                    
+                    # Get users for this department
+                    dept_users = data[data['department'] == selected_dept].copy()
+                    
+                    if not dept_users.empty:
+                        # Aggregate by user
+                        user_stats = dept_users.groupby(['email', 'user_name']).agg({
+                            'usage_count': 'sum',
+                            'date': ['min', 'max']
+                        }).reset_index()
+                        
+                        # Flatten multi-level columns
+                        user_stats.columns = ['email', 'user_name', 'total_messages', 'first_active', 'last_active']
+                        
+                        # Get message type breakdown for each user
+                        for msg_type in message_type_cols:
+                            user_msg_type = dept_users[dept_users['feature_used'] == msg_type].groupby('email')['usage_count'].sum()
+                            user_stats[msg_type] = user_stats['email'].map(user_msg_type).fillna(0).astype(int)
+                        
+                        # Sort by total messages
+                        user_stats = user_stats.sort_values('total_messages', ascending=False)
+                        
+                        # Display user table
+                        st.dataframe(
+                            user_stats,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                'email': st.column_config.TextColumn('Email', width='medium'),
+                                'user_name': st.column_config.TextColumn('Name', width='medium'),
+                                'total_messages': st.column_config.NumberColumn('Total Messages', format='%d'),
+                                'first_active': st.column_config.DateColumn('First Active'),
+                                'last_active': st.column_config.DateColumn('Last Active'),
+                                **{msg_type: st.column_config.NumberColumn(msg_type, format='%d') for msg_type in message_type_cols}
+                            }
+                        )
+                        
+                        # Add download button for this department's users
+                        csv = user_stats.to_csv(index=False)
+                        st.download_button(
+                            label=f"📥 Download {selected_dept} Users CSV",
+                            data=csv,
+                            file_name=f"{selected_dept.lower().replace(' ', '_')}_users.csv",
+                            mime="text/csv"
+                        )
+                        
+                        # Add close button
+                        if st.button("✖ Close User Details"):
+                            st.rerun()
+                    else:
+                        st.info(f"No user data available for {selected_dept}")
+            
             
             # USING THE SPACE BELOW: Add a detailed data table
             st.markdown("### Department Details")
