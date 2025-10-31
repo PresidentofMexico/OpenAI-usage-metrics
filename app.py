@@ -25,6 +25,9 @@ from config import AUTO_SCAN_FOLDERS, FILE_TRACKING_PATH, ENTERPRISE_PRICING, RE
 from export_utils import generate_excel_export, generate_pdf_report_html
 from cost_calculator import EnterpriseCostCalculator
 
+# Constants
+WEEK_DISPLAY_FORMAT = '%m/%d/%Y'  # Format for displaying week dates in charts
+
 # Page configuration
 st.set_page_config(
     page_title="AI Usage Analytics Dashboard",
@@ -1994,12 +1997,13 @@ def calculate_weekly_trends(data):
     }).reset_index()
     weekly.columns = ['week', 'active_users', 'total_messages']
     
-    # Convert week period to start date for proper date handling
-    weekly['week_start'] = weekly['week'].apply(lambda x: x.start_time)
+    # Convert week period to start date for proper date handling (vectorized)
+    weekly['week_start'] = weekly['week'].dt.start_time
     
     # Format week for display as MM/DD/YYYY
-    weekly['week_display'] = weekly['week_start'].dt.strftime('%m/%d/%Y')
+    weekly['week_display'] = weekly['week_start'].dt.strftime(WEEK_DISPLAY_FORMAT)
     
+    return weekly
     return weekly
 
 def main():
