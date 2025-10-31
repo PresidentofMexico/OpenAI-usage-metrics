@@ -2911,14 +2911,12 @@ def main():
         dept_message_breakdown = data.groupby(['department', 'feature_used'])['usage_count'].sum().reset_index()
         dept_message_pivot = dept_message_breakdown.pivot(index='department', columns='feature_used', values='usage_count').fillna(0)
         
-        # Merge message type breakdown with dept_stats
-        for col in dept_message_pivot.columns:
-            dept_stats = dept_stats.merge(
-                dept_message_pivot[[col]].reset_index().rename(columns={'department': 'Department', col: col}),
-                on='Department',
-                how='left'
-            )
-            dept_stats[col] = dept_stats[col].fillna(0)
+        # Merge message type breakdown with dept_stats (single merge for better performance)
+        dept_stats = dept_stats.merge(
+            dept_message_pivot.reset_index().rename(columns={'department': 'Department'}),
+            on='Department',
+            how='left'
+        ).fillna(0)
         
         # Calculate derived metrics
         total_usage_all = dept_stats['Total Usage'].sum()
@@ -3013,17 +3011,16 @@ def main():
             
             # Add stacked bars for each message type
             for msg_type in message_type_cols:
-                if msg_type in dept_stats_filtered.columns:
-                    fig.add_trace(
-                        go.Bar(
-                            x=dept_stats_filtered['Department'],
-                            y=dept_stats_filtered[msg_type],
-                            name=msg_type,
-                            marker=dict(color=message_type_colors.get(msg_type, '#667eea')),
-                            hovertemplate=f'<b>{msg_type}</b><br>%{{y:,}} messages<extra></extra>'
-                        ),
-                        secondary_y=False
-                    )
+                fig.add_trace(
+                    go.Bar(
+                        x=dept_stats_filtered['Department'],
+                        y=dept_stats_filtered[msg_type],
+                        name=msg_type,
+                        marker=dict(color=message_type_colors.get(msg_type, '#667eea')),
+                        hovertemplate=f'<b>{msg_type}</b><br>%{{y:,}} messages<extra></extra>'
+                    ),
+                    secondary_y=False
+                )
             
             # Add line for active users
             line = go.Scatter(
@@ -3045,7 +3042,11 @@ def main():
                 title=f"Department Usage Comparison - Message Type Breakdown ({len(dept_stats_filtered)} of {len(dept_stats)} depts)",
                 xaxis=dict(title='Department', tickangle=-45, tickfont=dict(size=11)),
                 yaxis=dict(title='Total Messages', gridcolor='rgba(255,255,255,0.1)'),
-                yaxis2=dict(title='Active Users', gridcolor='rgba(255,255,255,0)', range=[0, max(dept_stats_filtered['Active Users'])*1.2]),
+                yaxis2=dict(
+                    title='Active Users', 
+                    gridcolor='rgba(255,255,255,0)', 
+                    range=[0, max(dept_stats_filtered['Active Users'])*1.2] if not dept_stats_filtered.empty else [0, 1]
+                ),
                 legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
                 barmode='stack',  # Changed to stack for message types
                 height=500,
@@ -3085,17 +3086,17 @@ def main():
             # Display chart
             st.plotly_chart(fig, use_container_width=True, key='dept_comparison_chart')
             
-            # Department drilldown selector
+            # Department drilldown selector (use all departments, not just filtered ones)
             st.markdown("---")
             st.markdown("### 👥 Department User Drilldown")
             st.caption("Select a department to view detailed user-level statistics")
             
-            # Create department selector
+            # Create department selector with all departments
             dept_selector_col, spacer_col = st.columns([3, 2])
             with dept_selector_col:
                 selected_dept = st.selectbox(
                     "Choose a department:",
-                    options=['[Select a department]'] + dept_stats_filtered['Department'].tolist(),
+                    options=['[Select a department]'] + dept_stats['Department'].tolist(),
                     key='dept_drilldown_selector'
                 )
             

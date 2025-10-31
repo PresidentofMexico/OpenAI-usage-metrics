@@ -38,14 +38,12 @@ def test_dept_message_type_breakdown():
     dept_message_breakdown = test_data.groupby(['department', 'feature_used'])['usage_count'].sum().reset_index()
     dept_message_pivot = dept_message_breakdown.pivot(index='department', columns='feature_used', values='usage_count').fillna(0)
     
-    # Merge message type breakdown with dept_stats
-    for col in dept_message_pivot.columns:
-        dept_stats = dept_stats.merge(
-            dept_message_pivot[[col]].reset_index().rename(columns={'department': 'Department', col: col}),
-            on='Department',
-            how='left'
-        )
-        dept_stats[col] = dept_stats[col].fillna(0)
+    # Merge message type breakdown with dept_stats (single merge for better performance)
+    dept_stats = dept_stats.merge(
+        dept_message_pivot.reset_index().rename(columns={'department': 'Department'}),
+        on='Department',
+        how='left'
+    ).fillna(0)
     
     # Verify Finance department has correct breakdown
     finance_row = dept_stats[dept_stats['Department'] == 'Finance'].iloc[0]
@@ -133,14 +131,12 @@ def test_stacked_bar_data_structure():
     dept_message_breakdown = test_data.groupby(['department', 'feature_used'])['usage_count'].sum().reset_index()
     dept_message_pivot = dept_message_breakdown.pivot(index='department', columns='feature_used', values='usage_count').fillna(0)
     
-    # Merge message type breakdown
-    for col in dept_message_pivot.columns:
-        dept_stats = dept_stats.merge(
-            dept_message_pivot[[col]].reset_index().rename(columns={'department': 'Department', col: col}),
-            on='Department',
-            how='left'
-        )
-        dept_stats[col] = dept_stats[col].fillna(0)
+    # Merge message type breakdown (single merge for better performance)
+    dept_stats = dept_stats.merge(
+        dept_message_pivot.reset_index().rename(columns={'department': 'Department'}),
+        on='Department',
+        how='left'
+    ).fillna(0)
     
     # Get message type columns for stacking
     message_type_cols = [col for col in dept_stats.columns 

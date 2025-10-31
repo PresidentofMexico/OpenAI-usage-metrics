@@ -50,14 +50,12 @@ def test_with_real_data():
     dept_message_breakdown = data.groupby(['department', 'feature_used'])['usage_count'].sum().reset_index()
     dept_message_pivot = dept_message_breakdown.pivot(index='department', columns='feature_used', values='usage_count').fillna(0)
     
-    # Merge message type breakdown with dept_stats
-    for col in dept_message_pivot.columns:
-        dept_stats = dept_stats.merge(
-            dept_message_pivot[[col]].reset_index().rename(columns={'department': 'Department', col: col}),
-            on='Department',
-            how='left'
-        )
-        dept_stats[col] = dept_stats[col].fillna(0)
+    # Merge message type breakdown with dept_stats (single merge for better performance)
+    dept_stats = dept_stats.merge(
+        dept_message_pivot.reset_index().rename(columns={'department': 'Department'}),
+        on='Department',
+        how='left'
+    ).fillna(0)
     
     # Calculate derived metrics
     total_usage_all = dept_stats['Total Usage'].sum()
