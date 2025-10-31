@@ -1875,16 +1875,48 @@ def get_user_activity_tiers(data):
         data: OpenAI-filtered DataFrame
         
     Returns:
-        DataFrame with user tiers
+        DataFrame with user tiers including activity dates
     """
     if data.empty:
         return pd.DataFrame()
     
-    # Get total messages per user
-    user_totals = data.groupby(['user_id', 'user_name', 'email']).agg({
+    # Get total messages per user along with activity dates and department
+    agg_dict = {
         'usage_count': 'sum'
-    }).reset_index()
-    user_totals.columns = ['user_id', 'user_name', 'email', 'total_messages']
+    }
+    
+    # Add activity date fields if they exist
+    if 'last_day_active' in data.columns:
+        agg_dict['last_day_active'] = 'max'
+    if 'first_day_active_in_period' in data.columns:
+        agg_dict['first_day_active_in_period'] = 'min'
+    if 'last_day_active_in_period' in data.columns:
+        agg_dict['last_day_active_in_period'] = 'max'
+    if 'department' in data.columns:
+        agg_dict['department'] = 'first'
+    
+    group_cols = ['user_id', 'user_name', 'email']
+    user_totals = data.groupby(group_cols).agg(agg_dict).reset_index()
+    
+    # Rename usage_count to total_messages
+    user_totals.rename(columns={'usage_count': 'total_messages'}, inplace=True)
+    
+    # Get breakdown by feature type
+    feature_breakdown = data.groupby(['user_id', 'feature_used'])['usage_count'].sum().reset_index()
+    
+    # Pivot to get messages, tool_messages, project_messages columns
+    feature_pivot = feature_breakdown.pivot(index='user_id', columns='feature_used', values='usage_count').reset_index()
+    feature_pivot.columns.name = None
+    
+    # Merge feature breakdown with user totals
+    user_totals = user_totals.merge(feature_pivot, on='user_id', how='left')
+    
+    # Fill NaN values with 0 for message counts
+    for col in ['ChatGPT Messages', 'GPT Messages', 'Tool Messages', 'Project Messages']:
+        if col in user_totals.columns:
+            user_totals[col] = user_totals[col].fillna(0).astype(int)
+        else:
+            user_totals[col] = 0
     
     # Calculate percentiles
     p80 = user_totals['total_messages'].quantile(0.80)
@@ -3602,6 +3634,10 @@ def main():
                 # Tier distribution
                 tier_counts = user_tiers['activity_tier'].value_counts()
                 
+                # Initialize session state for tier selection
+                if 'selected_tier' not in st.session_state:
+                    st.session_state.selected_tier = None
+                
                 col1, col2, col3 = st.columns([2, 2, 2])
                 
                 with col1:
@@ -3637,9 +3673,12 @@ def main():
                 with col2:
                     st.markdown("**Tier Definitions:**")
                     
+                    # Heavy Users - clickable card
+                    if st.button("🔥 Heavy Users", key="heavy_btn", use_container_width=True):
+                        st.session_state.selected_tier = 'Heavy'
+                    
                     st.markdown(f"""
                     <div class="metric-card">
-                        <h4 style="color: #15803d;">🔥 Heavy Users</h4>
                         <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
                             Top 20% by message volume
                         </div>
@@ -3652,9 +3691,14 @@ def main():
                             <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Heavy']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Heavy']) > 0 else 0:,.0f}</span>
                         </div>
                     </div>
+                    """, unsafe_allow_html=True)
                     
+                    # Moderate Users - clickable card
+                    if st.button("📊 Moderate Users", key="moderate_btn", use_container_width=True):
+                        st.session_state.selected_tier = 'Moderate'
+                    
+                    st.markdown(f"""
                     <div class="metric-card" style="margin-top: 1rem;">
-                        <h4 style="color: #ca8a04;">📊 Moderate Users</h4>
                         <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
                             50th-80th percentile
                         </div>
@@ -3670,9 +3714,12 @@ def main():
                     """, unsafe_allow_html=True)
                 
                 with col3:
+                    # Light Users - clickable card
+                    if st.button("💡 Light Users", key="light_btn", use_container_width=True):
+                        st.session_state.selected_tier = 'Light'
+                    
                     st.markdown(f"""
                     <div class="metric-card">
-                        <h4 style="color: #dc2626;">💡 Light Users</h4>
                         <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
                             20th-50th percentile
                         </div>
@@ -3685,11 +3732,16 @@ def main():
                             <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Light']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Light']) > 0 else 0:,.0f}</span>
                         </div>
                     </div>
+                    """, unsafe_allow_html=True)
                     
-                    <div class="metric-card" style="margin-top: 1rem;">
-                        <h4 style="color: #94a3b8;">😴 Inactive Users</h4>
+                    # Inactive Users - clickable card with special highlight
+                    if st.button("😴 Inactive Users", key="inactive_btn", use_container_width=True):
+                        st.session_state.selected_tier = 'Inactive'
+                    
+                    st.markdown(f"""
+                    <div class="metric-card" style="margin-top: 1rem; border: 2px solid #f59e0b;">
                         <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
-                            Bottom 20% by usage
+                            Bottom 20% by usage - <strong style="color: #f59e0b;">Priority Follow-up</strong>
                         </div>
                         <div class="metric-row">
                             <span class="metric-label">Count:</span>
@@ -3701,6 +3753,98 @@ def main():
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
+            
+            # User Drilldown Section
+            if st.session_state.selected_tier:
+                st.divider()
+                
+                tier_data = user_tiers[user_tiers['activity_tier'] == st.session_state.selected_tier].copy()
+                
+                # Tier color mapping
+                tier_colors = {
+                    'Heavy': '#15803d',
+                    'Moderate': '#ca8a04',
+                    'Light': '#dc2626',
+                    'Inactive': '#94a3b8'
+                }
+                
+                tier_icons = {
+                    'Heavy': '🔥',
+                    'Moderate': '📊',
+                    'Light': '💡',
+                    'Inactive': '😴'
+                }
+                
+                col_header, col_close = st.columns([6, 1])
+                with col_header:
+                    st.markdown(f'<h3 style="color: {tier_colors[st.session_state.selected_tier]};">{tier_icons[st.session_state.selected_tier]} {st.session_state.selected_tier} Users - Detailed View</h3>', unsafe_allow_html=True)
+                with col_close:
+                    if st.button("✖ Close", key="close_drilldown"):
+                        st.session_state.selected_tier = None
+                        st.rerun()
+                
+                if st.session_state.selected_tier == 'Inactive':
+                    st.warning("⚠️ **Priority Follow-up Demographic**: These users show minimal engagement and may benefit from support or training.")
+                
+                # Display user details table
+                st.markdown(f"**{len(tier_data)} users in this tier**")
+                
+                # Prepare display dataframe
+                display_cols = ['user_name', 'email', 'department', 'total_messages']
+                
+                # Add activity date columns if they exist
+                if 'last_day_active' in tier_data.columns:
+                    display_cols.append('last_day_active')
+                if 'last_day_active_in_period' in tier_data.columns:
+                    display_cols.append('last_day_active_in_period')
+                if 'first_day_active_in_period' in tier_data.columns:
+                    display_cols.append('first_day_active_in_period')
+                
+                # Add feature breakdown columns
+                if 'ChatGPT Messages' in tier_data.columns:
+                    display_cols.append('ChatGPT Messages')
+                if 'Tool Messages' in tier_data.columns:
+                    display_cols.append('Tool Messages')
+                if 'Project Messages' in tier_data.columns:
+                    display_cols.append('Project Messages')
+                
+                # Filter to only columns that exist
+                display_cols = [col for col in display_cols if col in tier_data.columns]
+                
+                display_df = tier_data[display_cols].sort_values('total_messages', ascending=False).reset_index(drop=True)
+                
+                # Rename columns for better display
+                column_renames = {
+                    'user_name': 'Name',
+                    'email': 'Email',
+                    'department': 'Department',
+                    'total_messages': 'Total Messages',
+                    'last_day_active': 'Last Sign-In',
+                    'last_day_active_in_period': 'Last Active in Period',
+                    'first_day_active_in_period': 'First Active in Period',
+                    'ChatGPT Messages': 'ChatGPT Msgs',
+                    'Tool Messages': 'Tool Msgs',
+                    'Project Messages': 'Project Msgs'
+                }
+                
+                display_df.rename(columns=column_renames, inplace=True)
+                
+                # Display the dataframe with formatting
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    height=400,
+                    hide_index=True
+                )
+                
+                # Add export button
+                csv = display_df.to_csv(index=False)
+                st.download_button(
+                    label=f"📥 Download {st.session_state.selected_tier} Users CSV",
+                    data=csv,
+                    file_name=f"{st.session_state.selected_tier.lower()}_users.csv",
+                    mime="text/csv"
+                )
             
             st.divider()
             

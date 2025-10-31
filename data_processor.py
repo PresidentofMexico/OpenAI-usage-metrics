@@ -72,7 +72,8 @@ class DataProcessor:
             # Ensure we only insert columns that exist in the database
             db_columns = ['user_id', 'user_name', 'email', 'department', 'date', 
                          'feature_used', 'usage_count', 'cost_usd', 'tool_source', 
-                         'file_source', 'created_at']
+                         'file_source', 'last_day_active', 'first_day_active_in_period',
+                         'last_day_active_in_period', 'created_at']
             
             # Select only columns that exist in both dataframe and database schema
             cols_to_insert = [col for col in db_columns if col in processed_df.columns]
@@ -106,6 +107,9 @@ class DataProcessor:
         
         Preserves actual period_start dates for both weekly and monthly files,
         enabling week-over-week and month-over-month analysis.
+        
+        Also preserves activity date fields (last_day_active, first_day_active_in_period, 
+        last_day_active_in_period) for user engagement tracking.
         """
         try:
             processed_data = []
@@ -123,6 +127,16 @@ class DataProcessor:
                 user_email = row.get('email', row.get('public_id', 'unknown@company.com'))
                 user_name = row.get('name', 'Unknown User')
                 department = self.extract_department(row.get('department', 'Unknown'))
+                
+                # Extract activity dates from CSV
+                last_day_active = row.get('last_day_active', None)
+                first_day_active_in_period = row.get('first_day_active_in_period', None)
+                last_day_active_in_period = row.get('last_day_active_in_period', None)
+                
+                # Convert to string if not null
+                last_day_active = str(last_day_active) if pd.notna(last_day_active) else None
+                first_day_active_in_period = str(first_day_active_in_period) if pd.notna(first_day_active_in_period) else None
+                last_day_active_in_period = str(last_day_active_in_period) if pd.notna(last_day_active_in_period) else None
                 
                 # Get date - use period_start or first_day_active_in_period
                 # If neither exists, use first day of current month as fallback
@@ -156,6 +170,9 @@ class DataProcessor:
                         'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                         'tool_source': 'ChatGPT',
                         'file_source': filename,
+                        'last_day_active': last_day_active,
+                        'first_day_active_in_period': first_day_active_in_period,
+                        'last_day_active_in_period': last_day_active_in_period,
                         'created_at': datetime.now().isoformat()
                     })
                 
@@ -174,6 +191,9 @@ class DataProcessor:
                         'cost_usd': 0,  # Included in base license
                         'tool_source': 'ChatGPT',
                         'file_source': filename,
+                        'last_day_active': last_day_active,
+                        'first_day_active_in_period': first_day_active_in_period,
+                        'last_day_active_in_period': last_day_active_in_period,
                         'created_at': datetime.now().isoformat()
                     })
                 
@@ -192,6 +212,9 @@ class DataProcessor:
                         'cost_usd': 0,  # Included in base license
                         'tool_source': 'ChatGPT',
                         'file_source': filename,
+                        'last_day_active': last_day_active,
+                        'first_day_active_in_period': first_day_active_in_period,
+                        'last_day_active_in_period': last_day_active_in_period,
                         'created_at': datetime.now().isoformat()
                     })
                 
@@ -210,6 +233,9 @@ class DataProcessor:
                         'cost_usd': 0,  # Included in base license
                         'tool_source': 'ChatGPT',
                         'file_source': filename,
+                        'last_day_active': last_day_active,
+                        'first_day_active_in_period': first_day_active_in_period,
+                        'last_day_active_in_period': last_day_active_in_period,
                         'created_at': datetime.now().isoformat()
                     })
                 
