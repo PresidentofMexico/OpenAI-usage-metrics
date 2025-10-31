@@ -26,7 +26,7 @@ from export_utils import generate_excel_export, generate_pdf_report_html
 from cost_calculator import EnterpriseCostCalculator
 
 # Constants
-WEEK_DISPLAY_FORMAT = '%m/%d/%Y'  # Format for displaying week dates in charts
+WEEKLY_CHART_DATE_FORMAT = '%m/%d/%Y'  # Format for displaying week dates in weekly trend charts
 
 # Page configuration
 st.set_page_config(
@@ -1997,11 +1997,8 @@ def calculate_weekly_trends(data):
     }).reset_index()
     weekly.columns = ['week', 'active_users', 'total_messages']
     
-    # Convert week period to start date for proper date handling (vectorized)
-    weekly['week_start'] = weekly['week'].dt.start_time
-    
-    # Format week for display as MM/DD/YYYY
-    weekly['week_display'] = weekly['week_start'].dt.strftime(WEEK_DISPLAY_FORMAT)
+    # Format week for display as MM/DD/YYYY (vectorized)
+    weekly['week_display'] = weekly['week'].dt.start_time.dt.strftime(WEEKLY_CHART_DATE_FORMAT)
     
     return weekly
 
@@ -3881,7 +3878,7 @@ def main():
                         line_color='#667eea',
                         line_width=3,
                         marker=dict(size=8),
-                        hovertemplate='%{y}<extra></extra>'
+                        hovertemplate='%{y}<extra></extra>'  # Show only value; <extra></extra> removes trace name box
                     )
                     
                     fig_users.update_layout(
@@ -3912,7 +3909,7 @@ def main():
                     )
                     
                     fig_messages.update_traces(
-                        hovertemplate='%{y}<extra></extra>'
+                        hovertemplate='%{y}<extra></extra>'  # Show only value; <extra></extra> removes trace name box
                     )
                     
                     fig_messages.update_layout(
