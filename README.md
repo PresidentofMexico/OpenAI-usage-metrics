@@ -471,6 +471,40 @@ jane.smith@company.com,150,180,220,–
 - BlueFlame: $0.015 per message (used during data import)
 - OpenAI: $60/user/month for ChatGPT Messages, $0 for included features
 
+### Frequency Unification (Weekly ↔ Monthly)
+
+The dashboard supports unified weekly and monthly views with automatic frequency transformations:
+
+**Data Sources:**
+- **OpenAI**: Native weekly grain (period_start = week start date)
+- **BlueFlame**: Native monthly grain (aggregated by month)
+
+**Transformations:**
+
+**Monthly View (Default):**
+- ✅ **OpenAI weekly → monthly**: Prorated by day-level weighting
+  - Weeks spanning two months are split proportionally (e.g., 3 days in Jan, 4 days in Feb)
+  - Handles variable month lengths (28/29/30/31 days)
+  - Preserves total usage across transformations
+- ✅ **BlueFlame monthly**: Native grain, no transformation needed
+
+**Weekly View:**
+- ✅ **OpenAI weekly**: Native grain, no transformation needed
+- ⚠️ **BlueFlame monthly → weekly (estimated)**: Allocated using even-by-day method
+  - Distributes monthly totals across ISO weeks within the month
+  - Clearly labeled as "Estimated" in the UI
+  - Alternative methods available: `business_days`, `proportional_to_openai`
+
+**UI Controls:**
+- **Frequency Toggle**: `Monthly (default)` | `Weekly` (sidebar)
+- **Partial Period Toggle**: Exclude current in-progress week/month (enabled by default)
+- **Estimated Badge**: Shown automatically when BlueFlame appears in weekly view
+
+**Implementation:**
+- Zero schema changes — transforms applied at query time
+- Powered by `frequency_utils.py` module
+- Tested for edge cases (leap years, month boundaries, week-spanning scenarios)
+
 ### Database Schema
 
 Single table `usage_metrics`:
