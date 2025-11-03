@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import os
+import glob
 from io import StringIO
 import plotly.express as px
 import plotly.graph_objects as go
@@ -52,7 +53,11 @@ def init_app():
 def auto_load_employee_file(db_manager):
     """
     Automatically load employee master file from repository if it exists.
-    This function checks for known employee CSV files and loads them automatically.
+    This function uses glob patterns to detect employee CSV files and loads them automatically.
+    
+    Supported file patterns:
+    - Employee Headcount*Emails.csv (preferred)
+    - Employee Headcount*.csv (fallback)
     """
     # Get the directory where this script is located (not the current working directory)
     # This ensures we look for the employee file in the repository root, regardless of
@@ -70,14 +75,36 @@ def auto_load_employee_file(db_manager):
     except:
         pass  # If get_employee_count fails, continue with auto-load attempt
     
-    # List of potential employee file names to check (in priority order)
-    employee_file_candidates = [
-        "Employee Headcount October 2025_Emails.csv",
-        "Employee Headcount October 2025.csv"
+    # Use glob patterns to find employee files (supports flexible naming)
+    # Pattern priority: files with "_Emails" are preferred over those without
+    glob_patterns = [
+        "Employee Headcount*Emails.csv",  # Preferred pattern (e.g., "Employee Headcount 2025_Emails.csv")
+        "Employee Headcount*.csv"          # Fallback pattern (e.g., "Employee Headcount 2025.csv")
     ]
     
-    for filename in employee_file_candidates:
-        file_path = os.path.join(script_dir, filename)
+    employee_file_candidates = []
+    seen_files = set()
+    for pattern in glob_patterns:
+        pattern_path = os.path.join(script_dir, pattern)
+        matched_files = glob.glob(pattern_path)
+        if matched_files:
+            # Sort to get consistent ordering (newest year/month first if naming includes dates)
+            matched_files.sort(reverse=True)
+            # Only add files we haven't seen yet (to avoid duplicates from overlapping patterns)
+            for file_path in matched_files:
+                if file_path not in seen_files:
+                    employee_file_candidates.append(file_path)
+                    seen_files.add(file_path)
+            print(f"[auto_load_employee_file] Found {len(matched_files)} file(s) matching pattern '{pattern}'")
+    
+    if not employee_file_candidates:
+        print(f"[auto_load_employee_file] No employee files found matching patterns: {glob_patterns}")
+        return
+    
+    print(f"[auto_load_employee_file] Total {len(employee_file_candidates)} candidate file(s) found")
+    
+    for file_path in employee_file_candidates:
+        filename = os.path.basename(file_path)
         print(f"[auto_load_employee_file] Checking for: {file_path}")
         
         if os.path.exists(file_path):
@@ -243,21 +270,36 @@ def clear_and_reset_all():
 def force_reload_employee_file():
     """
     Force reload the employee master file by clearing its marker and re-running auto-load.
+    Uses glob patterns to find employee files matching common naming patterns.
     
     Returns:
         tuple: (success: bool, message: str)
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # Employee file candidates (same as in auto_load_employee_file)
-    employee_file_candidates = [
-        "Employee Headcount October 2025_Emails.csv",
-        "Employee Headcount October 2025.csv"
+    # Use glob patterns to find employee files (same as auto_load_employee_file)
+    glob_patterns = [
+        "Employee Headcount*Emails.csv",
+        "Employee Headcount*.csv"
     ]
     
-    # Clear markers for all employee files
+    employee_files = []
+    seen_files = set()
+    for pattern in glob_patterns:
+        pattern_path = os.path.join(script_dir, pattern)
+        matched_files = glob.glob(pattern_path)
+        if matched_files:
+            matched_files.sort(reverse=True)
+            # Deduplicate files to avoid processing the same file twice
+            for file_path in matched_files:
+                if file_path not in seen_files:
+                    employee_files.append(file_path)
+                    seen_files.add(file_path)
+    
+    # Clear markers for all found employee files
     markers_cleared = 0
-    for filename in employee_file_candidates:
+    for file_path in employee_files:
+        filename = os.path.basename(file_path)
         marker_file = os.path.join(script_dir, f".{filename}.loaded")
         if os.path.exists(marker_file):
             try:
