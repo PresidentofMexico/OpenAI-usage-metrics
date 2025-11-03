@@ -8,9 +8,15 @@ The dashboard now supports integration of a master employee file to serve as the
 
 ### 1. Automatic Employee File Loading (New!)
 - **Auto-loads employee file on app startup** if it exists in the repository
-- Checks for known employee CSV files:
-  - `Employee Headcount October 2025_Emails.csv` (preferred)
-  - `Employee Headcount October 2025.csv` (fallback)
+- **Flexible file naming** using glob patterns:
+  - Primary: `Employee Headcount*Emails.csv` (e.g., "Employee Headcount 2025_Emails.csv")
+  - Fallback: `Employee Headcount*.csv` (e.g., "Employee Headcount 2025.csv")
+- **Supported naming patterns:**
+  - `Employee Headcount 2025_Emails.csv` ✅
+  - `Employee Headcount October 2025_Emails.csv` ✅
+  - `Employee Headcount Nov 2025_Emails.csv` ✅
+  - `Employee Headcount Q4 2025.csv` ✅
+  - Any variation matching `Employee Headcount*.csv` ✅
 - **Smart caching** with marker files prevents duplicate loads
 - **Works in any deployment environment** - uses script directory, not working directory
 - **Zero configuration required** - just place the employee file in the repository root
@@ -81,11 +87,17 @@ The same structure works for Excel files (.xlsx). The uploader will read the fir
 ## Usage Instructions
 
 ### Quick Start (Automatic Loading)
-If you have one of the supported employee files in your repository root:
-- `Employee Headcount October 2025_Emails.csv` (recommended)
-- `Employee Headcount October 2025.csv`
+If you have an employee file matching the supported pattern in your repository root:
+- `Employee Headcount*Emails.csv` (any variation with month/year/quarter)
+- `Employee Headcount*.csv` (any variation)
 
 **The app will automatically load it on startup!** No manual upload needed.
+
+Examples of files that will auto-load:
+- `Employee Headcount 2025_Emails.csv` ✅
+- `Employee Headcount October 2025_Emails.csv` ✅
+- `Employee Headcount Q4 2025.csv` ✅
+- `Employee Headcount Nov 2025_Emails.csv` ✅
 
 ### Manual Upload (Alternative Method)
 
@@ -169,12 +181,18 @@ CREATE TABLE employees (
 ## Troubleshooting
 
 ### Auto-load not working
-- Ensure the employee file is named exactly:
-  - `Employee Headcount October 2025_Emails.csv` OR
-  - `Employee Headcount October 2025.csv`
+- **Check file name pattern**: Must match `Employee Headcount*.csv`
+  - ✅ Good: `Employee Headcount 2025_Emails.csv`
+  - ✅ Good: `Employee Headcount October 2025.csv`
+  - ❌ Bad: `employee headcount 2025.csv` (lowercase 'e')
+  - ❌ Bad: `Staff Headcount 2025.csv` (wrong prefix)
+  - ❌ Bad: `Employee_Headcount_2025.csv` (underscores instead of spaces)
 - File must be in the repository root (same directory as `app.py`)
 - Check application logs for `[auto_load_employee_file]` messages
-- Marker files (`.*.loaded`) prevent duplicate loads - delete them to force reload
+- Marker files (`.*.loaded`) prevent duplicate loads - delete them to force reload:
+  ```bash
+  rm .Employee\ Headcount*.loaded
+  ```
 
 ### "No employees loaded yet"
 - Upload an employee master file first in the Database Management tab

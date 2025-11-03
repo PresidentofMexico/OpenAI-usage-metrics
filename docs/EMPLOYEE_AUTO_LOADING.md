@@ -6,12 +6,25 @@ The dashboard now automatically loads employee master data from CSV files in the
 ## How It Works
 
 ### Automatic Detection
-When the Streamlit app initializes, it automatically scans for employee CSV files in the repository root directory:
-- `Employee Headcount October 2025_Emails.csv` (primary)
-- `Employee Headcount October 2025.csv` (fallback)
+When the Streamlit app initializes, it automatically scans for employee CSV files in the repository root directory using flexible glob patterns:
+- `Employee Headcount*Emails.csv` (preferred - e.g., "Employee Headcount 2025_Emails.csv")
+- `Employee Headcount*.csv` (fallback - e.g., "Employee Headcount 2025.csv")
+
+**Supported file naming patterns:**
+- `Employee Headcount 2025_Emails.csv` ✅
+- `Employee Headcount October 2025_Emails.csv` ✅
+- `Employee Headcount Nov 2025_Emails.csv` ✅
+- `Employee Headcount Q4 2025_Emails.csv` ✅
+- `Employee Headcount 2025.csv` ✅
+- `Employee Headcount October 2025.csv` ✅
+- Any file matching the pattern `Employee Headcount*.csv` ✅
 
 ### Loading Process
-1. **File Detection**: Checks for employee CSV files in the repository
+1. **File Detection**: Uses glob patterns to find employee CSV files in the repository:
+   - Pattern 1: `Employee Headcount*Emails.csv` (preferred)
+   - Pattern 2: `Employee Headcount*.csv` (fallback)
+   - Files are sorted in reverse alphabetical order (newest dates typically come first)
+   - Duplicate matches are automatically deduplicated
 2. **Column Mapping**: Automatically maps CSV columns to database schema:
    - `First Name` → `first_name`
    - `Last Name` → `last_name`
@@ -83,14 +96,28 @@ When employee data is loaded, the following features become available:
 ## Updating Employee Data
 
 ### Option 1: Replace CSV File
-1. Update the CSV file in repository
-2. Delete marker file: `rm .Employee\ Headcount\ October\ 2025_Emails.csv.loaded`
+1. Update or create a new CSV file in repository (ensure it matches the naming pattern)
+2. Delete marker file: `rm .Employee\ Headcount*.loaded` (or the specific marker file)
 3. Restart the app
 
 ### Option 2: Manual Upload
 1. Use the "Employee Master File" section in the UI
 2. Upload updated CSV through file uploader
 3. Data will be merged with existing records
+
+## Naming Flexibility
+
+The auto-load feature now supports flexible file naming! Any of these patterns will work:
+- `Employee Headcount YYYY_Emails.csv` (year only)
+- `Employee Headcount Month YYYY_Emails.csv` (month and year)
+- `Employee Headcount QX YYYY_Emails.csv` (quarter and year)
+- Same patterns without `_Emails` suffix
+
+The system will automatically:
+- Find all matching files
+- Sort them (typically newest first based on filename)
+- Load the first valid file found
+- Create a marker to prevent reloading
 
 ## Technical Details
 
@@ -123,10 +150,15 @@ Records: 283
 ## Troubleshooting
 
 ### Employees Not Loading
-1. Check CSV file exists in repository root
+1. **Check file name pattern**: File must match `Employee Headcount*.csv` pattern
+   - Good: `Employee Headcount 2025_Emails.csv`
+   - Good: `Employee Headcount October 2025.csv`
+   - Bad: `employee headcount 2025.csv` (lowercase)
+   - Bad: `Staff Headcount 2025.csv` (wrong prefix)
 2. Verify column names match expected format
-3. Check app logs for error messages
-4. Delete marker file and restart app
+3. Check app logs for `[auto_load_employee_file]` messages
+4. Delete marker files and restart app: `rm .Employee\ Headcount*.loaded`
+5. Ensure file is in repository root (same directory as `app.py`)
 
 ### Duplicate Employees
 - Employees are matched by email or name
