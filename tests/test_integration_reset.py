@@ -4,6 +4,7 @@ Integration test to verify the new reset functionality works in app.py
 
 import sys
 import os
+import traceback
 
 # Add parent directory to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -86,7 +87,6 @@ try:
     
 except Exception as e:
     print(f"❌ Error testing app.py: {e}")
-    import traceback
     traceback.print_exc()
     sys.exit(1)
 

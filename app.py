@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import sqlite3
 import json
+import traceback
 
 from data_processor import DataProcessor
 from database import DatabaseManager
@@ -145,7 +146,6 @@ def auto_load_employee_file(db_manager):
                     
             except Exception as e:
                 print(f"[auto_load_employee_file] ❌ Error auto-loading employee file {filename}: {str(e)}")
-                import traceback
                 traceback.print_exc()
         else:
             print(f"[auto_load_employee_file] File not found: {file_path}")
@@ -356,7 +356,6 @@ def apply_employee_departments(data, db_manager=None):
         return data
     except Exception as e:
         print(f"Error applying employee departments: {e}")
-        import traceback
         traceback.print_exc()
         return data
 

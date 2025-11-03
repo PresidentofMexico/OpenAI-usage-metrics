@@ -13,6 +13,7 @@ import sys
 import json
 import tempfile
 import shutil
+import traceback
 from datetime import datetime
 import time
 
@@ -324,7 +325,6 @@ def run_all_tests():
                 passed += 1
         except Exception as e:
             print(f"❌ {test_func.__name__} failed with error: {e}")
-            import traceback
             traceback.print_exc()
             failed += 1
     
