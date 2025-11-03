@@ -2171,6 +2171,72 @@ def main():
         # Compact actions menu in top-right
         st.markdown('<div style="text-align: right; padding-top: 0.5rem;"></div>', unsafe_allow_html=True)
     
+    # Top Files Banner
+    detected_files = scanner.scan_folders(AUTO_SCAN_FOLDERS)
+    
+    # Calculate file counts
+    new_files = [f for f in detected_files if f['status'] == 'new']
+    modified_files = [f for f in detected_files if f['status'] == 'modified']
+    error_files = [f for f in detected_files if f['status'] == 'error']
+    
+    new_cnt = len(new_files)
+    mod_cnt = len(modified_files)
+    err_cnt = len(error_files)
+    
+    # Show banner with file counts and Process All button
+    with st.container(border=True):
+        c1, c2 = st.columns([4, 1])
+        with c1:
+            st.subheader("Files")
+            st.caption(f"New: {new_cnt} · Modified: {mod_cnt} · Errors: {err_cnt}")
+        with c2:
+            # Only enable Process All if there are files to process
+            files_to_process = new_files + modified_files
+            if st.button("Process All", type="primary", disabled=(len(files_to_process) == 0)):
+                with st.status("Processing files...", expanded=False) as status:
+                    status.update(label="Scanning files...", state="running")
+                    
+                    processed_count = 0
+                    total_records = 0
+                    errors = []
+                    
+                    for i, file_info in enumerate(files_to_process):
+                        # Update status with current file
+                        status.update(
+                            label=f"Processing {file_info['filename']} ({i+1}/{len(files_to_process)})...",
+                            state="running"
+                        )
+                        
+                        # Process the file
+                        success, message, records = process_auto_file(file_info, tool_type='Auto-Detect')
+                        
+                        if success:
+                            processed_count += 1
+                            total_records += records
+                        else:
+                            errors.append(f"{file_info['filename']}: {message}")
+                    
+                    # Update final status
+                    if processed_count > 0:
+                        status.update(label="Done", state="complete")
+                        st.toast(f"✅ Processed {processed_count} files successfully ({total_records:,} records)", icon="✅")
+                        
+                        if errors:
+                            st.warning(f"⚠️ {len(errors)} file(s) had errors")
+                            with st.expander("View Errors"):
+                                for error in errors:
+                                    st.error(error)
+                        
+                        # Rerun to refresh the UI with new data
+                        st.rerun()
+                    else:
+                        status.update(label="Failed", state="error")
+                        st.toast("❌ Failed to process files", icon="❌")
+                        if errors:
+                            st.error("Errors encountered:")
+                            for error in errors:
+                                st.error(error)
+    
     # Create main tabs
     tab1, tab2, tab_openai, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Executive Overview", 
