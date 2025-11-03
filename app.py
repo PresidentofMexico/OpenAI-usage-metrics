@@ -2177,7 +2177,7 @@ def main():
         st.markdown('<div style="text-align: right; padding-top: 0.5rem;"></div>', unsafe_allow_html=True)
     
     # Create main tabs
-    tab1, tab2, tab_openai, tab3, tab4, tab_roi, tab5, tab6 = st.tabs([
+    tab1, tab2, tab_openai, tab3, tab4, tab5, tab_roi, tab6 = st.tabs([
         "📊 Executive Overview", 
         "🔄 Tool Comparison",
         "🤖 OpenAI Analytics",
@@ -2185,6 +2185,7 @@ def main():
         "📈 Message Type Analytics",
         "💎 ROI Analytics",
         "🏢 Department Mapper",
+        "💰 ROI",
         "🔧 Database Management"
     ])
     
@@ -5467,6 +5468,130 @@ def main():
     # TAB 5: Department Mapper
     with tab5:
         display_department_mapper()
+    
+    # TAB: ROI Analytics
+    with tab_roi:
+        st.header("💰 ROI Analytics & Business Impact")
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Return on Investment Analytics:</strong> Measure and demonstrate the business value 
+            of AI adoption beyond basic usage metrics. This section provides advanced analytics for 
+            justifying AI investments and optimizing resource allocation.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # ROI Overview Section
+        st.markdown('<div class="section-header"><h3>📈 ROI Dashboard Overview</h3></div>', unsafe_allow_html=True)
+        
+        # Placeholder metrics structure
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.markdown("""
+            <div class="metric-card">
+                <h4>💵 Cost Savings</h4>
+                <div class="metric-value">Coming Soon</div>
+                <div class="metric-label">Efficiency gains from AI adoption</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("""
+            <div class="metric-card">
+                <h4>⏱️ Time Savings</h4>
+                <div class="metric-value">Coming Soon</div>
+                <div class="metric-label">Hours saved through automation</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown("""
+            <div class="metric-card">
+                <h4>📊 Productivity Lift</h4>
+                <div class="metric-value">Coming Soon</div>
+                <div class="metric-label">Percentage productivity improvement</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col4:
+            st.markdown("""
+            <div class="metric-card">
+                <h4>🎯 ROI Ratio</h4>
+                <div class="metric-value">Coming Soon</div>
+                <div class="metric-label">Return per dollar invested</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Value Dimensions Section
+        st.markdown('<div class="section-header"><h3>💎 Business Value Dimensions</h3></div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="info-card">
+            <div class="info-card-icon">🚀</div>
+            <h4>Future Analytics Roadmap</h4>
+            <p>This section is designed to provide comprehensive ROI analytics distinct from basic usage reporting. 
+            Planned features include:</p>
+            <ul>
+                <li><strong>License Utilization Analysis:</strong> Identify underutilized licenses and optimization opportunities</li>
+                <li><strong>Productivity Impact Modeling:</strong> Quantify time savings and efficiency gains by department</li>
+                <li><strong>Cost-Benefit Analysis:</strong> Compare AI tool costs against measurable business outcomes</li>
+                <li><strong>Adoption Velocity Tracking:</strong> Monitor speed of AI integration across teams</li>
+                <li><strong>Quality & Accuracy Metrics:</strong> Measure output quality improvements from AI assistance</li>
+                <li><strong>Competitive Benchmarking:</strong> Compare ROI against industry standards</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Placeholder visualizations
+        st.markdown('<div class="section-header"><h3>📊 ROI Visualization Framework</h3></div>', unsafe_allow_html=True)
+        
+        col_viz1, col_viz2 = st.columns(2)
+        
+        with col_viz1:
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">📈</div>
+                <div class="empty-state-title">ROI Trend Analysis</div>
+                <div class="empty-state-text">
+                    Interactive charts showing ROI progression over time,<br>
+                    broken down by department, user tier, and use case.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_viz2:
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">💰</div>
+                <div class="empty-state-title">Value Attribution Model</div>
+                <div class="empty-state-text">
+                    Visual breakdown of value creation across<br>
+                    different business functions and AI features.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Configuration options for future implementation
+        st.markdown('<div class="section-header"><h3>⚙️ ROI Configuration</h3></div>', unsafe_allow_html=True)
+        
+        with st.expander("🔧 Configure ROI Calculation Parameters", expanded=False):
+            st.markdown("""
+            **Future configuration options will include:**
+            - Average hourly employee cost by department
+            - Time saved per AI interaction (customizable by use case)
+            - Quality improvement multipliers
+            - Custom value metrics specific to your organization
+            - Baseline productivity measurements
+            """)
+            
+            st.info("💡 Configuration panel will be enabled when ROI analytics are activated")
     
     # TAB 6: Database Management
     with tab6:
