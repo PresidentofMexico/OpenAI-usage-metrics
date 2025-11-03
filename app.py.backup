@@ -3672,6 +3672,1294 @@ def main():
 
 def get_database_info():
     """Get database information."""
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">🤖</div>
+                <div class="empty-state-title">No OpenAI Data Available</div>
+                <div class="empty-state-text">
+                    Upload OpenAI ChatGPT Enterprise exports to see detailed analytics here.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # Executive Summary Metrics
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📊 Executive Summary</h3>', unsafe_allow_html=True)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                total_active = openai_data['user_id'].nunique()
+                st.metric(
+                    "Total Active Users",
+                    f"{total_active:,}",
+                    help="Unique users with OpenAI ChatGPT activity"
+                )
+                with st.expander("📊 Details"):
+                    st.write("**Calculation:**")
+                    st.code(f"COUNT(DISTINCT user_id) = {total_active:,}")
+                    st.write(f"Users with any ChatGPT message activity in the selected period")
+            
+            with col2:
+                duau = calculate_duau(openai_data)
+                st.metric(
+                    "Daily Unique Active Users",
+                    f"{duau:,.0f}",
+                    help="Average unique users active per day"
+                )
+                with st.expander("📊 Details"):
+                    st.write("**Calculation:**")
+                    st.code(f"AVG(daily unique users) = {duau:,.0f}")
+                    st.write("Average number of unique users active on any given day")
+            
+            with col3:
+                total_messages = openai_data['usage_count'].sum()
+                avg_per_user = total_messages / max(total_active, 1)
+                st.metric(
+                    "Messages per User",
+                    f"{avg_per_user:,.0f}",
+                    help="Average messages per user"
+                )
+                with st.expander("📊 Details"):
+                    st.write("**Calculation:**")
+                    st.code(f"{total_messages:,} messages ÷ {total_active} users = {avg_per_user:,.0f}")
+                    st.write(f"Total messages: {total_messages:,}")
+            
+            with col4:
+                # Calculate days active per month
+                days_active_df = calculate_days_active_per_month(openai_data)
+                avg_days = days_active_df['avg_days_per_month'].mean() if not days_active_df.empty else 0
+                st.metric(
+                    "Avg Days Active/Month",
+                    f"{avg_days:.1f}",
+                    help="Average days per month users are active"
+                )
+                with st.expander("📊 Details"):
+                    st.write("**Calculation:**")
+                    st.code(f"AVG(days active per user per month) = {avg_days:.1f}")
+                    st.write("Average number of distinct days each user was active in a month")
+            
+            st.divider()
+            
+            # Message Type Breakdown
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">💬 Message Type Distribution</h3>', unsafe_allow_html=True)
+            
+            # Get message breakdown
+            message_breakdown = openai_data.groupby('feature_used')['usage_count'].sum().reset_index()
+            message_breakdown.columns = ['Feature', 'Messages']
+            message_breakdown = message_breakdown.sort_values('Messages', ascending=False)
+            
+            col1, col2 = st.columns([3, 2])
+            
+            with col1:
+                # Create donut chart
+                fig = px.pie(
+                    message_breakdown,
+                    values='Messages',
+                    names='Feature',
+                    title='OpenAI Feature Usage Distribution',
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Set2
+                )
+                
+                fig.update_traces(
+                    textposition='inside',
+                    textinfo='percent+label',
+                    hovertemplate='<b>%{label}</b><br>Messages: %{value:,}<br>Percentage: %{percent}<extra></extra>'
+                )
+                
+                fig.update_layout(
+                    showlegend=True,
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.markdown("**Feature Breakdown:**")
+                
+                total_msgs = message_breakdown['Messages'].sum()
+                
+                for _, row in message_breakdown.iterrows():
+                    pct = (row['Messages'] / total_msgs * 100) if total_msgs > 0 else 0
+                    
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
+                                padding: 0.75rem; border-radius: 0.375rem; margin: 0.5rem 0;
+                                border-left: 3px solid #667eea;">
+                        <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.25rem;">
+                            {row['Feature']}
+                        </div>
+                        <div style="font-size: 1.25rem; font-weight: 600; color: #1e293b;">
+                            {row['Messages']:,}
+                        </div>
+                        <div style="font-size: 0.75rem; color: #94a3b8;">
+                            {pct:.1f}% of total
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Feature descriptions
+                with st.expander("ℹ️ What are these features?"):
+                    st.markdown("""
+                    **ChatGPT Messages:** Standard conversational interactions with ChatGPT
+                    
+                    **GPT Messages:** Custom GPT usage (specialized AI assistants)
+                    
+                    **Tool Messages:** Advanced features - Code Interpreter, web browsing, DALL-E, data analysis
+                    
+                    **Project Messages:** Messages within ChatGPT Projects (organized collaborative workspaces)
+                    """)
+            
+            st.divider()
+            
+            # User Activity Tiers
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">👥 User Engagement Analysis</h3>', unsafe_allow_html=True)
+            
+            user_tiers = get_user_activity_tiers(openai_data)
+            
+            if not user_tiers.empty:
+                # Tier distribution
+                tier_counts = user_tiers['activity_tier'].value_counts()
+                
+                # Initialize session state for tier selection
+                if 'selected_tier' not in st.session_state:
+                    st.session_state.selected_tier = None
+                
+                col1, col2, col3 = st.columns([2, 2, 2])
+                
+                with col1:
+                    # Tier distribution pie chart
+                    fig_tiers = px.pie(
+                        values=tier_counts.values,
+                        names=tier_counts.index,
+                        title='User Engagement Tiers',
+                        color=tier_counts.index,
+                        color_discrete_map={
+                            'Heavy': '#15803d',
+                            'Moderate': '#ca8a04',
+                            'Light': '#dc2626',
+                            'Inactive': '#94a3b8'
+                        }
+                    )
+                    
+                    fig_tiers.update_traces(
+                        textinfo='percent+label',
+                        hovertemplate='<b>%{label}</b><br>Users: %{value}<br>Percentage: %{percent}<extra></extra>'
+                    )
+                    
+                    fig_tiers.update_layout(
+                        showlegend=True,
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        height=350
+                    )
+                    
+                    st.plotly_chart(fig_tiers, use_container_width=True)
+                
+                with col2:
+                    st.markdown("**Tier Definitions:**")
+                    
+                    # Heavy Users - clickable card
+                    if st.button("🔥 Heavy Users", key="heavy_btn", use_container_width=True):
+                        st.session_state.selected_tier = 'Heavy'
+                    
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            Top 20% by message volume
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Count:</span>
+                            <span class="metric-value">{tier_counts.get('Heavy', 0)} users</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg Messages:</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Heavy']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Heavy']) > 0 else 0:,.0f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Moderate Users - clickable card
+                    if st.button("📊 Moderate Users", key="moderate_btn", use_container_width=True):
+                        st.session_state.selected_tier = 'Moderate'
+                    
+                    st.markdown(f"""
+                    <div class="metric-card" style="margin-top: 1rem;">
+                        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            50th-80th percentile
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Count:</span>
+                            <span class="metric-value">{tier_counts.get('Moderate', 0)} users</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg Messages:</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Moderate']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Moderate']) > 0 else 0:,.0f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col3:
+                    # Light Users - clickable card
+                    if st.button("💡 Light Users", key="light_btn", use_container_width=True):
+                        st.session_state.selected_tier = 'Light'
+                    
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            20th-50th percentile
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Count:</span>
+                            <span class="metric-value">{tier_counts.get('Light', 0)} users</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg Messages:</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Light']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Light']) > 0 else 0:,.0f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Inactive Users - clickable card with special highlight
+                    if st.button("😴 Inactive Users", key="inactive_btn", use_container_width=True):
+                        st.session_state.selected_tier = 'Inactive'
+                    
+                    st.markdown(f"""
+                    <div class="metric-card" style="margin-top: 1rem; border: 2px solid #f59e0b;">
+                        <div style="font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            Bottom 20% by usage - <strong style="color: #f59e0b;">Priority Follow-up</strong>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Count:</span>
+                            <span class="metric-value">{tier_counts.get('Inactive', 0)} users</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg Messages:</span>
+                            <span class="metric-value">{user_tiers[user_tiers['activity_tier']=='Inactive']['total_messages'].mean() if len(user_tiers[user_tiers['activity_tier']=='Inactive']) > 0 else 0:,.0f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # User Drilldown Section
+            if st.session_state.selected_tier:
+                st.divider()
+                
+                tier_data = user_tiers[user_tiers['activity_tier'] == st.session_state.selected_tier].copy()
+                
+                # Tier color mapping
+                tier_colors = {
+                    'Heavy': '#15803d',
+                    'Moderate': '#ca8a04',
+                    'Light': '#dc2626',
+                    'Inactive': '#94a3b8'
+                }
+                
+                tier_icons = {
+                    'Heavy': '🔥',
+                    'Moderate': '📊',
+                    'Light': '💡',
+                    'Inactive': '😴'
+                }
+                
+                col_header, col_close = st.columns([6, 1])
+                with col_header:
+                    st.markdown(f'<h3 style="color: {tier_colors[st.session_state.selected_tier]};">{tier_icons[st.session_state.selected_tier]} {st.session_state.selected_tier} Users - Detailed View</h3>', unsafe_allow_html=True)
+                with col_close:
+                    if st.button("✖ Close", key="close_drilldown"):
+                        st.session_state.selected_tier = None
+                        st.rerun()
+                
+                if st.session_state.selected_tier == 'Inactive':
+                    st.warning("⚠️ **Priority Follow-up Demographic**: These users show minimal engagement and may benefit from support or training.")
+                
+                # Display user details table
+                st.markdown(f"**{len(tier_data)} users in this tier**")
+                
+                # Prepare display dataframe
+                display_cols = ['user_name', 'email', 'department', 'total_messages']
+                
+                # Add activity date columns if they exist
+                if 'last_day_active' in tier_data.columns:
+                    display_cols.append('last_day_active')
+                if 'last_day_active_in_period' in tier_data.columns:
+                    display_cols.append('last_day_active_in_period')
+                if 'first_day_active_in_period' in tier_data.columns:
+                    display_cols.append('first_day_active_in_period')
+                
+                # Add feature breakdown columns
+                if 'ChatGPT Messages' in tier_data.columns:
+                    display_cols.append('ChatGPT Messages')
+                if 'Tool Messages' in tier_data.columns:
+                    display_cols.append('Tool Messages')
+                if 'Project Messages' in tier_data.columns:
+                    display_cols.append('Project Messages')
+                
+                # Filter to only columns that exist
+                display_cols = [col for col in display_cols if col in tier_data.columns]
+                
+                display_df = tier_data[display_cols].sort_values('total_messages', ascending=False).reset_index(drop=True)
+                
+                # Rename columns for better display
+                column_renames = {
+                    'user_name': 'Name',
+                    'email': 'Email',
+                    'department': 'Department',
+                    'total_messages': 'Total Messages',
+                    'last_day_active': 'Last Sign-In',
+                    'last_day_active_in_period': 'Last Active in Period',
+                    'first_day_active_in_period': 'First Active in Period',
+                    'ChatGPT Messages': 'ChatGPT Msgs',
+                    'Tool Messages': 'Tool Msgs',
+                    'Project Messages': 'Project Msgs'
+                }
+                
+                display_df.rename(columns=column_renames, inplace=True)
+                
+                # Display the dataframe with formatting
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    height=400,
+                    hide_index=True
+                )
+                
+                # Add export button
+                csv = display_df.to_csv(index=False)
+                st.download_button(
+                    label=f"📥 Download {st.session_state.selected_tier} Users CSV",
+                    data=csv,
+                    file_name=f"{st.session_state.selected_tier.lower()}_users.csv",
+                    mime="text/csv"
+                )
+            
+            st.divider()
+            
+            # Weekly Trends
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📅 Weekly Activity Trends</h3>', unsafe_allow_html=True)
+            st.caption("📊 OpenAI weekly data only (no Blueflame data included)")
+            
+            weekly_data = calculate_weekly_trends(openai_data)
+            
+            if not weekly_data.empty:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Active users trend
+                    fig_users = px.line(
+                        weekly_data,
+                        x='week_display',
+                        y='active_users',
+                        title='Weekly Active Users',
+                        markers=True,
+                        labels={'week_display': 'Week Starting', 'active_users': 'Active Users'}
+                    )
+                    
+                    fig_users.update_traces(
+                        line_color='#667eea',
+                        line_width=3,
+                        marker=dict(size=8),
+                        hovertemplate='%{y}<extra></extra>'  # Show only value; <extra></extra> removes trace name box
+                    )
+                    
+                    fig_users.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        hovermode='x unified',
+                        height=350,
+                        xaxis=dict(
+                            tickangle=-45,
+                            tickmode='auto',
+                            nticks=10
+                        )
+                    )
+                    
+                    st.plotly_chart(fig_users, use_container_width=True)
+                
+                with col2:
+                    # Message volume trend
+                    fig_messages = px.bar(
+                        weekly_data,
+                        x='week_display',
+                        y='total_messages',
+                        title='Weekly Message Volume',
+                        labels={'week_display': 'Week Starting', 'total_messages': 'Total Messages'},
+                        color='total_messages',
+                        color_continuous_scale='Blues'
+                    )
+                    
+                    fig_messages.update_traces(
+                        hovertemplate='%{y}<extra></extra>'  # Show only value; <extra></extra> removes trace name box
+                    )
+                    
+                    fig_messages.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        showlegend=False,
+                        height=350,
+                        xaxis=dict(
+                            tickangle=-45,
+                            tickmode='auto',
+                            nticks=10
+                        )
+                    )
+                    
+                    st.plotly_chart(fig_messages, use_container_width=True)
+                
+                # Weekly summary stats
+                st.markdown("**Weekly Summary:**")
+                col_a, col_b, col_c = st.columns(3)
+                
+                with col_a:
+                    avg_weekly_users = weekly_data['active_users'].mean()
+                    st.metric("Avg Weekly Active Users", f"{avg_weekly_users:,.0f}")
+                
+                with col_b:
+                    avg_weekly_messages = weekly_data['total_messages'].mean()
+                    st.metric("Avg Weekly Messages", f"{avg_weekly_messages:,.0f}")
+                
+                with col_c:
+                    # Growth rate (last week vs average)
+                    if len(weekly_data) > 1:
+                        last_week_users = weekly_data.iloc[-1]['active_users']
+                        growth = ((last_week_users - avg_weekly_users) / avg_weekly_users * 100) if avg_weekly_users > 0 else 0
+                        st.metric(
+                            "Latest Week vs Avg",
+                            f"{last_week_users:,.0f}",
+                            delta=f"{growth:+.1f}%"
+                        )
+            
+            st.divider()
+            
+            # Feature Adoption Timeline
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">🚀 Feature Adoption Timeline</h3>', unsafe_allow_html=True)
+            
+            adoption_timeline = get_feature_adoption_timeline(openai_data)
+            
+            if not adoption_timeline.empty:
+                # Count new adopters by feature over time
+                adoption_timeline['month'] = pd.to_datetime(adoption_timeline['first_used_date']).dt.to_period('M').astype(str)
+                
+                monthly_adoption = adoption_timeline.groupby(['month', 'feature']).size().reset_index(name='new_users')
+                
+                # Create stacked area chart
+                fig_adoption = px.area(
+                    monthly_adoption,
+                    x='month',
+                    y='new_users',
+                    color='feature',
+                    title='Feature Adoption Over Time (New Users per Month)',
+                    labels={'month': 'Month', 'new_users': 'New Users Adopting Feature', 'feature': 'Feature'}
+                )
+                
+                fig_adoption.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    hovermode='x unified',
+                    height=400
+                )
+                
+                st.plotly_chart(fig_adoption, use_container_width=True)
+                
+                # Feature adoption summary
+                st.markdown("**Feature Adoption Summary:**")
+                
+                feature_adoption_summary = adoption_timeline.groupby('feature').agg({
+                    'user_id': 'count',
+                    'first_used_date': 'min'
+                }).reset_index()
+                feature_adoption_summary.columns = ['Feature', 'Total Adopters', 'First Adoption Date']
+                feature_adoption_summary = feature_adoption_summary.sort_values('Total Adopters', ascending=False)
+                
+                st.dataframe(
+                    feature_adoption_summary,
+                    use_container_width=True,
+                    hide_index=True
+                )
+            
+            st.divider()
+            
+            # Export Options
+            st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">📥 OpenAI Data Export</h3>', unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # CSV export
+                csv_data = openai_data.to_csv(index=False)
+                st.download_button(
+                    label="📄 Download OpenAI Data (CSV)",
+                    data=csv_data,
+                    file_name=f"openai_data_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    help="Download all OpenAI ChatGPT usage data as CSV"
+                )
+            
+            with col2:
+                # Excel export with summary
+                try:
+                    from io import BytesIO
+                    from openpyxl import Workbook
+                    from openpyxl.utils.dataframe import dataframe_to_rows
+                    
+                    output = BytesIO()
+                    wb = Workbook()
+                    
+                    # Remove default sheet
+                    wb.remove(wb.active)
+                    
+                    # Add data sheet
+                    ws_data = wb.create_sheet("OpenAI Data")
+                    for r in dataframe_to_rows(openai_data, index=False, header=True):
+                        ws_data.append(r)
+                    
+                    # Add summary sheet
+                    ws_summary = wb.create_sheet("Summary", 0)
+                    ws_summary.append(["Metric", "Value"])
+                    ws_summary.append(["Total Active Users", total_active])
+                    ws_summary.append(["Daily Unique Active Users", f"{duau:.0f}"])
+                    ws_summary.append(["Total Messages", total_messages])
+                    ws_summary.append(["Avg Messages per User", f"{avg_per_user:.0f}"])
+                    ws_summary.append(["Avg Days Active per Month", f"{avg_days:.1f}"])
+                    
+                    # Add message breakdown sheet
+                    ws_breakdown = wb.create_sheet("Message Breakdown")
+                    for r in dataframe_to_rows(message_breakdown, index=False, header=True):
+                        ws_breakdown.append(r)
+                    
+                    # Add user tiers sheet
+                    if not user_tiers.empty:
+                        ws_tiers = wb.create_sheet("User Tiers")
+                        for r in dataframe_to_rows(user_tiers, index=False, header=True):
+                            ws_tiers.append(r)
+                    
+                    wb.save(output)
+                    excel_data = output.getvalue()
+                    
+                    st.download_button(
+                        label="📊 Download OpenAI Report (Excel)",
+                        data=excel_data,
+                        file_name=f"openai_report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        help="Download comprehensive Excel report with multiple sheets"
+                    )
+                except ImportError:
+                    st.info("Install openpyxl to enable Excel export: pip install openpyxl")
+    
+    # TAB 3: Power Users
+    with tab3:
+        st.header("⭐ Power Users & Champions")
+        
+        # Help text
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Power Users</strong> are defined as the top 5% of users by total usage.
+            These elite users demonstrate exceptional engagement and are ideal candidates for feedback, beta testing, and advocacy programs.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Add filtering controls for Power Users
+        st.markdown("**🎯 Customize Power User Threshold**")
+        filter_col1, filter_col2 = st.columns([1, 1])
+        
+        with filter_col1:
+            # Percentile threshold for power users
+            power_user_percentile = st.slider(
+                "Top % of users to include",
+                min_value=1,
+                max_value=25,
+                value=5,
+                step=1,
+                help="Adjust the percentage threshold for identifying power users"
+            )
+        
+        with filter_col2:
+            # Minimum message threshold
+            min_messages = st.number_input(
+                "Min. Total Messages",
+                min_value=0,
+                max_value=int(data.groupby('user_id')['usage_count'].sum().max()) if not data.empty else 1000,
+                value=0,
+                help="Only show users with at least this many total messages"
+            )
+        
+        power_users = calculate_power_users(data, threshold_percentile=(100 - power_user_percentile))
+        
+        # Apply minimum message filter
+        if min_messages > 0 and not power_users.empty:
+            power_users = power_users[power_users['usage_count'] >= min_messages]
+        
+        if not power_users.empty:
+            # Enhanced metrics row
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Total Power Users", 
+                    len(power_users),
+                    help="Number of users identified as power users"
+                )
+            
+            with col2:
+                pct = (len(power_users) / max(data['user_id'].nunique(), 1)) * 100
+                st.metric(
+                    "% of Active Users", 
+                    f"{pct:.1f}%",
+                    help="Percentage of all users who are power users"
+                )
+            
+            with col3:
+                power_usage = power_users['usage_count'].sum()
+                total_usage_pct = (power_usage / data['usage_count'].sum()) * 100
+                st.metric(
+                    "Power User Usage", 
+                    f"{power_usage:,}",
+                    delta=f"{total_usage_pct:.1f}% of total",
+                    help="Total usage by power users"
+                )
+            
+            st.divider()
+            st.subheader("🏆 Power User Directory")
+            st.caption("These users are ideal for feedback, beta testing, and advocacy programs")
+            
+            # Enhanced table display with better formatting
+            for idx, row in power_users.head(20).iterrows():
+                # Get message breakdown for this user
+                breakdown = get_user_message_breakdown(data, row['email'])
+                
+                # Calculate totals
+                openai_total = sum(breakdown['openai'].values())
+                blueflame_total = sum(breakdown['blueflame'].values())
+                total_messages = openai_total + blueflame_total
+                
+                # Create a card-like container for each power user
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
+                            padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0; 
+                            border-left: 4px solid #667eea;">
+                """, unsafe_allow_html=True)
+                
+                col1, col2, col3 = st.columns([3, 4, 3])
+                
+                with col1:
+                    # Handle NULL/empty user_name
+                    display_name = row['user_name'] if pd.notna(row['user_name']) and row['user_name'] else 'Unknown User'
+                    st.write(f"**{display_name}**")
+                    # Handle NULL/empty email
+                    display_email = row['email'] if pd.notna(row['email']) and row['email'] else 'No email'
+                    st.caption(display_email)
+                    # Handle NULL/empty department
+                    display_dept = row['department'] if pd.notna(row['department']) and row['department'] else 'Unknown'
+                    st.caption(f"🏢 {display_dept}")
+                
+                with col2:
+                    st.write("**Message Breakdown:**")
+                    
+                    # OpenAI Messages Section
+                    if openai_total > 0:
+                        st.caption(f"**OpenAI Data:** {openai_total:,} messages")
+                        if breakdown['openai']['ChatGPT Messages'] > 0:
+                            st.caption(f"  💬 ChatGPT: {breakdown['openai']['ChatGPT Messages']:,}")
+                        if breakdown['openai']['GPT Messages'] > 0:
+                            st.caption(f"  🤖 GPTs: {breakdown['openai']['GPT Messages']:,}")
+                        if breakdown['openai']['Tool Messages'] > 0:
+                            st.caption(f"  🔧 Tools: {breakdown['openai']['Tool Messages']:,}")
+                        if breakdown['openai']['Project Messages'] > 0:
+                            st.caption(f"  📁 Projects: {breakdown['openai']['Project Messages']:,}")
+                    
+                    # BlueFlame Messages Section
+                    if blueflame_total > 0:
+                        st.caption(f"**BlueFlame Data:** {blueflame_total:,} messages")
+                
+                with col3:
+                    st.write(f"**Total: {total_messages:,}**")
+                    # Handle NULL/empty tool_source
+                    display_tools = row['tool_source'] if pd.notna(row['tool_source']) and row['tool_source'] else 'Unknown'
+                    st.markdown(f'<span class="power-user-badge">{display_tools}</span>', 
+                              unsafe_allow_html=True)
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            # Enhanced empty state for power users
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">⭐</div>
+                <div class="empty-state-title">No Power Users Yet</div>
+                <div class="empty-state-text">
+                    Power users will appear here once you have sufficient usage data.<br>
+                    Upload more monthly reports to identify your most active users.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # TAB 4: Message Type Analytics
+    with tab4:
+        st.header("📈 Message Type Analytics")
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Feature Adoption Tracking:</strong> Analyze which AI features are most popular across your organization.
+            Use this to identify training opportunities, measure feature adoption, and understand usage patterns.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if data.empty:
+            st.info("📊 Upload usage data to see message type analytics.")
+        else:
+            # Organization-wide feature breakdown
+            st.markdown("### 🌐 Organization-Wide Feature Usage")
+            
+            org_breakdown = get_organization_message_breakdown(data)
+            
+            if org_breakdown:
+                col1, col2 = st.columns([3, 2])
+                
+                with col1:
+                    # Create stacked bar chart showing feature adoption over time
+                    st.markdown("**Feature Adoption Trends**")
+                    
+                    # Get time-series data for each feature
+                    time_data = data.copy()
+                    time_data['date'] = pd.to_datetime(time_data['date'], errors='coerce')
+                    time_data = time_data.dropna(subset=['date'])
+                    
+                    if not time_data.empty:
+                        # Group by month and feature
+                        time_data['month'] = time_data['date'].dt.to_period('M').astype(str)
+                        feature_trends = time_data.groupby(['month', 'feature_used'])['usage_count'].sum().reset_index()
+                        
+                        # Create line chart for trends
+                        fig_trends = px.line(
+                            feature_trends,
+                            x='month',
+                            y='usage_count',
+                            color='feature_used',
+                            title='Feature Usage Trends Over Time',
+                            labels={'usage_count': 'Message Count', 'month': 'Month', 'feature_used': 'Feature'},
+                            markers=True
+                        )
+                        
+                        fig_trends.update_layout(
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='white'),
+                            height=400,
+                            xaxis=dict(title='Month'),
+                            yaxis=dict(title='Messages'),
+                            legend=dict(
+                                orientation='v',
+                                yanchor='top',
+                                y=1,
+                                xanchor='left',
+                                x=1.02
+                            )
+                        )
+                        
+                        st.plotly_chart(fig_trends, use_container_width=True)
+                    else:
+                        st.info("Time-series data not available")
+                
+                with col2:
+                    # Feature usage distribution
+                    st.markdown("**Current Distribution**")
+                    
+                    breakdown_df = pd.DataFrame([
+                        {'Feature': feature, 'Messages': count} 
+                        for feature, count in org_breakdown.items()
+                    ])
+                    
+                    fig_pie = px.pie(
+                        breakdown_df,
+                        values='Messages',
+                        names='Feature',
+                        hole=0.5,
+                        color_discrete_sequence=px.colors.qualitative.Pastel
+                    )
+                    
+                    fig_pie.update_traces(
+                        textposition='auto',
+                        textinfo='percent+label',
+                        hovertemplate='<b>%{label}</b><br>Messages: %{value:,}<br>Percentage: %{percent}<extra></extra>'
+                    )
+                    
+                    fig_pie.update_layout(
+                        showlegend=False,
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                
+                st.divider()
+                
+                # Department-level feature comparison
+                st.markdown("### 🏢 Feature Usage by Department")
+                st.caption("Compare which features different departments are using")
+                
+                # Create heatmap of department vs feature usage
+                dept_feature_data = data.groupby(['department', 'feature_used'])['usage_count'].sum().reset_index()
+                dept_feature_pivot = dept_feature_data.pivot(index='department', columns='feature_used', values='usage_count').fillna(0)
+                
+                if not dept_feature_pivot.empty:
+                    fig_heatmap = px.imshow(
+                        dept_feature_pivot,
+                        labels=dict(x='Feature Type', y='Department', color='Messages'),
+                        aspect='auto',
+                        color_continuous_scale='Blues',
+                        title='Department vs Feature Usage Heatmap'
+                    )
+                    
+                    fig_heatmap.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        height=max(400, len(dept_feature_pivot) * 30)
+                    )
+                    
+                    fig_heatmap.update_xaxes(side='bottom')
+                    
+                    st.plotly_chart(fig_heatmap, use_container_width=True)
+                    
+                    # Add insights
+                    st.markdown("### 💡 Feature Adoption Insights")
+                    
+                    insight_col1, insight_col2, insight_col3 = st.columns(3)
+                    
+                    with insight_col1:
+                        # Most popular feature
+                        most_popular_feature = max(org_breakdown.items(), key=lambda x: x[1])
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Most Popular Feature</h4>
+                            <div class="metric-value">{most_popular_feature[0]}</div>
+                            <div class="metric-label">{most_popular_feature[1]:,} messages</div>
+                            <div class="metric-label">{(most_popular_feature[1] / sum(org_breakdown.values()) * 100):.1f}% of total</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with insight_col2:
+                        # Feature diversity score (number of features being used)
+                        active_features = len([f for f, c in org_breakdown.items() if c > 0])
+                        all_possible_features = len(get_all_message_types(data))
+                        
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Feature Adoption Rate</h4>
+                            <div class="metric-value">{active_features} / {all_possible_features}</div>
+                            <div class="metric-label">Features being used</div>
+                            <div class="metric-label">{(active_features / max(all_possible_features, 1) * 100):.0f}% adoption</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with insight_col3:
+                        # Department with highest feature diversity
+                        dept_diversity = dept_feature_pivot.apply(lambda row: (row > 0).sum(), axis=1)
+                        most_diverse_dept = dept_diversity.idxmax()
+                        
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <h4>Most Diverse Usage</h4>
+                            <div class="metric-value">{most_diverse_dept}</div>
+                            <div class="metric-label">Uses {dept_diversity[most_diverse_dept]} features</div>
+                            <div class="metric-label">Highest feature variety</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("Not enough data for department comparison")
+            else:
+                st.info("No feature usage data available")
+    
+    # TAB 5: Department Mapper
+    with tab5:
+        display_department_mapper()
+    
+    # TAB 6: Database Management
+    with tab6:
+        st.header("🔧 Database Management")
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 Monitor your database health, manage uploads, and export data for external analysis
+        </div>
+        """, unsafe_allow_html=True)
+        
+        db_info = get_database_info()
+        
+        # Enhanced database stats
+        st.markdown('<div class="section-header"><h3>📊 Database Statistics</h3></div>', unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(
+                "Total Records", 
+                f"{db_info['total_stats']['total_records']:,}",
+                help="Total number of records in database"
+            )
+        with col2:
+            st.metric(
+                "Total Users", 
+                db_info['total_stats']['total_users'],
+                help="Unique users across all data"
+            )
+        with col3:
+            st.metric(
+                "Date Range", 
+                f"{db_info['total_stats']['total_days']} days",
+                help="Total days of data coverage"
+            )
+        
+        st.divider()
+        
+        # Employee File Management
+        st.markdown('<div class="section-header"><h3>👥 Employee Master File</h3></div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="help-tooltip">
+            📋 Upload your employee roster to enable department assignment and identify non-employee tool usage
+        </div>
+        """, unsafe_allow_html=True)
+        
+        try:
+            employee_count = db.get_employee_count()
+        except AttributeError:
+            # Handle cache error - database object missing methods
+            employee_count = 0
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.metric("Employees Loaded", f"{employee_count:,}", help="Total employees in master roster")
+        
+        with col2:
+            if st.button("👁️ View Employees", help="View all loaded employees"):
+                st.session_state.show_employees = not st.session_state.get('show_employees', False)
+        
+        # Show employee table if requested
+        if st.session_state.get('show_employees', False):
+            try:
+                employees_df = db.get_all_employees()
+            except AttributeError:
+                # Handle cache error - database object missing methods
+                employees_df = pd.DataFrame()
+            
+            if not employees_df.empty:
+                st.markdown("**Employee Actions:**")
+                st.caption("⚠️ Deleting an employee will remove them from the roster and optionally remove their usage data from all analytics.")
+                
+                # Add search filter for employees
+                search_emp = st.text_input("🔍 Search employees by name or email", "", key="employee_search")
+                
+                # Filter employees if search is active
+                if search_emp:
+                    employees_filtered = employees_df[
+                        employees_df['first_name'].str.contains(search_emp, case=False, na=False) |
+                        employees_df['last_name'].str.contains(search_emp, case=False, na=False) |
+                        employees_df['email'].str.contains(search_emp, case=False, na=False)
+                    ]
+                else:
+                    employees_filtered = employees_df
+                
+                if employees_filtered.empty:
+                    st.info(f"No employees match '{search_emp}'")
+                else:
+                    st.write(f"**Showing {len(employees_filtered)} of {len(employees_df)} employees:**")
+                    
+                    # Display employees with delete options
+                    for idx, row in employees_filtered.iterrows():
+                        col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 1])
+                        
+                        with col1:
+                            st.write(f"**{row['first_name']} {row['last_name']}**")
+                        
+                        with col2:
+                            if pd.notna(row['email']) and row['email']:
+                                st.write(f"📧 {row['email']}")
+                            else:
+                                st.write("📧 _No email_")
+                        
+                        with col3:
+                            if pd.notna(row['department']) and row['department']:
+                                st.write(f"🏢 {row['department']}")
+                            else:
+                                st.write("🏢 _Unknown_")
+                        
+                        with col4:
+                            if pd.notna(row['status']) and row['status']:
+                                st.write(f"Status: {row['status']}")
+                            else:
+                                st.write("Status: _Unknown_")
+                        
+                        with col5:
+                            # Delete button with confirmation
+                            delete_key = f"delete_emp_{row['employee_id']}"
+                            if st.button("🗑️", key=delete_key, help=f"Delete {row['first_name']} {row['last_name']}"):
+                                st.session_state[f"confirm_{delete_key}"] = True
+                        
+                        # Confirmation dialog if delete was clicked
+                        confirm_key = f"confirm_delete_emp_{row['employee_id']}"
+                        if st.session_state.get(confirm_key, False):
+                            st.error(f"⚠️ **Confirm deletion of {row['first_name']} {row['last_name']}**")
+                            
+                            col_a, col_b, col_c = st.columns(3)
+                            
+                            with col_a:
+                                if st.button("❌ Cancel", key=f"cancel_{delete_key}"):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
+                            
+                            with col_b:
+                                if st.button("🗑️ Delete Employee Only", key=f"confirm_emp_{delete_key}", 
+                                           help="Remove from employee roster but keep usage data"):
+                                    success, message = db.delete_employee(row['employee_id'])
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        st.session_state[confirm_key] = False
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {message}")
+                            
+                            with col_c:
+                                if st.button("💣 Delete All Data", key=f"confirm_all_{delete_key}", 
+                                           help="Remove employee AND all their usage data from analytics"):
+                                    success, message = db.delete_employee_and_usage(row['employee_id'])
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        st.session_state[confirm_key] = False
+                                        st.cache_resource.clear()  # Clear cache to refresh metrics
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {message}")
+                        
+                        st.divider()
+            else:
+                st.info("No employees loaded yet")
+        
+        # Employee file uploader
+        employee_file = st.file_uploader(
+            "📤 Upload Employee Master File",
+            type=['csv', 'xlsx'],
+            help="Upload CSV or Excel file with columns: First Name, Last Name, Email, Title, Function (for department), Status",
+            key="employee_uploader"
+        )
+        
+        if employee_file is not None:
+            try:
+                # Read the file
+                if employee_file.name.endswith('.csv'):
+                    emp_df = pd.read_csv(employee_file, low_memory=False)
+                else:
+                    emp_df = pd.read_excel(employee_file)
+                
+                st.write(f"**Preview of {employee_file.name}:**")
+                st.dataframe(emp_df.head(5), use_container_width=True)
+                
+                # Map columns
+                st.write("**Column Mapping:**")
+                st.info("ℹ️ Email column is optional. If your file doesn't have email addresses, employees will be matched by name.")
+                col_map_col1, col_map_col2 = st.columns(2)
+                
+                with col_map_col1:
+                    first_name_col = st.selectbox("First Name Column", emp_df.columns, 
+                                                  index=next((i for i, c in enumerate(emp_df.columns) if 'first' in c.lower()), 0))
+                    last_name_col = st.selectbox("Last Name Column", emp_df.columns,
+                                                index=next((i for i, c in enumerate(emp_df.columns) if 'last' in c.lower()), 1))
+                    # Make email optional
+                    email_col_options = ['[No Email Column]'] + list(emp_df.columns)
+                    email_col_idx = next((i+1 for i, c in enumerate(emp_df.columns) if 'email' in c.lower()), 0)
+                    email_col_selection = st.selectbox("Email Column (Optional)", email_col_options, index=email_col_idx)
+                
+                with col_map_col2:
+                    title_col = st.selectbox("Title Column", emp_df.columns,
+                                           index=next((i for i, c in enumerate(emp_df.columns) if 'title' in c.lower() or 'position' in c.lower()), 3))
+                    dept_col = st.selectbox("Department Column (Function)", emp_df.columns,
+                                          index=next((i for i, c in enumerate(emp_df.columns) if 'function' in c.lower() or 'department' in c.lower() or 'dept' in c.lower()), 4))
+                    status_col = st.selectbox("Status Column", emp_df.columns,
+                                            index=next((i for i, c in enumerate(emp_df.columns) if 'status' in c.lower()), 5))
+                
+                if st.button("📥 Load Employees", type="primary"):
+                    # Create normalized dataframe
+                    normalized_emp_df = pd.DataFrame({
+                        'first_name': emp_df[first_name_col],
+                        'last_name': emp_df[last_name_col],
+                        'email': emp_df[email_col_selection] if email_col_selection != '[No Email Column]' else None,
+                        'title': emp_df[title_col],
+                        'department': emp_df[dept_col],
+                        'status': emp_df[status_col]
+                    })
+                    
+                    # Load into database
+                    success, message, count = db.load_employees(normalized_emp_df)
+                    
+                    if success:
+                        st.success(f"✅ {message}")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+                        
+            except Exception as e:
+                st.error(f"❌ Error processing employee file: {str(e)}")
+        
+        # Force reload employee file button
+        if employee_count > 0:
+            st.markdown("**🔄 Employee File Actions**")
+            col_reload1, col_reload2 = st.columns(2)
+            
+            with col_reload1:
+                if st.button("🔄 Force Re-import Employee File", 
+                           help="Clear marker and reload the employee CSV file from disk",
+                           use_container_width=True):
+                    with st.spinner("Reloading employee file..."):
+                        success, message = force_reload_employee_file()
+                        if success:
+                            st.success(message)
+                            st.cache_resource.clear()  # Clear cache
+                            st.rerun()
+                        else:
+                            st.error(message)
+        
+        st.divider()
+        
+        # Upload history with better styling and file management
+        st.markdown('<div class="section-header"><h3>📂 Upload History & File Management</h3></div>', unsafe_allow_html=True)
+        
+        if db_info['upload_history']:
+            upload_df = pd.DataFrame(db_info['upload_history'])
+            
+            # Display upload history with delete option
+            for idx, row in upload_df.iterrows():
+                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+                
+                with col1:
+                    st.write(f"**📄 {row['filename']}**")
+                
+                with col2:
+                    st.write(f"📅 {row['date_range']}")
+                
+                with col3:
+                    st.write(f"📊 {row['records']:,} records")
+                
+                with col4:
+                    # Delete button for individual file
+                    if st.button("🗑️", key=f"delete_file_{idx}", help=f"Delete {row['filename']}"):
+                        confirm_key = f"confirm_delete_{idx}"
+                        if st.session_state.get(confirm_key, False):
+                            # Actually delete the file
+                            success = db.delete_by_file(row['filename'])
+                            if success:
+                                st.success(f"✅ Deleted {row['filename']}")
+                                st.session_state[confirm_key] = False
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Error deleting {row['filename']}")
+                        else:
+                            # Set confirmation flag
+                            st.session_state[confirm_key] = True
+                            st.warning(f"⚠️ Click again to confirm deletion of {row['filename']}")
+                
+                # Show confirmation warning if needed
+                confirm_key = f"confirm_delete_{idx}"
+                if st.session_state.get(confirm_key, False):
+                    st.error(f"⚠️ **Confirm deletion:** Click 🗑️ again to permanently delete {row['filename']} ({row['records']:,} records)")
+                
+                st.divider()
+        else:
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">📁</div>
+                <div class="empty-state-title">No Upload History</div>
+                <div class="empty-state-text">Upload your first file to see history here</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Database actions with better UX
+        st.markdown('<div class="section-header"><h3>⚙️ Database Actions</h3></div>', unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.write("**Export Data**")
+            all_data = db.get_all_data()
+            if not all_data.empty:
+                csv = all_data.to_csv(index=False)
+                st.download_button(
+                    "📥 Download CSV",
+                    csv,
+                    f"ai_usage_export_{datetime.now().strftime('%Y%m%d')}.csv",
+                    "text/csv",
+                    use_container_width=True,
+                    help="Download all data as CSV for external analysis"
+                )
+            else:
+                st.button("📥 Download CSV", disabled=True, use_container_width=True)
+        
+        with col2:
+            st.write("**Refresh Data**")
+            if st.button("🔄 Refresh Dashboard", type="secondary", use_container_width=True):
+                st.cache_resource.clear()
+                st.success("Cache cleared!")
+                st.rerun()
+        
+        with col3:
+            st.write("**Clear Database**")
+            if st.button("🗑️ Clear All Data", type="secondary", use_container_width=True):
+                if st.session_state.get('confirm_clear'):
+                    db.delete_all_data()
+                    st.session_state.confirm_clear = False
+                    st.success("✅ Database cleared successfully")
+                    st.rerun()
+                else:
+                    st.session_state.confirm_clear = True
+                    st.warning("⚠️ Click again to confirm deletion")
+        
+        with col4:
+            st.write("**Clear & Reset All**")
+            if st.button("💣 Clear & Reset", type="secondary", use_container_width=True, 
+                        help="Clear database, file tracking, and employee markers"):
+                if st.session_state.get('confirm_full_reset'):
+                    with st.spinner("Performing complete reset..."):
+                        success, message, details = clear_and_reset_all()
+                        st.session_state.confirm_full_reset = False
+                        
+                        if success:
+                            st.success(message)
+                            st.cache_resource.clear()
+                            st.rerun()
+                        else:
+                            st.warning(message)
+                            st.json(details)
+                else:
+                    st.session_state.confirm_full_reset = True
+                    st.error("⚠️ Click again to confirm COMPLETE RESET")
+        
+        # Warning about clear action
+        if st.session_state.get('confirm_clear'):
+            st.error("⚠️ **Warning:** This action will permanently delete all data. Click the button again to confirm.")
+        
+        # Warning about full reset
+        if st.session_state.get('confirm_full_reset'):
+            st.error("""
+            ⚠️ **WARNING: COMPLETE RESET**
+            
+            This will:
+            - Delete ALL database records
+            - Remove file tracking history (all files will appear as new)
+            - Clear employee file markers (allowing re-import)
+            
+            Click "Clear & Reset" again to confirm this action.
+            """)
+
+def get_database_info():
+    """Get database information."""
     all_data = db.get_all_data()
     
     if all_data.empty:
