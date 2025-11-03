@@ -127,6 +127,7 @@ def calculate_monetary_value(
         rate = hourly_rate
     else:
         # Normalize department name for lookup
+        # Converts to title case to match config keys (e.g., 'engineering' → 'Engineering')
         dept_normalized = str(department).strip().title() if department else 'Unknown'
         
         # Look up department-specific rate
@@ -471,8 +472,10 @@ def validate_date_field(date_value: Union[str, datetime, date, pd.Timestamp]) ->
             return False
         
         # Check if date is not in the future
+        # Normalize both dates to remove time components for fair comparison
         today = pd.Timestamp.now().normalize()
-        if parsed_date > today:
+        parsed_normalized = pd.Timestamp(parsed_date).normalize()
+        if parsed_normalized > today:
             return False
         
         return True

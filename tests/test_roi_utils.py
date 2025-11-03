@@ -82,8 +82,8 @@ def test_estimate_hours_saved_edge_cases():
     
     # Test float usage
     hours = estimate_hours_saved(12.5, 'ChatGPT Messages')
-    expected = 1.04  # 12.5 * 5 / 60 = 1.041666...
-    assert abs(hours - expected) < 0.01, f"Expected ~{expected} hours, got {hours}"
+    expected = 1.04  # 12.5 * 5 / 60 = 1.041666... → 1.04 (rounded)
+    assert hours == expected, f"Expected {expected} hours, got {hours}"
     print(f"✅ Float usage: 12.5 messages = {hours} hours")
     
     return True
@@ -465,38 +465,38 @@ def test_validate_date_field():
     print("\n🧪 Testing validate_date_field")
     
     # Test valid past date (string)
-    assert validate_date_field('2024-01-01') == True, "Valid past date should return True"
+    assert validate_date_field('2024-01-01'), "Valid past date should return True"
     print("✅ Valid past date (string): True")
     
     # Test valid past date (datetime)
     past_date = datetime(2024, 1, 1)
-    assert validate_date_field(past_date) == True, "Valid past date (datetime) should return True"
+    assert validate_date_field(past_date), "Valid past date (datetime) should return True"
     print("✅ Valid past date (datetime): True")
     
     # Test today (should be valid)
-    today = datetime.now().date()
-    assert validate_date_field(today) == True, "Today should be valid"
+    today = pd.Timestamp.now().normalize()
+    assert validate_date_field(today), "Today should be valid"
     print("✅ Today: True")
     
     # Test future date (should be invalid)
     future_date = datetime.now() + timedelta(days=30)
-    assert validate_date_field(future_date) == False, "Future date should return False"
+    assert not validate_date_field(future_date), "Future date should return False"
     print("✅ Future date: False")
     
     # Test invalid string
-    assert validate_date_field('not-a-date') == False, "Invalid date string should return False"
+    assert not validate_date_field('not-a-date'), "Invalid date string should return False"
     print("✅ Invalid date string: False")
     
     # Test None
-    assert validate_date_field(None) == False, "None should return False"
+    assert not validate_date_field(None), "None should return False"
     print("✅ None: False")
     
     # Test NaN
-    assert validate_date_field(np.nan) == False, "NaN should return False"
+    assert not validate_date_field(np.nan), "NaN should return False"
     print("✅ NaN: False")
     
     # Test empty string
-    assert validate_date_field('') == False, "Empty string should return False"
+    assert not validate_date_field(''), "Empty string should return False"
     print("✅ Empty string: False")
     
     return True
@@ -524,13 +524,17 @@ def test_with_sample_csv():
                 
                 # Try to process if it has the right structure
                 if 'email' in df.columns or 'user_email' in df.columns:
-                    # Normalize to expected format
+                    # Normalize to expected format - use proper column access
                     test_df = pd.DataFrame()
-                    test_df['user_id'] = df.get('email', df.get('user_email', []))
-                    test_df['user_name'] = df.get('name', df.get('user_name', ['User'] * len(df)))
-                    test_df['department'] = df.get('department', ['Unknown'] * len(df))
+                    test_df['user_id'] = df['email'] if 'email' in df.columns else df['user_email']
+                    test_df['user_name'] = df['name'] if 'name' in df.columns else (
+                        df['user_name'] if 'user_name' in df.columns else pd.Series(['User'] * len(df))
+                    )
+                    test_df['department'] = df['department'] if 'department' in df.columns else pd.Series(['Unknown'] * len(df))
                     test_df['feature_used'] = 'ChatGPT Messages'
-                    test_df['usage_count'] = df.get('messages', df.get('usage_count', [10] * len(df)))
+                    test_df['usage_count'] = df['messages'] if 'messages' in df.columns else (
+                        df['usage_count'] if 'usage_count' in df.columns else pd.Series([10] * len(df))
+                    )
                     
                     # Calculate ROI metrics
                     if not test_df.empty and test_df['user_id'].notna().any():
