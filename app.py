@@ -2638,6 +2638,23 @@ def main():
                 departments,
                 help="🏢 Filter by specific departments (leave empty for all)"
             )
+            
+            # Frequency toggle
+            st.divider()
+            st.markdown("**📊 Analysis Frequency**")
+            freq = st.radio(
+                "Frequency",
+                ["Monthly (default)", "Weekly"],
+                index=0,
+                help="Monthly: aggregate OpenAI weeks to months; Weekly: estimate Blueflame weeks from monthly totals."
+            )
+            
+            # Partial period exclusion
+            exclude_partial = st.checkbox(
+                "Exclude current in-progress period",
+                value=True,
+                help="Exclude the current incomplete week/month from analysis to avoid skewed trends"
+            )
         else:
             st.markdown("""
             <div class="empty-state">
@@ -2645,6 +2662,9 @@ def main():
                 <div class="empty-state-title">Upload Data to Begin</div>
             </div>
             """, unsafe_allow_html=True)
+            # Set default values before returning
+            freq = "Monthly (default)"
+            exclude_partial = True
             return
     
     # Load department mappings
@@ -2672,6 +2692,117 @@ def main():
     # Apply tool filter
     if selected_tool != 'All Tools' and not data.empty:
         data = data[data['tool_source'] == selected_tool]
+    
+    # Apply frequency normalization and partial period filtering
+    if not data.empty:
+        # Ensure date column is datetime
+        data['date'] = pd.to_datetime(data['date'], errors='coerce')
+        
+        if freq.startswith("Weekly"):
+            # Weekly view: normalize periods to ISO week starts
+            # For OpenAI data (already weekly), keep as-is
+            # For Blueflame data (monthly), allocate to weeks
+            
+            weekly_records = []
+            for _, row in data.iterrows():
+                if row['tool_source'] == 'BlueFlame AI':
+                    # Allocate monthly data to weeks (even-by-day allocation)
+                    month_start = pd.Timestamp(year=row['date'].year, month=row['date'].month, day=1)
+                    month_end = month_start + pd.DateOffset(months=1) - pd.Timedelta(days=1)
+                    
+                    # Get all ISO week starts within this month (use set for performance)
+                    current = month_start
+                    weeks_in_month = set()
+                    while current <= month_end:
+                        week_start = current - pd.to_timedelta(current.weekday(), 'D')
+                        weeks_in_month.add(week_start)
+                        current += pd.Timedelta(days=7)
+                    
+                    # Convert back to sorted list for iteration
+                    weeks_in_month = sorted(weeks_in_month)
+                    
+                    # Allocate usage evenly across weeks
+                    if weeks_in_month:
+                        usage_per_week = row['usage_count'] / len(weeks_in_month)
+                        cost_per_week = row['cost_usd'] / len(weeks_in_month)
+                        
+                        for week_start in weeks_in_month:
+                            weekly_row = row.copy()
+                            weekly_row['period_start'] = week_start
+                            weekly_row['usage_count'] = usage_per_week
+                            weekly_row['cost_usd'] = cost_per_week
+                            weekly_records.append(weekly_row)
+                else:
+                    # OpenAI data - already weekly, just ensure period_start is set to week start
+                    week_start = row['date'] - pd.to_timedelta(row['date'].weekday(), 'D')
+                    weekly_row = row.copy()
+                    weekly_row['period_start'] = week_start
+                    weekly_records.append(weekly_row)
+            
+            if weekly_records:
+                data = pd.DataFrame(weekly_records)
+                # Exclude partial current week if requested
+                if exclude_partial:
+                    today = pd.Timestamp.today().normalize()
+                    current_week_start = today - pd.to_timedelta(today.weekday(), 'D')
+                    data = data[data['period_start'] < current_week_start]
+        else:
+            # Monthly view: normalize periods to month starts
+            # For Blueflame data (already monthly), keep as-is
+            # For OpenAI data (weekly), prorate by day into calendar months
+            
+            monthly_records = []
+            for _, row in data.iterrows():
+                if row['tool_source'] in ['ChatGPT', 'OpenAI']:
+                    # OpenAI weekly data - prorate into calendar months
+                    # Get period_start, falling back to date column
+                    period_start = pd.to_datetime(row.get('period_start', row['date']), errors='coerce')
+                    if pd.isna(period_start):
+                        period_start = row['date']
+                    
+                    # Estimate period_end as 6 days after period_start (7 day week)
+                    period_end = period_start + pd.Timedelta(days=6)
+                    
+                    # Check if period spans multiple months
+                    if period_start.month != period_end.month:
+                        # Split across months
+                        # Calculate days in each month
+                        month1_end = pd.Timestamp(year=period_start.year, month=period_start.month, day=1) + pd.DateOffset(months=1) - pd.Timedelta(days=1)
+                        days_in_month1 = (month1_end - period_start).days + 1
+                        days_in_month2 = (period_end - month1_end).days
+                        total_days = days_in_month1 + days_in_month2
+                        
+                        # Month 1 portion
+                        month1_row = row.copy()
+                        month1_row['period_start'] = pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
+                        month1_row['usage_count'] = row['usage_count'] * (days_in_month1 / total_days)
+                        month1_row['cost_usd'] = row['cost_usd'] * (days_in_month1 / total_days)
+                        monthly_records.append(month1_row)
+                        
+                        # Month 2 portion
+                        month2_row = row.copy()
+                        month2_row['period_start'] = pd.Timestamp(year=period_end.year, month=period_end.month, day=1)
+                        month2_row['usage_count'] = row['usage_count'] * (days_in_month2 / total_days)
+                        month2_row['cost_usd'] = row['cost_usd'] * (days_in_month2 / total_days)
+                        monthly_records.append(month2_row)
+                    else:
+                        # Entire period in same month
+                        monthly_row = row.copy()
+                        monthly_row['period_start'] = pd.Timestamp(year=period_start.year, month=period_start.month, day=1)
+                        monthly_records.append(monthly_row)
+                else:
+                    # Blueflame data - already monthly
+                    monthly_row = row.copy()
+                    monthly_row['period_start'] = pd.Timestamp(year=row['date'].year, month=row['date'].month, day=1)
+                    monthly_records.append(monthly_row)
+            
+            if monthly_records:
+                data = pd.DataFrame(monthly_records)
+                # Exclude partial current month if requested
+                if exclude_partial:
+                    today = pd.Timestamp.today().normalize()
+                    current_month_start = today.to_period('M').start_time
+                    data = data[data['period_start'] < current_month_start]
     
     if data.empty:
         # Enhanced empty state for no filtered data
@@ -2736,6 +2867,10 @@ def main():
                     st.error(f"Export error: {str(e)}")
         
         st.divider()
+        
+        # Weekly caption for Blueflame estimation
+        if freq.startswith("Weekly"):
+            st.caption("ⓘ Blueflame weekly values are estimated from monthly totals (even-by-day allocation).")
         
         # Calculate key usage metrics
         total_users = data['user_id'].nunique()
