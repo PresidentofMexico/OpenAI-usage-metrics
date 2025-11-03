@@ -2755,14 +2755,10 @@ def main():
             for _, row in data.iterrows():
                 if row['tool_source'] in ['ChatGPT', 'OpenAI']:
                     # OpenAI weekly data - prorate into calendar months
-                    # Assume data has period_start and period_end or use date
-                    period_start = row.get('period_start', row['date'])
+                    # Get period_start, falling back to date column
+                    period_start = pd.to_datetime(row.get('period_start', row['date']), errors='coerce')
                     if pd.isna(period_start):
                         period_start = row['date']
-                    else:
-                        period_start = pd.to_datetime(period_start, errors='coerce')
-                        if pd.isna(period_start):
-                            period_start = row['date']
                     
                     # Estimate period_end as 6 days after period_start (7 day week)
                     period_end = period_start + pd.Timedelta(days=6)
