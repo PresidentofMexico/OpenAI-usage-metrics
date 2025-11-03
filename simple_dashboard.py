@@ -153,6 +153,21 @@ try:
             )
             st.plotly_chart(fig2, use_container_width=True)
         
+        # ROI Analytics Section
+        st.divider()
+        st.subheader("💰 ROI Analytics")
+        st.info("""
+        **Return on Investment Analytics** - Coming Soon!
+        
+        This section will provide insights into the business value and ROI of AI adoption, including:
+        - Cost savings analysis
+        - Time efficiency metrics
+        - Productivity improvement tracking
+        - License utilization optimization
+        
+        For advanced ROI analytics, use the full dashboard (app.py).
+        """)
+        
         # Raw data
         with st.expander("📋 View Raw Data"):
             st.dataframe(data)
