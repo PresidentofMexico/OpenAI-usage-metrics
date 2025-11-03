@@ -229,14 +229,20 @@ def test_priority_ordering():
         for i, f in enumerate(employee_file_candidates, 1):
             print(f"  {i}. {os.path.basename(f)}")
         
-        # The first file should be the newest (lexicographically last when sorted reverse)
-        # Due to reverse sort, we expect November > October > plain 2025 > 2024 > 2023
-        first_file = os.path.basename(employee_file_candidates[0])
-        print(f"\nFirst file to be loaded: {first_file}")
-        
         # Verify that we got all files
         assert len(employee_file_candidates) == 5, f"Expected 5 files, got {len(employee_file_candidates)}"
         
+        # Verify the files are sorted in reverse alphabetical order
+        # This is what the actual code does - it doesn't guarantee chronological order
+        first_file = os.path.basename(employee_file_candidates[0])
+        print(f"\nFirst file to be loaded: {first_file}")
+        
+        # Verify files are in reverse alphabetical order
+        file_names = [os.path.basename(f) for f in employee_file_candidates]
+        sorted_names = sorted(file_names, reverse=True)
+        assert file_names == sorted_names, f"Files should be in reverse alphabetical order. Got: {file_names}, Expected: {sorted_names}"
+        
+        print("✅ Files are sorted in reverse alphabetical order")
         print("\n✅ PASSED: File ordering works correctly")
         
     finally:

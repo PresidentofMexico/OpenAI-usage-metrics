@@ -8,6 +8,8 @@ Test auto-load employee file functionality to ensure:
 """
 import sys
 import os
+import glob
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 sys.path.insert(0, project_root)
@@ -48,7 +50,6 @@ def test_auto_load_uses_script_directory():
         conn.close()
         
         # Remove any marker files from original directory (glob pattern to match any employee file)
-        import glob
         marker_pattern = os.path.join(original_cwd, '.Employee Headcount*.loaded')
         for marker_path in glob.glob(marker_pattern):
             if os.path.exists(marker_path):
@@ -67,7 +68,6 @@ def test_auto_load_uses_script_directory():
         
         # Verify marker file was created in SCRIPT directory (not cwd)
         # Use glob to find any marker file that was created
-        import glob
         marker_in_cwd = len(glob.glob('.Employee Headcount*.loaded')) > 0
         marker_in_script_dir_list = glob.glob(os.path.join(original_cwd, '.Employee Headcount*.loaded'))
         marker_in_script_dir = len(marker_in_script_dir_list) > 0

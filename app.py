@@ -88,7 +88,9 @@ def auto_load_employee_file(db_manager):
         pattern_path = os.path.join(script_dir, pattern)
         matched_files = glob.glob(pattern_path)
         if matched_files:
-            # Sort to get consistent ordering (newest year/month first if naming includes dates)
+            # Sort files in reverse alphabetical order for consistent prioritization
+            # Note: This typically puts files with later months/years first (e.g., "Nov" before "Oct")
+            # but doesn't guarantee chronological ordering for all date formats
             matched_files.sort(reverse=True)
             # Only add files we haven't seen yet (to avoid duplicates from overlapping patterns)
             for file_path in matched_files:
