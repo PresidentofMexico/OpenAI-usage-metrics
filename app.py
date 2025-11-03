@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import sqlite3
 import json
+import traceback
 
 from data_processor import DataProcessor
 from database import DatabaseManager
@@ -87,12 +88,24 @@ def auto_load_employee_file(db_manager):
                 # Place marker in the script directory (same as where we look for the CSV)
                 marker_file = os.path.join(script_dir, f".{filename}.loaded")
                 
-                # If marker exists, this file was already processed, skip to next candidate
+                # Check if CSV is newer than marker file (handles file updates)
+                should_reload = False
                 if os.path.exists(marker_file):
-                    print(f"[auto_load_employee_file] Marker file found for {filename}, trying next candidate...")
-                    continue
+                    csv_mtime = os.path.getmtime(file_path)
+                    marker_mtime = os.path.getmtime(marker_file)
+                    
+                    if csv_mtime > marker_mtime:
+                        print(f"[auto_load_employee_file] CSV file is newer than marker - will reload")
+                        should_reload = True
+                    else:
+                        print(f"[auto_load_employee_file] Marker file found and CSV unchanged, trying next candidate...")
+                        continue
                 else:
                     print(f"[auto_load_employee_file] No marker file found, will load for first time")
+                    should_reload = True
+                
+                if not should_reload:
+                    continue
                 
                 # Read the employee file
                 print(f"[auto_load_employee_file] Reading CSV file: {file_path}")
@@ -133,7 +146,6 @@ def auto_load_employee_file(db_manager):
                     
             except Exception as e:
                 print(f"[auto_load_employee_file] ❌ Error auto-loading employee file {filename}: {str(e)}")
-                import traceback
                 traceback.print_exc()
         else:
             print(f"[auto_load_employee_file] File not found: {file_path}")
@@ -157,6 +169,110 @@ def save_department_mappings(mappings):
     """Save department mappings to JSON file."""
     with open(DEPT_MAPPING_FILE, 'w') as f:
         json.dump(mappings, f, indent=2)
+
+def clear_employee_markers():
+    """
+    Clear all employee file marker files (.loaded files).
+    This allows employee files to be re-imported even if they were previously loaded.
+    
+    Returns:
+        int: Number of marker files deleted
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    deleted_count = 0
+    
+    try:
+        # Look for .*.loaded files in the script directory
+        for filename in os.listdir(script_dir):
+            if filename.endswith('.loaded') and filename.startswith('.'):
+                marker_path = os.path.join(script_dir, filename)
+                try:
+                    os.remove(marker_path)
+                    deleted_count += 1
+                    print(f"Deleted marker file: {filename}")
+                except Exception as e:
+                    print(f"Error deleting marker {filename}: {e}")
+    except Exception as e:
+        print(f"Error clearing employee markers: {e}")
+    
+    return deleted_count
+
+def clear_and_reset_all():
+    """
+    Comprehensive reset function that:
+    1. Clears all database data
+    2. Removes file tracking JSON
+    3. Removes all employee marker files
+    
+    This provides a complete fresh start for all data processing.
+    
+    Returns:
+        tuple: (success: bool, message: str, details: dict)
+    """
+    details = {
+        'database_cleared': False,
+        'tracking_reset': False,
+        'markers_cleared': 0
+    }
+    
+    try:
+        # 1. Clear database
+        db_success = db.delete_all_data()
+        details['database_cleared'] = db_success
+        
+        # 2. Reset file tracking
+        scanner.reset_all_tracking()
+        details['tracking_reset'] = True
+        
+        # 3. Clear employee markers
+        markers_deleted = clear_employee_markers()
+        details['markers_cleared'] = markers_deleted
+        
+        success = db_success and details['tracking_reset']
+        
+        if success:
+            message = f"✅ Complete reset successful: Database cleared, file tracking reset, {markers_deleted} marker file(s) removed"
+        else:
+            message = f"⚠️ Partial reset: Database={'✓' if db_success else '✗'}, Tracking={'✓' if details['tracking_reset'] else '✗'}, Markers={markers_deleted}"
+        
+        return success, message, details
+        
+    except Exception as e:
+        return False, f"❌ Error during reset: {str(e)}", details
+
+def force_reload_employee_file():
+    """
+    Force reload the employee master file by clearing its marker and re-running auto-load.
+    
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Employee file candidates (same as in auto_load_employee_file)
+    employee_file_candidates = [
+        "Employee Headcount October 2025_Emails.csv",
+        "Employee Headcount October 2025.csv"
+    ]
+    
+    # Clear markers for all employee files
+    markers_cleared = 0
+    for filename in employee_file_candidates:
+        marker_file = os.path.join(script_dir, f".{filename}.loaded")
+        if os.path.exists(marker_file):
+            try:
+                os.remove(marker_file)
+                markers_cleared += 1
+                print(f"Cleared marker for {filename}")
+            except Exception as e:
+                print(f"Error clearing marker for {filename}: {e}")
+    
+    # Re-run auto-load
+    try:
+        auto_load_employee_file(db)
+        return True, f"✅ Employee file reload initiated ({markers_cleared} marker(s) cleared)"
+    except Exception as e:
+        return False, f"❌ Error reloading employee file: {str(e)}"
 
 def apply_department_mappings(data, mappings):
     """Apply department mappings to the dataset."""
@@ -240,7 +356,6 @@ def apply_employee_departments(data, db_manager=None):
         return data
     except Exception as e:
         print(f"Error applying employee departments: {e}")
-        import traceback
         traceback.print_exc()
         return data
 
@@ -2211,9 +2326,30 @@ def main():
             with col2:
                 st.metric("🆕 New Files", len(new_files))
             
-            # Refresh button
-            if st.button("🔄 Refresh Files", use_container_width=True):
-                st.rerun()
+            # Refresh button and Force Reprocess All
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("🔄 Refresh Files", use_container_width=True):
+                    st.rerun()
+            
+            with col_btn2:
+                if st.button("🔄 Force Reprocess All", 
+                           help="Reset all file statuses - mark all files as new for reprocessing",
+                           use_container_width=True,
+                           type="secondary"):
+                    if st.session_state.get('confirm_reprocess_all'):
+                        # Reset all files in auto-scan folders
+                        scanner.reset_all_files_status(AUTO_SCAN_FOLDERS)
+                        st.session_state.confirm_reprocess_all = False
+                        st.success("✅ All files reset - they will now appear as new")
+                        st.rerun()
+                    else:
+                        st.session_state.confirm_reprocess_all = True
+                        st.warning("⚠️ Click again to confirm reset of all file statuses")
+            
+            # Warning for force reprocess
+            if st.session_state.get('confirm_reprocess_all'):
+                st.info("💡 This will mark all files as 'new' so they can be reprocessed. No data will be deleted.")
             
             # Show new/unprocessed files
             if new_files:
@@ -2285,10 +2421,24 @@ def main():
             if processed_files:
                 with st.expander(f"✅ Processed Files ({len(processed_files)})"):
                     for file_info in processed_files:
-                        st.markdown(f"""
-                        **{file_info['filename']}**  
-                        📁 {file_info['folder']} | 📊 {file_info['size_mb']} MB | ✅ {file_info.get('last_processed', 'Unknown')}
-                        """)
+                        col1, col2 = st.columns([4, 1])
+                        
+                        with col1:
+                            st.markdown(f"""
+                            **{file_info['filename']}**  
+                            📁 {file_info['folder']} | 📊 {file_info['size_mb']} MB | ✅ {file_info.get('last_processed', 'Unknown')}
+                            """)
+                        
+                        with col2:
+                            # Reset button for individual file
+                            if st.button("🔄 Reset", key=f"reset_{file_info['path']}", 
+                                       help=f"Reset {file_info['filename']} to allow reprocessing",
+                                       use_container_width=True):
+                                scanner.reset_file_status(file_info['path'])
+                                st.success(f"✅ Reset {file_info['filename']}")
+                                st.rerun()
+                        
+                        st.divider()
         else:
             st.info("""
             📂 **No files detected in scan folders**
@@ -4737,6 +4887,24 @@ def main():
             except Exception as e:
                 st.error(f"❌ Error processing employee file: {str(e)}")
         
+        # Force reload employee file button
+        if employee_count > 0:
+            st.markdown("**🔄 Employee File Actions**")
+            col_reload1, col_reload2 = st.columns(2)
+            
+            with col_reload1:
+                if st.button("🔄 Force Re-import Employee File", 
+                           help="Clear marker and reload the employee CSV file from disk",
+                           use_container_width=True):
+                    with st.spinner("Reloading employee file..."):
+                        success, message = force_reload_employee_file()
+                        if success:
+                            st.success(message)
+                            st.cache_resource.clear()  # Clear cache
+                            st.rerun()
+                        else:
+                            st.error(message)
+        
         st.divider()
         
         # Upload history with better styling and file management
@@ -4796,7 +4964,7 @@ def main():
         # Database actions with better UX
         st.markdown('<div class="section-header"><h3>⚙️ Database Actions</h3></div>', unsafe_allow_html=True)
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.write("**Export Data**")
@@ -4833,9 +5001,42 @@ def main():
                     st.session_state.confirm_clear = True
                     st.warning("⚠️ Click again to confirm deletion")
         
+        with col4:
+            st.write("**Clear & Reset All**")
+            if st.button("💣 Clear & Reset", type="secondary", use_container_width=True, 
+                        help="Clear database, file tracking, and employee markers"):
+                if st.session_state.get('confirm_full_reset'):
+                    with st.spinner("Performing complete reset..."):
+                        success, message, details = clear_and_reset_all()
+                        st.session_state.confirm_full_reset = False
+                        
+                        if success:
+                            st.success(message)
+                            st.cache_resource.clear()
+                            st.rerun()
+                        else:
+                            st.warning(message)
+                            st.json(details)
+                else:
+                    st.session_state.confirm_full_reset = True
+                    st.error("⚠️ Click again to confirm COMPLETE RESET")
+        
         # Warning about clear action
         if st.session_state.get('confirm_clear'):
             st.error("⚠️ **Warning:** This action will permanently delete all data. Click the button again to confirm.")
+        
+        # Warning about full reset
+        if st.session_state.get('confirm_full_reset'):
+            st.error("""
+            ⚠️ **WARNING: COMPLETE RESET**
+            
+            This will:
+            - Delete ALL database records
+            - Remove file tracking history (all files will appear as new)
+            - Clear employee file markers (allowing re-import)
+            
+            Click "Clear & Reset" again to confirm this action.
+            """)
 
 def get_database_info():
     """Get database information."""
