@@ -30,6 +30,11 @@ from cost_calculator import EnterpriseCostCalculator
 # Constants
 WEEKLY_CHART_DATE_FORMAT = '%m/%d/%Y'  # Format for displaying week dates in weekly trend charts
 
+# ROI Analytics Configuration
+# These values can be customized based on organization-specific benchmarks
+ROI_HOURLY_VALUE = 50  # Dollar value per hour of time saved (adjust based on average salary)
+ROI_MONTHLY_WORK_HOURS = 160  # Standard monthly work hours (20 days × 8 hours/day)
+
 # Page configuration
 st.set_page_config(
     page_title="AI Usage Analytics Dashboard",
@@ -4918,9 +4923,9 @@ def main():
             
             with col4:
                 # Calculate monthly productivity boost as percentage
-                # Assuming 160 work hours per month per user
+                # Using configurable monthly work hours (default: 160 hours = 20 days × 8 hours)
                 total_users = data['user_id'].nunique()
-                available_hours = total_users * 160  # Monthly work hours
+                available_hours = total_users * ROI_MONTHLY_WORK_HOURS
                 productivity_boost = (total_hours_saved / max(available_hours, 1)) * 100
                 st.metric(
                     "Productivity Boost",
@@ -5051,7 +5056,7 @@ def main():
                         'messages_per_user': total_messages / max(active_users, 1),
                         'unique_features': unique_features,
                         'hours_saved': hours_saved,
-                        'value_delivered': hours_saved * 50  # Assume $50/hour value
+                        'value_delivered': hours_saved * ROI_HOURLY_VALUE  # Configurable hourly value
                     })
                 
                 monthly_df = pd.DataFrame(monthly_stats)
@@ -5146,7 +5151,7 @@ def main():
                     st.metric(
                         "Est. Value Created",
                         f"${total_value_delivered:,.0f}",
-                        help="Estimated business value based on time saved ($50/hour)"
+                        help=f"Estimated business value based on time saved (${ROI_HOURLY_VALUE}/hour)"
                     )
                 
                 with col3:
@@ -5223,7 +5228,7 @@ def main():
                     axis=1
                 )
                 hours_saved = dept_data_copy['hours_saved'].sum()
-                value_estimate = hours_saved * 50  # $50/hour
+                value_estimate = hours_saved * ROI_HOURLY_VALUE  # Configurable hourly value
                 
                 dept_metrics.append({
                     'department': dept,
@@ -5390,7 +5395,7 @@ def main():
                 - Higher values indicate mature, multi-faceted AI adoption
                 
                 **Bubble Size: Estimated Business Value**
-                - Based on time saved (hours) × $50/hour
+                - Based on time saved (hours) × ${ROI_HOURLY_VALUE}/hour (configurable)
                 - Larger bubbles = greater estimated ROI
                 - Helps prioritize high-impact departments
                 
