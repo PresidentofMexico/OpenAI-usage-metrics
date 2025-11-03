@@ -267,6 +267,51 @@ class FileScanner:
             del self.processed_files[file_key]
             self._save_tracking()
     
+    def reset_all_files_status(self, folder_paths: List[str] = None):
+        """
+        Reset the processing status of all files, optionally filtered by folder paths.
+        This marks all files as 'new' for reprocessing.
+        
+        Args:
+            folder_paths: Optional list of folder paths to filter files. 
+                         If None, resets ALL tracked files.
+        """
+        if folder_paths is None:
+            # Reset all files
+            self.processed_files = {}
+            self._save_tracking()
+            print("All file tracking has been reset")
+        else:
+            # Reset only files in specified folders
+            files_to_reset = []
+            for file_key in list(self.processed_files.keys()):
+                # Check if file is in any of the specified folders
+                if any(file_key.startswith(os.path.abspath(folder)) for folder in folder_paths):
+                    files_to_reset.append(file_key)
+            
+            for file_key in files_to_reset:
+                del self.processed_files[file_key]
+            
+            self._save_tracking()
+            print(f"Reset {len(files_to_reset)} files from specified folders")
+    
+    def reset_all_tracking(self):
+        """
+        Completely clear all file tracking by removing the tracking file.
+        This is more aggressive than reset_all_files_status as it deletes the file.
+        """
+        self.processed_files = {}
+        if os.path.exists(self.tracking_file):
+            try:
+                os.remove(self.tracking_file)
+                print(f"Removed tracking file: {self.tracking_file}")
+            except Exception as e:
+                print(f"Error removing tracking file: {e}")
+        else:
+            # Just save empty tracking
+            self._save_tracking()
+            print("Tracking reset (file didn't exist)")
+    
     def get_file_stats(self) -> Dict:
         """
         Get statistics about tracked files.
