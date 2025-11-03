@@ -4,7 +4,9 @@ Comprehensive test for employee master file integration
 """
 import sys
 import os
-sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
 
 import pandas as pd
 from database import DatabaseManager

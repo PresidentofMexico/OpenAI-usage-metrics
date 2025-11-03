@@ -67,29 +67,18 @@ def test_end_to_end_integration():
     processed_df = processor.clean_openai_data(df, weekly_test_file['filename'])
     print(f"   ✅ Processed to {len(processed_df)} records")
     
-    # Verify date assignments
-    print("\n📊 Step 4: Verifying date assignments...")
-    march_records = processed_df[pd.to_datetime(processed_df['date']).dt.month == 3]
-    april_records = processed_df[pd.to_datetime(processed_df['date']).dt.month == 4]
+    # Verify date preservation
+    print("\n📊 Step 4: Verifying date preservation...")
+    unique_dates = processed_df['date'].unique()
     
-    print(f"   - March records: {len(march_records)}")
-    print(f"   - April records: {len(april_records)}")
+    print(f"   - Unique dates: {unique_dates}")
+    print(f"   - Expected: ['2025-03-30']")
     
-    # We should have records in both months
-    assert len(march_records) > 0, "Should have March records (User Two)"
-    assert len(april_records) > 0, "Should have April records (User One)"
+    # All records should have the same period_start date
+    assert len(unique_dates) == 1, f"Expected 1 unique date, got {len(unique_dates)}"
+    assert unique_dates[0] == '2025-03-30', f"Expected 2025-03-30, got {unique_dates[0]}"
     
-    # Verify specific user assignments
-    user_one_records = processed_df[processed_df['email'] == 'test.user1@eldridge.com']
-    user_two_records = processed_df[processed_df['email'] == 'test.user2@eldridge.com']
-    
-    user_one_months = pd.to_datetime(user_one_records['date']).dt.month.unique()
-    user_two_months = pd.to_datetime(user_two_records['date']).dt.month.unique()
-    
-    assert 4 in user_one_months, "User One should have April records"
-    assert 3 in user_two_months, "User Two should have March records"
-    
-    print("   ✅ Date assignments are correct")
+    print("   ✅ All records preserve period_start date: 2025-03-30")
     
     # Step 5: Store in database
     print("\n💾 Step 5: Storing in database...")
@@ -102,17 +91,15 @@ def test_end_to_end_integration():
     all_data = db.get_all_data()
     print(f"   Total records in DB: {len(all_data)}")
     
-    # Check that we have the expected records
+    # Check that we have the expected records with the preserved date
     db_march = all_data[pd.to_datetime(all_data['date']).dt.month == 3]
-    db_april = all_data[pd.to_datetime(all_data['date']).dt.month == 4]
+    db_dates = all_data['date'].unique()
     
-    print(f"   - March records in DB: {len(db_march)}")
-    print(f"   - April records in DB: {len(db_april)}")
+    print(f"   - Unique dates in DB: {db_dates}")
     
-    assert len(db_march) > 0, "Database should have March records"
-    assert len(db_april) > 0, "Database should have April records"
+    assert '2025-03-30' in db_dates, "Database should have 2025-03-30 records"
     
-    print("   ✅ Database contains correct data")
+    print("   ✅ Database contains correct data with preserved dates")
     
     # Step 7: Test monthly file for backward compatibility
     print("\n🔄 Step 7: Testing monthly file (backward compatibility)...")
@@ -147,7 +134,7 @@ def test_end_to_end_integration():
     print("Summary:")
     print("  ✅ File scanning works with recursive folders")
     print("  ✅ Weekly files detected and read correctly")
-    print("  ✅ Date assignments work for weeks spanning two months")
+    print("  ✅ Weekly files preserve actual period_start dates")
     print("  ✅ Data stored successfully in database")
     print("  ✅ Database queries work correctly")
     print("  ✅ Monthly files still work (backward compatibility)")

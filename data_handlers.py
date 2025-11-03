@@ -1,350 +1,745 @@
 """
 Separate Data Handler for Weekly and Monthly ChatGPT Data
 Ensures weekly and monthly data are used in different ways while maintaining consistency
+Data Handlers for Weekly and Monthly ChatGPT Data
+
+Provides separate, specialized handlers for analyzing weekly and monthly ChatGPT usage data,
+with tools for reconciliation and consistency checking.
+
+Classes:
+- WeeklyDataHandler: Analyzes weekly patterns, trends, and peak weeks
+- MonthlyDataHandler: Provides monthly projections, quarterly summaries, and seasonality
+- DataReconciliationTool: Ensures consistency between weekly and monthly data
+
+Usage:
+    from data_handlers import WeeklyDataHandler, MonthlyDataHandler, DataReconciliationTool
+    
+    # Weekly analysis
+    weekly_handler = WeeklyDataHandler()
+    weekly_handler.load_data(weekly_files)
+    trends = weekly_handler.analyze_trends()
+    
+    # Monthly analysis
+    monthly_handler = MonthlyDataHandler()
+    monthly_handler.load_data(monthly_files)
+    projections = monthly_handler.project_annual_usage()
+    
+    # Reconciliation
+    reconciler = DataReconciliationTool()
+    results = reconciler.reconcile(weekly_handler, monthly_handler)
 """
 
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-import matplotlib.pyplot as plt
-import seaborn as sns
+from typing import List, Dict, Any, Optional, Tuple
+import json
+
 
 class WeeklyDataHandler:
-    """
-    Handles weekly ChatGPT data with specific analysis methods
-    """
+    """Handler for analyzing weekly ChatGPT usage data."""
     
-    def __init__(self, data_path: str):
-        self.data_path = data_path
-        self.df = None
-        self.load_data()
+    def __init__(self):
+        """Initialize the weekly data handler."""
+        self.data = None
+        self.loaded_files = []
+        self.message_categories = ['messages', 'gpt_messages', 'tool_messages', 'project_messages']
     
-    def load_data(self):
-        """Load weekly data"""
-        if self.data_path.endswith('.csv'):
-            self.df = pd.read_csv(self.data_path)
-        elif self.data_path.endswith(('.xlsx', '.xls')):
-            self.df = pd.read_excel(self.data_path)
+    def load_data(self, file_paths: List[str]) -> pd.DataFrame:
+        """
+        Load weekly data from CSV files.
+        
+        Args:
+            file_paths: List of paths to weekly CSV files
+            
+        Returns:
+            Combined DataFrame with all weekly data
+        """
+        dfs = []
+        
+        for filepath in file_paths:
+            try:
+                df = pd.read_csv(filepath)
+                
+                # Verify it's weekly data
+                if 'cadence' in df.columns:
+                    if not (df['cadence'] == 'Weekly').any():
+                        print(f"Warning: {filepath} does not appear to be weekly data")
+                
+                # Add source file tracking
+                df['source_file'] = filepath
+                dfs.append(df)
+                self.loaded_files.append(filepath)
+                
+            except Exception as e:
+                print(f"Error loading {filepath}: {str(e)}")
+        
+        if not dfs:
+            raise ValueError("No valid weekly data files loaded")
+        
+        self.data = pd.concat(dfs, ignore_index=True)
         
         # Convert date columns
-        if 'week_start' in self.df.columns:
-            self.df['week_start'] = pd.to_datetime(self.df['week_start'])
-            self.df['week_num'] = self.df['week_start'].dt.isocalendar().week
-            self.df['year'] = self.df['week_start'].dt.year
-    
-    def calculate_weekly_trends(self) -> pd.DataFrame:
-        """Calculate week-over-week trends"""
-        trends = self.df.copy()
+        if 'period_start' in self.data.columns:
+            self.data['period_start'] = pd.to_datetime(self.data['period_start'])
+        if 'period_end' in self.data.columns:
+            self.data['period_end'] = pd.to_datetime(self.data['period_end'])
         
-        # Calculate week-over-week changes for each category
-        for col in ['GPT', 'Project', 'Tool', 'General', 'total_messages']:
-            if col in trends.columns:
-                trends[f'{col}_wow_change'] = trends[col].diff()
-                trends[f'{col}_wow_pct'] = trends[col].pct_change() * 100
+        # Convert numeric columns
+        for col in self.message_categories:
+            if col in self.data.columns:
+                self.data[col] = pd.to_numeric(self.data[col], errors='coerce').fillna(0)
         
-        return trends
+        return self.data
     
-    def get_weekly_averages(self) -> Dict:
-        """Calculate weekly averages by category"""
-        averages = {}
-        for col in ['GPT', 'Project', 'Tool', 'General', 'total_messages']:
-            if col in self.df.columns:
-                averages[col] = {
-                    'mean': self.df[col].mean(),
-                    'median': self.df[col].median(),
-                    'std': self.df[col].std(),
-                    'min': self.df[col].min(),
-                    'max': self.df[col].max()
+    def analyze_trends(self) -> Dict[str, Any]:
+        """
+        Analyze weekly trends in usage.
+        
+        Returns:
+            Dictionary with trend analysis results
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_data() first.")
+        
+        # Filter to active users
+        active_data = self.data[self.data.get('is_active', 1) == 1].copy()
+        
+        # Group by week
+        weekly_stats = active_data.groupby('period_start').agg({
+            'email': 'nunique',  # Unique users per week
+            'messages': 'sum',
+            'gpt_messages': 'sum',
+            'tool_messages': 'sum',
+            'project_messages': 'sum'
+        }).reset_index()
+        
+        weekly_stats.columns = ['week', 'active_users', 'total_messages', 
+                               'gpt_messages', 'tool_messages', 'project_messages']
+        
+        # Calculate week-over-week changes
+        weekly_stats['messages_change'] = weekly_stats['total_messages'].diff()
+        weekly_stats['messages_change_pct'] = (
+            weekly_stats['total_messages'].pct_change() * 100
+        ).round(2)
+        
+        weekly_stats['users_change'] = weekly_stats['active_users'].diff()
+        weekly_stats['users_change_pct'] = (
+            weekly_stats['active_users'].pct_change() * 100
+        ).round(2)
+        
+        # Calculate average messages per user
+        weekly_stats['avg_messages_per_user'] = (
+            weekly_stats['total_messages'] / weekly_stats['active_users']
+        ).round(2)
+        
+        return {
+            'weekly_statistics': weekly_stats.to_dict('records'),
+            'summary': {
+                'total_weeks': len(weekly_stats),
+                'avg_weekly_messages': int(weekly_stats['total_messages'].mean()),
+                'avg_weekly_users': int(weekly_stats['active_users'].mean()),
+                'peak_week': {
+                    'date': str(weekly_stats.loc[weekly_stats['total_messages'].idxmax(), 'week'].date()),
+                    'messages': int(weekly_stats['total_messages'].max()),
+                    'users': int(weekly_stats.loc[weekly_stats['total_messages'].idxmax(), 'active_users'])
+                },
+                'lowest_week': {
+                    'date': str(weekly_stats.loc[weekly_stats['total_messages'].idxmin(), 'week'].date()),
+                    'messages': int(weekly_stats['total_messages'].min()),
+                    'users': int(weekly_stats.loc[weekly_stats['total_messages'].idxmin(), 'active_users'])
                 }
-        return averages
+            }
+        }
     
-    def identify_peak_weeks(self, category: str = 'total_messages') -> pd.DataFrame:
-        """Identify peak usage weeks"""
-        if category not in self.df.columns:
-            return pd.DataFrame()
+    def identify_peak_weeks(self, top_n: int = 5) -> List[Dict[str, Any]]:
+        """
+        Identify peak usage weeks.
         
-        # Find weeks above 90th percentile
-        threshold = self.df[category].quantile(0.9)
-        peak_weeks = self.df[self.df[category] > threshold].copy()
-        peak_weeks['peak_indicator'] = 'Peak'
+        Args:
+            top_n: Number of top weeks to return
+            
+        Returns:
+            List of peak weeks with details
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_data() first.")
         
-        return peak_weeks[['week_start', category, 'peak_indicator']]
+        active_data = self.data[self.data.get('is_active', 1) == 1].copy()
+        
+        weekly_totals = active_data.groupby('period_start').agg({
+            'messages': 'sum',
+            'email': 'nunique'
+        }).reset_index()
+        
+        weekly_totals.columns = ['week', 'total_messages', 'active_users']
+        weekly_totals['avg_messages_per_user'] = (
+            weekly_totals['total_messages'] / weekly_totals['active_users']
+        ).round(2)
+        
+        # Sort by total messages
+        top_weeks = weekly_totals.nlargest(top_n, 'total_messages')
+        
+        results = []
+        for _, row in top_weeks.iterrows():
+            results.append({
+                'week_start': str(row['week'].date()),
+                'total_messages': int(row['total_messages']),
+                'active_users': int(row['active_users']),
+                'avg_messages_per_user': float(row['avg_messages_per_user'])
+            })
+        
+        return results
     
-    def get_category_distribution(self) -> pd.DataFrame:
-        """Get distribution of messages across categories for each week"""
-        dist_df = self.df.copy()
+    def analyze_user_engagement(self) -> Dict[str, Any]:
+        """
+        Analyze user engagement patterns in weekly data.
         
-        categories = ['GPT', 'Project', 'Tool', 'General']
-        for cat in categories:
-            if cat in dist_df.columns and 'total_messages' in dist_df.columns:
-                dist_df[f'{cat}_pct'] = (dist_df[cat] / dist_df['total_messages']) * 100
+        Returns:
+            Dictionary with engagement metrics
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_data() first.")
         
-        return dist_df
+        active_data = self.data[self.data.get('is_active', 1) == 1].copy()
+        
+        # User-level aggregation
+        user_stats = active_data.groupby('email').agg({
+            'period_start': 'count',  # Number of active weeks
+            'messages': 'sum',
+            'gpt_messages': 'sum',
+            'tool_messages': 'sum',
+            'project_messages': 'sum'
+        }).reset_index()
+        
+        user_stats.columns = ['email', 'active_weeks', 'total_messages',
+                             'gpt_messages', 'tool_messages', 'project_messages']
+        
+        # Calculate engagement metrics
+        total_weeks = active_data['period_start'].nunique()
+        user_stats['engagement_rate'] = (
+            (user_stats['active_weeks'] / total_weeks) * 100
+        ).round(2)
+        
+        user_stats['avg_messages_per_week'] = (
+            user_stats['total_messages'] / user_stats['active_weeks']
+        ).round(2)
+        
+        # Categorize users
+        def categorize_engagement(rate):
+            if rate >= 80:
+                return 'High'
+            elif rate >= 50:
+                return 'Medium'
+            else:
+                return 'Low'
+        
+        user_stats['engagement_category'] = user_stats['engagement_rate'].apply(categorize_engagement)
+        
+        # Summary statistics
+        engagement_summary = user_stats['engagement_category'].value_counts().to_dict()
+        
+        return {
+            'total_users': len(user_stats),
+            'total_weeks_analyzed': total_weeks,
+            'engagement_distribution': engagement_summary,
+            'avg_engagement_rate': float(user_stats['engagement_rate'].mean().round(2)),
+            'avg_active_weeks_per_user': float(user_stats['active_weeks'].mean().round(2)),
+            'top_users': user_stats.nlargest(10, 'total_messages')[
+                ['email', 'active_weeks', 'total_messages', 'engagement_rate']
+            ].to_dict('records')
+        }
+    
+    def get_weekly_summary(self) -> pd.DataFrame:
+        """
+        Get a summary DataFrame of weekly data.
+        
+        Returns:
+            DataFrame with weekly summaries
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_data() first.")
+        
+        active_data = self.data[self.data.get('is_active', 1) == 1].copy()
+        
+        summary = active_data.groupby('period_start').agg({
+            'email': 'nunique',
+            'messages': 'sum',
+            'gpt_messages': 'sum',
+            'tool_messages': 'sum',
+            'project_messages': 'sum'
+        }).reset_index()
+        
+        summary.columns = ['week', 'active_users', 'messages', 
+                          'gpt_messages', 'tool_messages', 'project_messages']
+        
+        return summary
 
 
 class MonthlyDataHandler:
-    """
-    Handles monthly ChatGPT data with specific analysis methods
-    """
+    """Handler for analyzing monthly ChatGPT usage data."""
     
-    def __init__(self, data_path: str):
-        self.data_path = data_path
-        self.df = None
-        self.load_data()
+    def __init__(self):
+        """Initialize the monthly data handler."""
+        self.data = None
+        self.loaded_files = []
+        self.message_categories = ['messages', 'gpt_messages', 'tool_messages', 'project_messages']
     
-    def load_data(self):
-        """Load monthly data"""
-        if self.data_path.endswith('.csv'):
-            self.df = pd.read_csv(self.data_path)
-        elif self.data_path.endswith(('.xlsx', '.xls')):
-            self.df = pd.read_excel(self.data_path)
+    def load_data(self, file_paths: List[str]) -> pd.DataFrame:
+        """
+        Load monthly data from CSV files.
+        
+        Args:
+            file_paths: List of paths to monthly CSV files
+            
+        Returns:
+            Combined DataFrame with all monthly data
+        """
+        dfs = []
+        
+        for filepath in file_paths:
+            try:
+                df = pd.read_csv(filepath)
+                
+                # Verify it's monthly data
+                if 'cadence' in df.columns:
+                    if not (df['cadence'] == 'Monthly').any():
+                        print(f"Warning: {filepath} does not appear to be monthly data")
+                
+                # Add source file tracking
+                df['source_file'] = filepath
+                dfs.append(df)
+                self.loaded_files.append(filepath)
+                
+            except Exception as e:
+                print(f"Error loading {filepath}: {str(e)}")
+        
+        if not dfs:
+            raise ValueError("No valid monthly data files loaded")
+        
+        self.data = pd.concat(dfs, ignore_index=True)
         
         # Convert date columns
-        if 'month' in self.df.columns:
-            self.df['month'] = pd.to_datetime(self.df['month'])
-            self.df['month_name'] = self.df['month'].dt.strftime('%B %Y')
+        if 'period_start' in self.data.columns:
+            self.data['period_start'] = pd.to_datetime(self.data['period_start'])
+        if 'period_end' in self.data.columns:
+            self.data['period_end'] = pd.to_datetime(self.data['period_end'])
+        
+        # Convert numeric columns
+        for col in self.message_categories:
+            if col in self.data.columns:
+                self.data[col] = pd.to_numeric(self.data[col], errors='coerce').fillna(0)
+        
+        return self.data
     
-    def calculate_monthly_trends(self) -> pd.DataFrame:
-        """Calculate month-over-month trends"""
-        trends = self.df.copy()
+    def project_annual_usage(self) -> Dict[str, Any]:
+        """
+        Project annual usage based on monthly data.
         
-        # Calculate month-over-month changes
-        for col in ['GPT', 'Project', 'Tool', 'General', 'total_messages']:
-            if col in trends.columns:
-                trends[f'{col}_mom_change'] = trends[col].diff()
-                trends[f'{col}_mom_pct'] = trends[col].pct_change() * 100
+        Returns:
+            Dictionary with annual projections
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_data() first.")
         
-        return trends
-    
-    def project_next_month(self) -> Dict:
-        """Project next month's values based on trends"""
-        projections = {}
+        active_data = self.data[self.data.get('is_active', 1) == 1].copy()
         
-        for col in ['GPT', 'Project', 'Tool', 'General', 'total_messages']:
-            if col in self.df.columns:
-                # Simple linear projection based on last 3 months
-                if len(self.df) >= 3:
-                    recent = self.df[col].tail(3)
-                    trend = recent.diff().mean()
-                    last_value = recent.iloc[-1]
-                    projection = last_value + trend
-                    
-                    projections[col] = {
-                        'last_value': last_value,
-                        'trend': trend,
-                        'projection': projection,
-                        'confidence': 'Medium' if abs(trend/last_value) < 0.1 else 'Low'
-                    }
+        # Monthly totals
+        monthly_totals = active_data.groupby('period_start').agg({
+            'messages': 'sum',
+            'gpt_messages': 'sum',
+            'tool_messages': 'sum',
+            'project_messages': 'sum',
+            'email': 'nunique'
+        }).reset_index()
         
-        return projections
-    
-    def get_quarterly_summary(self) -> pd.DataFrame:
-        """Aggregate monthly data to quarterly level"""
-        quarterly = self.df.copy()
-        quarterly['quarter'] = quarterly['month'].dt.to_period('Q')
+        monthly_totals.columns = ['month', 'messages', 'gpt_messages', 
+                                 'tool_messages', 'project_messages', 'active_users']
         
-        # Group by quarter
-        agg_dict = {}
-        for col in ['GPT', 'Project', 'Tool', 'General', 'total_messages']:
-            if col in quarterly.columns:
-                agg_dict[col] = 'sum'
+        # Calculate monthly averages
+        avg_monthly_messages = monthly_totals['messages'].mean()
+        avg_monthly_users = monthly_totals['active_users'].mean()
         
-        return quarterly.groupby('quarter').agg(agg_dict).reset_index()
-    
-    def calculate_seasonality(self) -> Dict:
-        """Identify seasonal patterns in monthly data"""
-        seasonality = {}
-        
-        if len(self.df) >= 12:  # Need at least a year of data
-            self.df['month_of_year'] = self.df['month'].dt.month
+        # Calculate growth rate
+        if len(monthly_totals) >= 2:
+            first_month = monthly_totals.iloc[0]['messages']
+            last_month = monthly_totals.iloc[-1]['messages']
+            months_diff = len(monthly_totals) - 1
             
-            for col in ['GPT', 'Project', 'Tool', 'General', 'total_messages']:
-                if col in self.df.columns:
-                    monthly_avg = self.df.groupby('month_of_year')[col].mean()
-                    seasonality[col] = {
-                        'highest_month': monthly_avg.idxmax(),
-                        'lowest_month': monthly_avg.idxmin(),
-                        'seasonal_range': monthly_avg.max() - monthly_avg.min(),
-                        'monthly_averages': monthly_avg.to_dict()
-                    }
+            if first_month > 0 and months_diff > 0:
+                monthly_growth_rate = ((last_month / first_month) ** (1 / months_diff) - 1) * 100
+            else:
+                monthly_growth_rate = 0
+        else:
+            monthly_growth_rate = 0
         
-        return seasonality
+        # Project annual totals
+        months_available = len(monthly_totals)
+        
+        if months_available > 0:
+            # Simple projection: average monthly * 12
+            simple_projection = avg_monthly_messages * 12
+            
+            # Growth-adjusted projection
+            if monthly_growth_rate > 0:
+                growth_adjusted_projection = sum([
+                    avg_monthly_messages * (1 + monthly_growth_rate / 100) ** i
+                    for i in range(12)
+                ])
+            else:
+                growth_adjusted_projection = simple_projection
+        else:
+            simple_projection = 0
+            growth_adjusted_projection = 0
+        
+        return {
+            'months_analyzed': months_available,
+            'avg_monthly_messages': int(avg_monthly_messages),
+            'avg_monthly_users': int(avg_monthly_users),
+            'monthly_growth_rate': round(monthly_growth_rate, 2),
+            'projections': {
+                'simple_annual': int(simple_projection),
+                'growth_adjusted_annual': int(growth_adjusted_projection)
+            },
+            'monthly_breakdown': monthly_totals.to_dict('records')
+        }
+    
+    def analyze_quarterly_trends(self) -> Dict[str, Any]:
+        """
+        Analyze usage by quarter.
+        
+        Returns:
+            Dictionary with quarterly analysis
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_data() first.")
+        
+        active_data = self.data[self.data.get('is_active', 1) == 1].copy()
+        
+        # Add quarter column
+        active_data['quarter'] = active_data['period_start'].dt.to_period('Q')
+        
+        # Quarterly aggregation
+        quarterly_stats = active_data.groupby('quarter').agg({
+            'messages': 'sum',
+            'gpt_messages': 'sum',
+            'tool_messages': 'sum',
+            'project_messages': 'sum',
+            'email': 'nunique'
+        }).reset_index()
+        
+        quarterly_stats.columns = ['quarter', 'messages', 'gpt_messages',
+                                   'tool_messages', 'project_messages', 'active_users']
+        
+        # Calculate quarter-over-quarter changes
+        quarterly_stats['messages_change'] = quarterly_stats['messages'].diff()
+        quarterly_stats['messages_change_pct'] = (
+            quarterly_stats['messages'].pct_change() * 100
+        ).round(2)
+        
+        quarterly_stats['users_change'] = quarterly_stats['active_users'].diff()
+        quarterly_stats['users_change_pct'] = (
+            quarterly_stats['active_users'].pct_change() * 100
+        ).round(2)
+        
+        # Convert quarter to string for JSON serialization
+        quarterly_stats['quarter'] = quarterly_stats['quarter'].astype(str)
+        
+        return {
+            'total_quarters': len(quarterly_stats),
+            'quarterly_data': quarterly_stats.to_dict('records'),
+            'summary': {
+                'avg_quarterly_messages': int(quarterly_stats['messages'].mean()),
+                'avg_quarterly_users': int(quarterly_stats['active_users'].mean()),
+                'best_quarter': {
+                    'period': quarterly_stats.loc[quarterly_stats['messages'].idxmax(), 'quarter'],
+                    'messages': int(quarterly_stats['messages'].max())
+                }
+            }
+        }
+    
+    def analyze_seasonality(self) -> Dict[str, Any]:
+        """
+        Analyze seasonal patterns in monthly data.
+        
+        Returns:
+            Dictionary with seasonality insights
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_data() first.")
+        
+        active_data = self.data[self.data.get('is_active', 1) == 1].copy()
+        
+        # Extract month name
+        active_data['month_name'] = active_data['period_start'].dt.month_name()
+        active_data['month_num'] = active_data['period_start'].dt.month
+        
+        # Aggregate by month name
+        monthly_patterns = active_data.groupby(['month_num', 'month_name']).agg({
+            'messages': 'mean',
+            'email': 'nunique'
+        }).reset_index().sort_values('month_num')
+        
+        monthly_patterns.columns = ['month_num', 'month_name', 'avg_messages', 'avg_users']
+        
+        # Identify peak and low months
+        peak_month = monthly_patterns.loc[monthly_patterns['avg_messages'].idxmax()]
+        low_month = monthly_patterns.loc[monthly_patterns['avg_messages'].idxmin()]
+        
+        return {
+            'monthly_patterns': monthly_patterns[['month_name', 'avg_messages', 'avg_users']].to_dict('records'),
+            'peak_month': {
+                'name': peak_month['month_name'],
+                'avg_messages': int(peak_month['avg_messages'])
+            },
+            'low_month': {
+                'name': low_month['month_name'],
+                'avg_messages': int(low_month['avg_messages'])
+            }
+        }
+    
+    def get_monthly_summary(self) -> pd.DataFrame:
+        """
+        Get a summary DataFrame of monthly data.
+        
+        Returns:
+            DataFrame with monthly summaries
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_data() first.")
+        
+        active_data = self.data[self.data.get('is_active', 1) == 1].copy()
+        
+        summary = active_data.groupby('period_start').agg({
+            'email': 'nunique',
+            'messages': 'sum',
+            'gpt_messages': 'sum',
+            'tool_messages': 'sum',
+            'project_messages': 'sum'
+        }).reset_index()
+        
+        summary.columns = ['month', 'active_users', 'messages',
+                          'gpt_messages', 'tool_messages', 'project_messages']
+        
+        return summary
 
 
 class DataReconciliationTool:
-    """
-    Tool to reconcile and validate weekly vs monthly data
-    """
+    """Tool for reconciling weekly and monthly data."""
     
-    def __init__(self, weekly_handler: WeeklyDataHandler, monthly_handler: MonthlyDataHandler):
-        self.weekly = weekly_handler
-        self.monthly = monthly_handler
+    def __init__(self):
+        """Initialize the reconciliation tool."""
+        pass
     
-    def reconcile_period(self, year: int, month: int) -> Dict:
-        """Reconcile data for a specific month"""
-        # Filter weekly data for the month
-        month_start = pd.Timestamp(year=year, month=month, day=1)
-        month_end = month_start + pd.offsets.MonthEnd(0)
+    def reconcile(self, weekly_handler: WeeklyDataHandler, 
+                 monthly_handler: MonthlyDataHandler,
+                 tolerance_pct: float = 1.0) -> Dict[str, Any]:
+        """
+        Reconcile weekly and monthly data to ensure consistency.
         
-        weekly_in_month = self.weekly.df[
-            (self.weekly.df['week_start'] >= month_start) & 
-            (self.weekly.df['week_start'] <= month_end)
-        ]
+        Args:
+            weekly_handler: WeeklyDataHandler with loaded data
+            monthly_handler: MonthlyDataHandler with loaded data
+            tolerance_pct: Acceptable variance percentage
+            
+        Returns:
+            Dictionary with reconciliation results
+        """
+        if weekly_handler.data is None or monthly_handler.data is None:
+            raise ValueError("Both handlers must have data loaded")
         
-        # Get monthly data for the same period
-        monthly_record = self.monthly.df[
-            self.monthly.df['month'] == month_start
-        ]
-        
-        reconciliation = {
-            'period': f"{year}-{month:02d}",
-            'status': 'RECONCILED',
-            'discrepancies': []
+        results = {
+            'timestamp': datetime.now().isoformat(),
+            'tolerance_percentage': tolerance_pct,
+            'status': 'PASS',
+            'comparisons': []
         }
         
-        # Compare totals for each category
-        for category in ['GPT', 'Project', 'Tool', 'General', 'total_messages']:
-            if category in weekly_in_month.columns and category in monthly_record.columns:
-                weekly_sum = weekly_in_month[category].sum()
-                monthly_val = monthly_record[category].iloc[0] if not monthly_record.empty else 0
+        # Get monthly summary from weekly data
+        weekly_summary = weekly_handler.get_weekly_summary()
+        monthly_summary = monthly_handler.get_monthly_summary()
+        
+        # For each month in monthly data, aggregate corresponding weeks
+        for _, monthly_row in monthly_summary.iterrows():
+            month_start = monthly_row['month']
+            
+            # Find matching weeks (weeks that start in this month)
+            matching_weeks = weekly_summary[
+                (weekly_summary['week'].dt.year == month_start.year) &
+                (weekly_summary['week'].dt.month == month_start.month)
+            ]
+            
+            if matching_weeks.empty:
+                continue
+            
+            # Aggregate weekly data for this month
+            weekly_agg = {
+                'messages': matching_weeks['messages'].sum(),
+                'gpt_messages': matching_weeks['gpt_messages'].sum(),
+                'tool_messages': matching_weeks['tool_messages'].sum(),
+                'project_messages': matching_weeks['project_messages'].sum(),
+                'active_users': matching_weeks['active_users'].sum()  # Note: This sums users across weeks
+            }
+            
+            comparison = {
+                'month': str(month_start.date()),
+                'weeks_included': len(matching_weeks),
+                'categories': {}
+            }
+            
+            # Compare each category
+            for category in ['messages', 'gpt_messages', 'tool_messages', 'project_messages']:
+                weekly_val = weekly_agg.get(category, 0)
+                monthly_val = monthly_row.get(category, 0)
                 
-                if weekly_sum != monthly_val:
-                    reconciliation['status'] = 'DISCREPANCY'
-                    reconciliation['discrepancies'].append({
-                        'category': category,
-                        'weekly_sum': weekly_sum,
-                        'monthly_value': monthly_val,
-                        'difference': monthly_val - weekly_sum
-                    })
+                diff = weekly_val - monthly_val
+                
+                if monthly_val > 0:
+                    diff_pct = abs(diff / monthly_val * 100)
+                elif weekly_val > 0:
+                    diff_pct = 100.0
+                else:
+                    diff_pct = 0.0
+                
+                status = 'MATCH' if diff_pct <= tolerance_pct else 'MISMATCH'
+                
+                comparison['categories'][category] = {
+                    'weekly_total': int(weekly_val),
+                    'monthly_total': int(monthly_val),
+                    'difference': int(diff),
+                    'difference_pct': round(diff_pct, 2),
+                    'status': status
+                }
+                
+                if status == 'MISMATCH':
+                    results['status'] = 'FAIL'
+            
+            results['comparisons'].append(comparison)
         
-        return reconciliation
+        return results
     
-    def create_reconciliation_report(self) -> List[Dict]:
-        """Create full reconciliation report for all periods"""
-        reports = []
+    def generate_reconciliation_report(self, reconciliation_results: Dict[str, Any]) -> str:
+        """
+        Generate a readable reconciliation report.
         
-        # Get unique year-month combinations from monthly data
-        for _, row in self.monthly.df.iterrows():
-            year = row['month'].year
-            month = row['month'].month
-            report = self.reconcile_period(year, month)
-            reports.append(report)
+        Args:
+            reconciliation_results: Results from reconcile()
+            
+        Returns:
+            Formatted report string
+        """
+        lines = []
+        lines.append("=" * 80)
+        lines.append("Data Reconciliation Report")
+        lines.append("=" * 80)
+        lines.append(f"Generated: {reconciliation_results.get('timestamp', 'N/A')}")
+        lines.append(f"Tolerance: {reconciliation_results.get('tolerance_percentage', 0)}%")
         
-        return reports
-    
-    def visualize_discrepancies(self, save_path: Optional[str] = None):
-        """Create visualization of discrepancies"""
-        reports = self.create_reconciliation_report()
+        status = reconciliation_results.get('status', 'UNKNOWN')
+        status_symbol = '✅' if status == 'PASS' else '❌'
+        lines.append(f"Overall Status: {status_symbol} {status}")
+        lines.append("")
         
-        # Prepare data for visualization
-        discrepancy_data = []
-        for report in reports:
-            for disc in report.get('discrepancies', []):
-                discrepancy_data.append({
-                    'period': report['period'],
-                    'category': disc['category'],
-                    'difference': disc['difference']
-                })
+        for comparison in reconciliation_results.get('comparisons', []):
+            lines.append(f"\nMonth: {comparison['month']}")
+            lines.append(f"Weeks Included: {comparison['weeks_included']}")
+            lines.append("-" * 60)
+            
+            for category, cat_data in comparison.get('categories', {}).items():
+                cat_status = cat_data['status']
+                cat_symbol = '✅' if cat_status == 'MATCH' else '❌'
+                
+                lines.append(f"\n  {cat_symbol} {category.upper()}")
+                lines.append(f"    Weekly Total: {cat_data['weekly_total']:,}")
+                lines.append(f"    Monthly Total: {cat_data['monthly_total']:,}")
+                lines.append(f"    Difference: {cat_data['difference']:+,} ({cat_data['difference_pct']:+.2f}%)")
         
-        if not discrepancy_data:
-            print("No discrepancies found to visualize!")
-            return
+        lines.append("\n" + "=" * 80)
         
-        # Create visualization
-        disc_df = pd.DataFrame(discrepancy_data)
-        
-        fig, axes = plt.subplots(2, 1, figsize=(12, 8))
-        
-        # Plot 1: Discrepancies by period
-        pivot_period = disc_df.pivot(index='period', columns='category', values='difference')
-        pivot_period.plot(kind='bar', ax=axes[0])
-        axes[0].set_title('Discrepancies by Period and Category')
-        axes[0].set_xlabel('Period')
-        axes[0].set_ylabel('Difference (Monthly - Weekly Sum)')
-        axes[0].axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-        axes[0].legend(title='Category', bbox_to_anchor=(1.05, 1), loc='upper left')
-        
-        # Plot 2: Total discrepancies by category
-        total_disc = disc_df.groupby('category')['difference'].sum()
-        total_disc.plot(kind='bar', ax=axes[1], color='coral')
-        axes[1].set_title('Total Discrepancies by Category')
-        axes[1].set_xlabel('Category')
-        axes[1].set_ylabel('Total Difference')
-        axes[1].axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path)
-            print(f"Visualization saved to {save_path}")
-        else:
-            plt.show()
+        return '\n'.join(lines)
 
 
-def example_usage():
-    """Example of how to use the separate data handlers"""
+def main():
+    """Example usage of data handlers."""
     
+    # Example: Weekly data analysis
     print("=" * 80)
-    print("EXAMPLE: Using Separate Weekly and Monthly Data Handlers")
+    print("Weekly Data Analysis Example")
     print("=" * 80)
     
-    # Initialize handlers (using the sample data created earlier)
-    weekly_handler = WeeklyDataHandler('/home/claude/sample_weekly_data.csv')
-    monthly_handler = MonthlyDataHandler('/home/claude/sample_monthly_data.csv')
+    weekly_handler = WeeklyDataHandler()
+    weekly_files = ["sample_weekly_data.csv"]
     
-    print("\n1. WEEKLY DATA ANALYSIS")
-    print("-" * 40)
+    try:
+        weekly_handler.load_data(weekly_files)
+        print(f"\n✅ Loaded {len(weekly_files)} weekly files")
+        
+        # Analyze trends
+        trends = weekly_handler.analyze_trends()
+        print(f"\nWeekly Trends Summary:")
+        print(f"  Total Weeks: {trends['summary']['total_weeks']}")
+        print(f"  Avg Weekly Messages: {trends['summary']['avg_weekly_messages']:,}")
+        print(f"  Avg Weekly Users: {trends['summary']['avg_weekly_users']}")
+        
+        # Peak weeks
+        peak_weeks = weekly_handler.identify_peak_weeks(top_n=3)
+        print(f"\nTop 3 Peak Weeks:")
+        for i, week in enumerate(peak_weeks, 1):
+            print(f"  {i}. {week['week_start']}: {week['total_messages']:,} messages")
+        
+        # User engagement
+        engagement = weekly_handler.analyze_user_engagement()
+        print(f"\nUser Engagement:")
+        print(f"  Total Users: {engagement['total_users']}")
+        print(f"  Avg Engagement Rate: {engagement['avg_engagement_rate']}%")
+        print(f"  Engagement Distribution: {engagement['engagement_distribution']}")
+        
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
     
-    # Get weekly trends
-    weekly_trends = weekly_handler.calculate_weekly_trends()
-    print("Weekly Trends (last 3 weeks):")
-    print(weekly_trends[['week_start', 'total_messages', 'total_messages_wow_pct']].tail(3))
-    
-    # Get weekly averages
-    weekly_avg = weekly_handler.get_weekly_averages()
-    print("\nWeekly Averages:")
-    for category, stats in weekly_avg.items():
-        print(f"  {category}: Mean={stats['mean']:.1f}, Std={stats['std']:.1f}")
-    
-    # Identify peak weeks
-    peak_weeks = weekly_handler.identify_peak_weeks()
-    print(f"\nPeak Weeks (>90th percentile): {len(peak_weeks)} weeks")
-    
-    print("\n2. MONTHLY DATA ANALYSIS")
-    print("-" * 40)
-    
-    # Get monthly trends
-    monthly_trends = monthly_handler.calculate_monthly_trends()
-    print("Monthly Trends:")
-    print(monthly_trends[['month_name', 'total_messages', 'total_messages_mom_pct']])
-    
-    # Project next month
-    projections = monthly_handler.project_next_month()
-    print("\nProjections for Next Month:")
-    for category, proj in projections.items():
-        print(f"  {category}: {proj['projection']:.0f} (confidence: {proj['confidence']})")
-    
-    print("\n3. DATA RECONCILIATION")
-    print("-" * 40)
-    
-    # Initialize reconciliation tool
-    recon_tool = DataReconciliationTool(weekly_handler, monthly_handler)
-    
-    # Create reconciliation report
-    recon_reports = recon_tool.create_reconciliation_report()
-    
-    print("Reconciliation Results:")
-    for report in recon_reports:
-        print(f"  {report['period']}: {report['status']}")
-        if report['discrepancies']:
-            for disc in report['discrepancies']:
-                print(f"    - {disc['category']}: Difference = {disc['difference']}")
-    
+    # Example: Monthly data analysis
     print("\n" + "=" * 80)
-    print("Data handlers keep weekly and monthly data separate while ensuring consistency!")
+    print("Monthly Data Analysis Example")
     print("=" * 80)
+    
+    monthly_handler = MonthlyDataHandler()
+    monthly_files = ["sample_monthly_data.csv"]
+    
+    try:
+        monthly_handler.load_data(monthly_files)
+        print(f"\n✅ Loaded {len(monthly_files)} monthly files")
+        
+        # Annual projection
+        projection = monthly_handler.project_annual_usage()
+        print(f"\nAnnual Projections:")
+        print(f"  Months Analyzed: {projection['months_analyzed']}")
+        print(f"  Avg Monthly Messages: {projection['avg_monthly_messages']:,}")
+        print(f"  Simple Annual Projection: {projection['projections']['simple_annual']:,}")
+        
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    
+    # Example: Reconciliation
+    print("\n" + "=" * 80)
+    print("Data Reconciliation Example")
+    print("=" * 80)
+    
+    try:
+        reconciler = DataReconciliationTool()
+        reconciliation = reconciler.reconcile(weekly_handler, monthly_handler)
+        
+        report = reconciler.generate_reconciliation_report(reconciliation)
+        print(report)
+        
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
-    example_usage()
+    main()

@@ -1,388 +1,451 @@
 """
-ChatGPT Data Validation Tool
-Ensures weekly data aggregates correctly to monthly totals across different categories
+ChatGPT Data Validator
+
+Validates that weekly data sums correctly to monthly totals.
+Ensures data consistency between weekly and monthly exports from OpenAI ChatGPT.
+
+Features:
+- Validates weekly sums match monthly totals for all message categories
+- Checks GPT messages, Tool messages, Project messages, and General messages
+- Generates detailed validation reports in JSON and text formats
+- Identifies discrepancies and provides actionable insights
+- Validates that category breakdowns sum to total messages
+
+Usage:
+    from chatgpt_data_validator import ChatGPTDataValidator
+    
+    validator = ChatGPTDataValidator()
+    results = validator.validate_weekly_to_monthly(weekly_files, monthly_file)
+    validator.generate_report(results, output_format='json')
 """
 
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
 import json
-from pathlib import Path
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Tuple
+import os
+
 
 class ChatGPTDataValidator:
-    """
-    Validates that weekly ChatGPT message data sums up correctly to monthly totals
-    across different categories (GPT, Project, Tool, General)
-    """
+    """Validates consistency between weekly and monthly ChatGPT usage data."""
     
-    def __init__(self):
-        self.categories = ['GPT', 'Project', 'Tool', 'General']
-        self.validation_results = []
+    def __init__(self, tolerance_percentage: float = 1.0):
+        """
+        Initialize the validator.
         
-    def load_weekly_data(self, file_path: str) -> pd.DataFrame:
-        """Load weekly data from CSV or Excel file"""
-        try:
-            if file_path.endswith('.csv'):
-                df = pd.read_csv(file_path)
-            elif file_path.endswith(('.xlsx', '.xls')):
-                df = pd.read_excel(file_path)
-            else:
-                raise ValueError("Unsupported file format. Use CSV or Excel.")
+        Args:
+            tolerance_percentage: Acceptable variance percentage (default: 1.0%)
+        """
+        self.tolerance_percentage = tolerance_percentage
+        self.message_categories = ['messages', 'gpt_messages', 'tool_messages', 'project_messages']
+        
+    def load_csv_file(self, filepath: str) -> pd.DataFrame:
+        """
+        Load a CSV file with error handling.
+        
+        Args:
+            filepath: Path to CSV file
             
-            # Ensure date column is datetime
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'])
-            elif 'week_start' in df.columns:
-                df['date'] = pd.to_datetime(df['week_start'])
-                
+        Returns:
+            DataFrame with loaded data
+        """
+        try:
+            df = pd.read_csv(filepath)
             return df
         except Exception as e:
-            print(f"Error loading weekly data: {e}")
-            return pd.DataFrame()
+            raise ValueError(f"Error loading file {filepath}: {str(e)}")
     
-    def load_monthly_data(self, file_path: str) -> pd.DataFrame:
-        """Load monthly data from CSV or Excel file"""
-        try:
-            if file_path.endswith('.csv'):
-                df = pd.read_csv(file_path)
-            elif file_path.endswith(('.xlsx', '.xls')):
-                df = pd.read_excel(file_path)
+    def extract_period_from_monthly(self, df: pd.DataFrame) -> Tuple[str, str]:
+        """
+        Extract period start and end from monthly data.
+        
+        Args:
+            df: Monthly data DataFrame
+            
+        Returns:
+            Tuple of (period_start, period_end) as strings
+        """
+        if 'period_start' in df.columns and 'period_end' in df.columns:
+            period_start = df['period_start'].iloc[0]
+            period_end = df['period_end'].iloc[0]
+            return period_start, period_end
+        raise ValueError("Monthly data missing period_start or period_end columns")
+    
+    def filter_weekly_by_month(self, weekly_dfs: List[pd.DataFrame], 
+                               month_start: str, month_end: str) -> pd.DataFrame:
+        """
+        Filter and combine weekly data for a specific month.
+        
+        Args:
+            weekly_dfs: List of weekly DataFrames
+            month_start: Month period start date (YYYY-MM-DD)
+            month_end: Month period end date (YYYY-MM-DD)
+            
+        Returns:
+            Combined DataFrame of weekly data within the month
+        """
+        month_start_dt = pd.to_datetime(month_start)
+        month_end_dt = pd.to_datetime(month_end)
+        
+        filtered_weeks = []
+        for df in weekly_dfs:
+            if 'period_start' in df.columns:
+                df['period_start_dt'] = pd.to_datetime(df['period_start'])
+                # Include weeks that start within or overlap with the month
+                mask = (df['period_start_dt'] >= month_start_dt) & (df['period_start_dt'] <= month_end_dt)
+                filtered_df = df[mask].copy()
+                if not filtered_df.empty:
+                    filtered_weeks.append(filtered_df)
+        
+        if not filtered_weeks:
+            return pd.DataFrame()
+        
+        return pd.concat(filtered_weeks, ignore_index=True)
+    
+    def aggregate_by_user(self, df: pd.DataFrame, category: str) -> Dict[str, int]:
+        """
+        Aggregate message counts by user for a specific category.
+        
+        Args:
+            df: DataFrame with user data
+            category: Message category column name
+            
+        Returns:
+            Dictionary mapping user email to total count
+        """
+        if 'email' not in df.columns or category not in df.columns:
+            return {}
+        
+        # Filter to active users only
+        active_df = df[df.get('is_active', 1) == 1].copy()
+        
+        # Handle missing values
+        active_df[category] = pd.to_numeric(active_df[category], errors='coerce').fillna(0)
+        
+        # Group by email and sum
+        user_totals = active_df.groupby('email')[category].sum().to_dict()
+        
+        return user_totals
+    
+    def compare_totals(self, weekly_totals: Dict[str, int], 
+                      monthly_totals: Dict[str, int]) -> Dict[str, Any]:
+        """
+        Compare weekly aggregated totals against monthly totals.
+        
+        Args:
+            weekly_totals: Dictionary of email -> weekly total
+            monthly_totals: Dictionary of email -> monthly total
+            
+        Returns:
+            Dictionary with comparison results
+        """
+        all_users = set(weekly_totals.keys()) | set(monthly_totals.keys())
+        
+        discrepancies = []
+        matches = []
+        
+        for user in all_users:
+            weekly_val = weekly_totals.get(user, 0)
+            monthly_val = monthly_totals.get(user, 0)
+            
+            # Calculate difference
+            diff = weekly_val - monthly_val
+            
+            # Calculate percentage difference
+            if monthly_val > 0:
+                diff_pct = abs(diff / monthly_val * 100)
+            elif weekly_val > 0:
+                diff_pct = 100.0  # Missing from monthly
             else:
-                raise ValueError("Unsupported file format. Use CSV or Excel.")
+                diff_pct = 0.0
             
-            # Ensure date column is datetime
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'])
-            elif 'month' in df.columns:
-                df['date'] = pd.to_datetime(df['month'])
-                
-            return df
-        except Exception as e:
-            print(f"Error loading monthly data: {e}")
-            return pd.DataFrame()
+            result = {
+                'user': user,
+                'weekly_total': weekly_val,
+                'monthly_total': monthly_val,
+                'difference': diff,
+                'difference_pct': round(diff_pct, 2)
+            }
+            
+            if diff_pct > self.tolerance_percentage:
+                discrepancies.append(result)
+            else:
+                matches.append(result)
+        
+        return {
+            'total_users': len(all_users),
+            'matching_users': len(matches),
+            'discrepancy_users': len(discrepancies),
+            'discrepancies': discrepancies,
+            'matches': matches
+        }
     
-    def aggregate_weekly_to_monthly(self, weekly_df: pd.DataFrame) -> pd.DataFrame:
+    def validate_category_breakdown(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        Aggregate weekly data to monthly level for comparison
+        Validate that category breakdowns sum to total messages.
+        
+        Args:
+            df: DataFrame with message data
+            
+        Returns:
+            Dictionary with validation results
         """
-        if weekly_df.empty:
-            return pd.DataFrame()
-        
-        # Extract month and year from date
-        weekly_df['year_month'] = weekly_df['date'].dt.to_period('M')
-        
-        # Group by month and category, summing messages
-        aggregation_dict = {}
-        for category in self.categories:
-            if category in weekly_df.columns:
-                aggregation_dict[category] = 'sum'
-        
-        # Add total messages if it exists
-        if 'total_messages' in weekly_df.columns:
-            aggregation_dict['total_messages'] = 'sum'
-        
-        monthly_agg = weekly_df.groupby('year_month').agg(aggregation_dict).reset_index()
-        
-        return monthly_agg
-    
-    def validate_totals(self, weekly_df: pd.DataFrame, monthly_df: pd.DataFrame) -> Dict:
-        """
-        Validate that weekly totals match monthly totals for each category
-        """
-        validation_report = {
-            'status': 'PASS',
-            'discrepancies': [],
-            'summary': {},
-            'details': []
+        results = {
+            'valid': True,
+            'issues': [],
+            'summary': {}
         }
         
-        # Aggregate weekly data to monthly
-        weekly_monthly = self.aggregate_weekly_to_monthly(weekly_df)
+        # Filter to active users
+        active_df = df[df.get('is_active', 1) == 1].copy()
         
-        if weekly_monthly.empty or monthly_df.empty:
-            validation_report['status'] = 'ERROR'
-            validation_report['summary']['error'] = 'Empty dataframe(s) provided'
-            return validation_report
+        if active_df.empty:
+            return results
         
-        # Ensure monthly data has year_month column
-        if 'year_month' not in monthly_df.columns:
-            monthly_df['year_month'] = monthly_df['date'].dt.to_period('M')
+        # Convert columns to numeric
+        for col in self.message_categories:
+            if col in active_df.columns:
+                active_df[col] = pd.to_numeric(active_df[col], errors='coerce').fillna(0)
         
-        # Merge the dataframes for comparison
-        comparison = pd.merge(
-            weekly_monthly,
-            monthly_df,
-            on='year_month',
-            suffixes=('_weekly_sum', '_monthly'),
-            how='outer'
-        )
-        
-        # Validate each category
-        for category in self.categories:
-            weekly_col = f"{category}_weekly_sum"
-            monthly_col = f"{category}_monthly"
+        # Check each user
+        for idx, row in active_df.iterrows():
+            total_messages = row.get('messages', 0)
             
-            if weekly_col in comparison.columns and monthly_col in comparison.columns:
-                # Calculate differences
-                comparison[f'{category}_diff'] = comparison[monthly_col] - comparison[weekly_col]
-                
-                # Check for discrepancies
-                discrepancies = comparison[comparison[f'{category}_diff'] != 0]
-                
-                if not discrepancies.empty:
-                    validation_report['status'] = 'FAIL'
-                    for idx, row in discrepancies.iterrows():
-                        validation_report['discrepancies'].append({
-                            'month': str(row['year_month']),
-                            'category': category,
-                            'weekly_sum': row[weekly_col],
-                            'monthly_value': row[monthly_col],
-                            'difference': row[f'{category}_diff']
-                        })
-                
-                # Add to summary
-                validation_report['summary'][category] = {
-                    'total_weekly': comparison[weekly_col].sum(),
-                    'total_monthly': comparison[monthly_col].sum(),
-                    'matches': len(comparison[comparison[f'{category}_diff'] == 0]),
-                    'mismatches': len(discrepancies)
-                }
-        
-        # Validate total messages if present
-        if 'total_messages_weekly_sum' in comparison.columns and 'total_messages_monthly' in comparison.columns:
-            comparison['total_diff'] = comparison['total_messages_monthly'] - comparison['total_messages_weekly_sum']
-            total_discrepancies = comparison[comparison['total_diff'] != 0]
+            # Calculate sum of categories (excluding main 'messages' field)
+            category_sum = sum([
+                row.get('gpt_messages', 0),
+                row.get('tool_messages', 0),
+                row.get('project_messages', 0)
+            ])
             
-            if not total_discrepancies.empty:
-                validation_report['status'] = 'FAIL'
-                for idx, row in total_discrepancies.iterrows():
-                    validation_report['discrepancies'].append({
-                        'month': str(row['year_month']),
-                        'category': 'TOTAL',
-                        'weekly_sum': row['total_messages_weekly_sum'],
-                        'monthly_value': row['total_messages_monthly'],
-                        'difference': row['total_diff']
-                    })
-        
-        validation_report['details'] = comparison.to_dict('records')
-        
-        return validation_report
-    
-    def validate_category_breakdown(self, df: pd.DataFrame) -> Dict:
-        """
-        Validate that category breakdowns sum to total messages
-        """
-        validation = {
-            'status': 'PASS',
-            'issues': []
-        }
-        
-        if 'total_messages' not in df.columns:
-            return validation
-        
-        # Calculate sum of categories
-        category_sum = df[self.categories].sum(axis=1)
-        
-        # Check if sums match totals
-        df['calculated_total'] = category_sum
-        df['total_diff'] = df['total_messages'] - df['calculated_total']
-        
-        mismatches = df[df['total_diff'] != 0]
-        
-        if not mismatches.empty:
-            validation['status'] = 'FAIL'
-            for idx, row in mismatches.iterrows():
-                validation['issues'].append({
-                    'row_index': idx,
-                    'date': str(row.get('date', 'N/A')),
-                    'reported_total': row['total_messages'],
-                    'calculated_total': row['calculated_total'],
-                    'difference': row['total_diff']
+            # These are sub-categories, so they shouldn't exceed total messages
+            if category_sum > total_messages:
+                results['valid'] = False
+                results['issues'].append({
+                    'user': row.get('email', 'Unknown'),
+                    'total_messages': int(total_messages),
+                    'category_sum': int(category_sum),
+                    'issue': 'Category sum exceeds total messages'
                 })
         
-        return validation
-    
-    def generate_validation_report(self, 
-                                  weekly_file: str, 
-                                  monthly_file: str,
-                                  output_file: Optional[str] = None) -> Dict:
-        """
-        Generate comprehensive validation report
-        """
-        print("Loading data files...")
-        weekly_df = self.load_weekly_data(weekly_file)
-        monthly_df = self.load_monthly_data(monthly_file)
-        
-        print("Validating data consistency...")
-        report = {
-            'timestamp': datetime.now().isoformat(),
-            'weekly_file': weekly_file,
-            'monthly_file': monthly_file,
-            'validations': {}
+        # Calculate overall statistics
+        results['summary'] = {
+            'total_messages': int(active_df['messages'].sum()),
+            'gpt_messages': int(active_df.get('gpt_messages', pd.Series([0])).sum()),
+            'tool_messages': int(active_df.get('tool_messages', pd.Series([0])).sum()),
+            'project_messages': int(active_df.get('project_messages', pd.Series([0])).sum())
         }
         
-        # Validate weekly vs monthly totals
-        print("Validating weekly vs monthly totals...")
-        report['validations']['weekly_monthly_reconciliation'] = self.validate_totals(
-            weekly_df, monthly_df
-        )
+        return results
+    
+    def validate_weekly_to_monthly(self, weekly_files: List[str], 
+                                   monthly_file: str) -> Dict[str, Any]:
+        """
+        Validate that weekly data sums correctly to monthly totals.
         
-        # Validate category breakdowns in weekly data
-        print("Validating weekly category breakdowns...")
-        report['validations']['weekly_category_breakdown'] = self.validate_category_breakdown(
-            weekly_df
-        )
+        Args:
+            weekly_files: List of paths to weekly CSV files
+            monthly_file: Path to monthly CSV file
+            
+        Returns:
+            Comprehensive validation results dictionary
+        """
+        validation_results = {
+            'timestamp': datetime.now().isoformat(),
+            'monthly_file': os.path.basename(monthly_file),
+            'weekly_files': [os.path.basename(f) for f in weekly_files],
+            'tolerance_percentage': self.tolerance_percentage,
+            'overall_status': 'PASS',
+            'categories': {}
+        }
         
-        # Validate category breakdowns in monthly data
-        print("Validating monthly category breakdowns...")
-        report['validations']['monthly_category_breakdown'] = self.validate_category_breakdown(
-            monthly_df
-        )
+        try:
+            # Load monthly data
+            monthly_df = self.load_csv_file(monthly_file)
+            month_start, month_end = self.extract_period_from_monthly(monthly_df)
+            
+            validation_results['period_start'] = month_start
+            validation_results['period_end'] = month_end
+            
+            # Load and filter weekly data
+            weekly_dfs = [self.load_csv_file(f) for f in weekly_files]
+            combined_weekly = self.filter_weekly_by_month(weekly_dfs, month_start, month_end)
+            
+            if combined_weekly.empty:
+                validation_results['overall_status'] = 'ERROR'
+                validation_results['error'] = 'No weekly data found for the specified month'
+                return validation_results
+            
+            # Validate each category
+            for category in self.message_categories:
+                weekly_totals = self.aggregate_by_user(combined_weekly, category)
+                monthly_totals = self.aggregate_by_user(monthly_df, category)
+                
+                comparison = self.compare_totals(weekly_totals, monthly_totals)
+                
+                category_status = 'PASS' if comparison['discrepancy_users'] == 0 else 'FAIL'
+                
+                validation_results['categories'][category] = {
+                    'status': category_status,
+                    'total_users': comparison['total_users'],
+                    'matching_users': comparison['matching_users'],
+                    'discrepancy_users': comparison['discrepancy_users'],
+                    'discrepancies': comparison['discrepancies'][:10],  # Limit to top 10
+                    'weekly_sum': sum(weekly_totals.values()),
+                    'monthly_sum': sum(monthly_totals.values()),
+                    'overall_difference': sum(weekly_totals.values()) - sum(monthly_totals.values())
+                }
+                
+                if category_status == 'FAIL':
+                    validation_results['overall_status'] = 'FAIL'
+            
+            # Validate category breakdowns
+            monthly_breakdown = self.validate_category_breakdown(monthly_df)
+            validation_results['category_breakdown_validation'] = monthly_breakdown
+            
+            if not monthly_breakdown['valid']:
+                validation_results['overall_status'] = 'WARNING'
+            
+        except Exception as e:
+            validation_results['overall_status'] = 'ERROR'
+            validation_results['error'] = str(e)
+        
+        return validation_results
+    
+    def generate_report(self, results: Dict[str, Any], 
+                       output_format: str = 'text') -> str:
+        """
+        Generate a human-readable validation report.
+        
+        Args:
+            results: Validation results dictionary
+            output_format: 'text' or 'json'
+            
+        Returns:
+            Formatted report string
+        """
+        if output_format == 'json':
+            return json.dumps(results, indent=2)
+        
+        # Text format
+        report_lines = []
+        report_lines.append("=" * 80)
+        report_lines.append("ChatGPT Data Validation Report")
+        report_lines.append("=" * 80)
+        report_lines.append(f"Generated: {results.get('timestamp', 'N/A')}")
+        report_lines.append(f"Monthly File: {results.get('monthly_file', 'N/A')}")
+        report_lines.append(f"Period: {results.get('period_start', 'N/A')} to {results.get('period_end', 'N/A')}")
+        report_lines.append(f"Weekly Files: {len(results.get('weekly_files', []))}")
+        report_lines.append(f"Tolerance: {results.get('tolerance_percentage', 0)}%")
+        report_lines.append("")
         
         # Overall status
-        report['overall_status'] = 'PASS'
-        for validation_name, validation_result in report['validations'].items():
-            if validation_result.get('status') == 'FAIL':
-                report['overall_status'] = 'FAIL'
-                break
+        status = results.get('overall_status', 'UNKNOWN')
+        status_symbol = {
+            'PASS': '✅',
+            'FAIL': '❌',
+            'WARNING': '⚠️',
+            'ERROR': '🚫'
+        }.get(status, '❓')
         
-        # Save report if output file specified
-        if output_file:
-            self.save_report(report, output_file)
+        report_lines.append(f"Overall Status: {status_symbol} {status}")
+        report_lines.append("")
         
-        return report
-    
-    def save_report(self, report: Dict, output_file: str):
-        """Save validation report to file"""
-        try:
-            if output_file.endswith('.json'):
-                with open(output_file, 'w') as f:
-                    json.dump(report, f, indent=2, default=str)
-            elif output_file.endswith('.txt'):
-                with open(output_file, 'w') as f:
-                    f.write(self.format_report_text(report))
-            else:
-                # Default to JSON
-                with open(output_file + '.json', 'w') as f:
-                    json.dump(report, f, indent=2, default=str)
-            print(f"Report saved to {output_file}")
-        except Exception as e:
-            print(f"Error saving report: {e}")
-    
-    def format_report_text(self, report: Dict) -> str:
-        """Format report as readable text"""
-        lines = []
-        lines.append("=" * 80)
-        lines.append("CHATGPT DATA VALIDATION REPORT")
-        lines.append("=" * 80)
-        lines.append(f"Timestamp: {report['timestamp']}")
-        lines.append(f"Weekly File: {report['weekly_file']}")
-        lines.append(f"Monthly File: {report['monthly_file']}")
-        lines.append(f"Overall Status: {report['overall_status']}")
-        lines.append("")
+        if 'error' in results:
+            report_lines.append(f"Error: {results['error']}")
+            report_lines.append("=" * 80)
+            return '\n'.join(report_lines)
         
-        for validation_name, result in report['validations'].items():
-            lines.append("-" * 60)
-            lines.append(f"Validation: {validation_name.replace('_', ' ').title()}")
-            lines.append(f"Status: {result.get('status', 'N/A')}")
+        # Category results
+        report_lines.append("Category Validation Results:")
+        report_lines.append("-" * 80)
+        
+        for category, cat_results in results.get('categories', {}).items():
+            cat_status = cat_results.get('status', 'UNKNOWN')
+            cat_symbol = '✅' if cat_status == 'PASS' else '❌'
             
-            if 'discrepancies' in result and result['discrepancies']:
-                lines.append(f"Found {len(result['discrepancies'])} discrepancies:")
-                for disc in result['discrepancies'][:10]:  # Show first 10
-                    lines.append(f"  - {disc['month']}: {disc['category']} "
-                               f"(Weekly: {disc['weekly_sum']}, "
-                               f"Monthly: {disc['monthly_value']}, "
-                               f"Diff: {disc['difference']})")
-                if len(result['discrepancies']) > 10:
-                    lines.append(f"  ... and {len(result['discrepancies']) - 10} more")
+            report_lines.append(f"\n{cat_symbol} {category.upper()}")
+            report_lines.append(f"  Status: {cat_status}")
+            report_lines.append(f"  Total Users: {cat_results.get('total_users', 0)}")
+            report_lines.append(f"  Matching Users: {cat_results.get('matching_users', 0)}")
+            report_lines.append(f"  Discrepancies: {cat_results.get('discrepancy_users', 0)}")
+            report_lines.append(f"  Weekly Sum: {cat_results.get('weekly_sum', 0):,}")
+            report_lines.append(f"  Monthly Sum: {cat_results.get('monthly_sum', 0):,}")
+            report_lines.append(f"  Overall Difference: {cat_results.get('overall_difference', 0):+,}")
             
-            if 'issues' in result and result['issues']:
-                lines.append(f"Found {len(result['issues'])} issues:")
-                for issue in result['issues'][:10]:  # Show first 10
-                    lines.append(f"  - Row {issue['row_index']}: "
-                               f"Total mismatch by {issue['difference']}")
-                if len(result['issues']) > 10:
-                    lines.append(f"  ... and {len(result['issues']) - 10} more")
-            
-            if 'summary' in result:
-                lines.append("Summary by Category:")
-                for category, stats in result['summary'].items():
-                    lines.append(f"  {category}:")
-                    lines.append(f"    Weekly Total: {stats['total_weekly']}")
-                    lines.append(f"    Monthly Total: {stats['total_monthly']}")
-                    lines.append(f"    Matches: {stats['matches']}")
-                    lines.append(f"    Mismatches: {stats['mismatches']}")
+            if cat_results.get('discrepancies'):
+                report_lines.append(f"\n  Top Discrepancies:")
+                for disc in cat_results['discrepancies'][:5]:
+                    report_lines.append(f"    - {disc['user']}")
+                    report_lines.append(f"      Weekly: {disc['weekly_total']}, Monthly: {disc['monthly_total']}")
+                    report_lines.append(f"      Difference: {disc['difference']:+} ({disc['difference_pct']:+.2f}%)")
         
-        lines.append("=" * 80)
-        return "\n".join(lines)
-
-
-def create_sample_data():
-    """Create sample weekly and monthly data for testing"""
+        # Category breakdown validation
+        report_lines.append("\n" + "-" * 80)
+        report_lines.append("Category Breakdown Validation:")
+        breakdown = results.get('category_breakdown_validation', {})
+        breakdown_symbol = '✅' if breakdown.get('valid', False) else '⚠️'
+        report_lines.append(f"{breakdown_symbol} Valid: {breakdown.get('valid', False)}")
+        
+        if breakdown.get('summary'):
+            summary = breakdown['summary']
+            report_lines.append(f"\nSummary:")
+            report_lines.append(f"  Total Messages: {summary.get('total_messages', 0):,}")
+            report_lines.append(f"  GPT Messages: {summary.get('gpt_messages', 0):,}")
+            report_lines.append(f"  Tool Messages: {summary.get('tool_messages', 0):,}")
+            report_lines.append(f"  Project Messages: {summary.get('project_messages', 0):,}")
+        
+        if breakdown.get('issues'):
+            report_lines.append(f"\n  Issues Found: {len(breakdown['issues'])}")
+            for issue in breakdown['issues'][:5]:
+                report_lines.append(f"    - {issue['user']}: {issue['issue']}")
+        
+        report_lines.append("\n" + "=" * 80)
+        
+        return '\n'.join(report_lines)
     
-    # Create sample weekly data
-    weekly_data = {
-        'week_start': [
-            '2024-01-01', '2024-01-08', '2024-01-15', '2024-01-22', '2024-01-29',
-            '2024-02-05', '2024-02-12', '2024-02-19', '2024-02-26'
-        ],
-        'GPT': [100, 120, 110, 130, 105, 115, 125, 118, 122],
-        'Project': [50, 55, 52, 58, 51, 54, 56, 53, 57],
-        'Tool': [75, 80, 78, 82, 76, 79, 81, 77, 83],
-        'General': [200, 210, 205, 215, 202, 208, 212, 206, 214],
-        'total_messages': [425, 465, 445, 485, 434, 456, 474, 454, 476]
-    }
-    
-    # Create sample monthly data (should match weekly sums)
-    monthly_data = {
-        'month': ['2024-01-01', '2024-02-01'],
-        'GPT': [565, 480],  # Sum of January and February weeks
-        'Project': [266, 220],
-        'Tool': [391, 320],
-        'General': [1032, 840],
-        'total_messages': [2254, 1860]
-    }
-    
-    # Save sample data
-    pd.DataFrame(weekly_data).to_csv('/home/claude/sample_weekly_data.csv', index=False)
-    pd.DataFrame(monthly_data).to_csv('/home/claude/sample_monthly_data.csv', index=False)
-    
-    print("Sample data files created:")
-    print("  - sample_weekly_data.csv")
-    print("  - sample_monthly_data.csv")
+    def save_report(self, results: Dict[str, Any], 
+                   output_path: str, output_format: str = 'text'):
+        """
+        Save validation report to file.
+        
+        Args:
+            results: Validation results dictionary
+            output_path: Path to save report
+            output_format: 'text' or 'json'
+        """
+        report = self.generate_report(results, output_format)
+        
+        with open(output_path, 'w') as f:
+            f.write(report)
+        
+        print(f"Report saved to: {output_path}")
 
 
 def main():
-    """Main function to run the validator"""
+    """Example usage of ChatGPTDataValidator."""
     
-    # Create sample data for demonstration
-    create_sample_data()
+    # Use sample data files for demonstration
+    weekly_files = ["sample_weekly_data.csv"]
+    monthly_file = "sample_monthly_data.csv"
     
-    # Initialize validator
-    validator = ChatGPTDataValidator()
+    # Initialize validator with 1% tolerance
+    validator = ChatGPTDataValidator(tolerance_percentage=1.0)
     
-    # Run validation on sample data
-    print("\nRunning validation on sample data...")
-    report = validator.generate_validation_report(
-        weekly_file='/home/claude/sample_weekly_data.csv',
-        monthly_file='/home/claude/sample_monthly_data.csv',
-        output_file='/home/claude/validation_report.txt'
-    )
+    # Validate data
+    print("Validating weekly data against monthly totals...")
+    print(f"Weekly files: {weekly_files}")
+    print(f"Monthly file: {monthly_file}")
+    print("")
     
-    # Print summary
-    print(f"\nValidation Complete!")
-    print(f"Overall Status: {report['overall_status']}")
+    results = validator.validate_weekly_to_monthly(weekly_files, monthly_file)
     
-    if report['overall_status'] == 'FAIL':
-        print("\nIssues found:")
-        for validation_name, result in report['validations'].items():
-            if result.get('status') == 'FAIL':
-                print(f"  - {validation_name.replace('_', ' ').title()}")
-                if 'discrepancies' in result:
-                    print(f"    Found {len(result['discrepancies'])} discrepancies")
-                if 'issues' in result:
-                    print(f"    Found {len(result['issues'])} issues")
+    # Generate and display report
+    print("\n" + validator.generate_report(results, output_format='text'))
+    
+    # Save reports
+    validator.save_report(results, 'validation_report.txt', output_format='text')
+    validator.save_report(results, 'validation_report.json', output_format='json')
 
 
 if __name__ == "__main__":

@@ -88,37 +88,38 @@ DEFAULT_VALUES = {
 }
 
 # Enterprise SaaS License Pricing (per user per month)
-# Based on publicly available pricing data for enterprise licenses
+# NOTE: Cost tracking has been disabled. All costs are set to $0.00
+# This dashboard focuses on usage analytics, not financial tracking
 ENTERPRISE_PRICING = {
     'ChatGPT': {
-        'license_cost_per_user_monthly': 60.00,  # ChatGPT Enterprise typical pricing
+        'license_cost_per_user_monthly': 0.00,  # Cost tracking disabled
         'description': 'ChatGPT Enterprise License',
-        'notes': 'Based on reported enterprise pricing (~$60/user/month)',
+        'notes': 'Cost tracking disabled - focus on usage analytics',
         'min_seats': 150,
-        'annual_cost_per_user': 720.00
+        'annual_cost_per_user': 0.00
     },
     'BlueFlame AI': {
-        'license_cost_per_user_monthly': 125.00,  # Estimated enterprise AI software pricing
+        'license_cost_per_user_monthly': 0.00,  # Cost tracking disabled
         'description': 'BlueFlame AI Enterprise License',
-        'notes': 'Estimated based on typical enterprise AI software ($100-150/user/month)',
+        'notes': 'Cost tracking disabled - focus on usage analytics',
         'min_seats': 1,
-        'annual_cost_per_user': 1500.00
+        'annual_cost_per_user': 0.00
     },
     'OpenAI': {  # Alias for ChatGPT
-        'license_cost_per_user_monthly': 60.00,
+        'license_cost_per_user_monthly': 0.00,  # Cost tracking disabled
         'description': 'OpenAI Enterprise License',
-        'notes': 'Based on reported enterprise pricing (~$60/user/month)',
+        'notes': 'Cost tracking disabled - focus on usage analytics',
         'min_seats': 150,
-        'annual_cost_per_user': 720.00
+        'annual_cost_per_user': 0.00
     }
 }
 
 # Legacy per-message pricing (kept for reference/comparison)
-# These are NOT the true costs - enterprise licenses are seat-based
+# NOTE: Cost tracking has been disabled. All costs are set to $0.00
 LEGACY_MESSAGE_PRICING = {
-    'ChatGPT Messages': 0.02,
-    'GPT Messages': 0.02,
-    'Tool Messages': 0.01,
-    'Project Messages': 0.015,
-    'BlueFlame Messages': 0.015
+    'ChatGPT Messages': 0.00,
+    'GPT Messages': 0.00,
+    'Tool Messages': 0.00,
+    'Project Messages': 0.00,
+    'BlueFlame Messages': 0.00
 }

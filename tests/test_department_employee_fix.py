@@ -105,7 +105,9 @@ def test_employee_department_application():
     test_db_path = setup_test_database()
     
     # Import required modules
-    sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
     from database import DatabaseManager
     from app import apply_employee_departments
     
@@ -197,7 +199,9 @@ def test_department_performance_accuracy():
     test_db_path = setup_test_database()
     
     # Import required modules
-    sys.path.insert(0, '/home/runner/work/OpenAI-usage-metrics/OpenAI-usage-metrics')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    sys.path.insert(0, project_root)
     from database import DatabaseManager
     from app import apply_employee_departments
     

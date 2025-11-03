@@ -74,7 +74,7 @@ This prevents marker files from being created in the wrong location when the wor
   - Enhanced logging throughout
   - Fixed marker file path resolution
 
-### test_auto_load_employee.py (NEW)
+### tests/test_auto_load_employee.py (NEW)
 - **205 lines**: Comprehensive test suite
 - **Tests**:
   1. Auto-load uses script directory (not CWD)

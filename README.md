@@ -12,6 +12,7 @@ A Streamlit-based application that transforms monthly CSV exports from OpenAI En
 
 - [Quick Start](#-quick-start)
 - [Features](#-features)
+- [Data Validation System](#-data-validation-system)
 - [Data Formats & Processing](#-data-formats--processing)
 - [Usage & Examples](#-usage--examples)
 - [Testing & Performance](#-testing--performance)
@@ -295,6 +296,117 @@ When Streamlit's cached `DatabaseManager` becomes stale:
 
 ---
 
+## 📊 Data Validation System
+
+**NEW!** Comprehensive tools for validating and analyzing weekly and monthly ChatGPT data.
+
+### Overview
+
+The data validation system ensures data quality and consistency between weekly and monthly OpenAI exports. It provides three key components:
+
+#### 1. ChatGPT Data Validator (`chatgpt_data_validator.py`)
+
+Validates that weekly data sums correctly to monthly totals across all message categories.
+
+**Key Features:**
+- ✅ Validates all categories (GPT, Tool, Project, General messages)
+- ✅ Generates detailed validation reports (text and JSON)
+- ✅ Identifies discrepancies with configurable tolerance
+- ✅ Validates category breakdowns
+
+**Quick Start:**
+```bash
+python chatgpt_data_validator.py
+```
+
+#### 2. Data Handlers (`data_handlers.py`)
+
+Separate handlers for weekly and monthly data analysis.
+
+**WeeklyDataHandler:**
+- Weekly patterns and trends analysis
+- Peak week identification
+- User engagement tracking
+- Week-over-week comparisons
+
+**MonthlyDataHandler:**
+- Annual usage projections
+- Quarterly summaries
+- Seasonality analysis
+- Growth rate calculations
+
+**DataReconciliationTool:**
+- Ensures consistency between weekly and monthly data
+- Category-level validation
+- Detailed reconciliation reports
+
+**Quick Start:**
+```bash
+python data_handlers.py
+```
+
+#### 3. Sample Data Files
+
+Included example files demonstrate successful validation:
+- `sample_weekly_data.csv` - 4 weeks of usage data (5 users)
+- `sample_monthly_data.csv` - Corresponding monthly totals
+- **Validation Result:** ✅ All data reconciles correctly
+
+### Usage Example
+
+```python
+from chatgpt_data_validator import ChatGPTDataValidator
+from data_handlers import WeeklyDataHandler, MonthlyDataHandler
+
+# Validate weekly against monthly
+validator = ChatGPTDataValidator(tolerance_percentage=1.0)
+results = validator.validate_weekly_to_monthly(
+    weekly_files=['week1.csv', 'week2.csv', 'week3.csv'],
+    monthly_file='monthly_report.csv'
+)
+
+print(validator.generate_report(results, output_format='text'))
+
+# Analyze weekly trends
+weekly = WeeklyDataHandler()
+weekly.load_data(['week1.csv', 'week2.csv', 'week3.csv'])
+trends = weekly.analyze_trends()
+print(f"Peak week: {trends['summary']['peak_week']}")
+
+# Project annual usage
+monthly = MonthlyDataHandler()
+monthly.load_data(['jan.csv', 'feb.csv', 'mar.csv'])
+projection = monthly.project_annual_usage()
+print(f"Annual projection: {projection['projections']['simple_annual']:,}")
+```
+
+### Testing
+
+Run the comprehensive test suite:
+```bash
+python tests/test_data_validation.py
+```
+
+**Expected Output:**
+```
+📈 Total: 9/9 tests passed
+🎉 All tests passed successfully!
+```
+
+### Documentation
+
+📖 **Complete guide:** [DATA_VALIDATION_GUIDE.md](DATA_VALIDATION_GUIDE.md)
+
+**Key Topics:**
+- Component documentation and API reference
+- Expected CSV format specifications
+- Validation report formats (text and JSON)
+- Integration with existing dashboard
+- Best practices and troubleshooting
+- Performance benchmarks
+
+---
+
 ## 📁 Data Formats & Processing
 
 ### Supported CSV Structures
@@ -488,7 +600,7 @@ http://localhost:8501
 **Automated Test Suite:**
 ```bash
 # Run critical fixes test
-python test_critical_fixes.py
+python tests/test_critical_fixes.py
 ```
 
 Expected output:
@@ -620,7 +732,7 @@ We welcome contributions! To get started:
 1. **Fork the repository**
 2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
 3. **Make your changes** with tests
-4. **Run the test suite** (`python test_critical_fixes.py`)
+4. **Run the test suite** (`python tests/test_critical_fixes.py`)
 5. **Commit your changes** (`git commit -m 'Add amazing feature'`)
 6. **Push to the branch** (`git push origin feature/amazing-feature`)
 7. **Open a Pull Request**
