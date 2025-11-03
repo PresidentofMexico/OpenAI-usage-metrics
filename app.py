@@ -2178,7 +2178,11 @@ def main():
     
     # Create main tabs
     # NOTE: Keep tab count and variable count in sync to avoid unpacking errors
-    tab1, tab2, tab_openai, tab3, tab4, tab5, tab_roi, tab6 = st.tabs([
+    # Variable order matches tab label order for clarity:
+    # tab1=Executive Overview, tab2=Tool Comparison, tab_openai=OpenAI Analytics,
+    # tab3=Power Users, tab4=Message Type Analytics, tab_roi=ROI Analytics,
+    # tab5=Department Mapper, tab6=Database Management
+    tab1, tab2, tab_openai, tab3, tab4, tab_roi, tab5, tab6 = st.tabs([
         "📊 Executive Overview", 
         "🔄 Tool Comparison",
         "🤖 OpenAI Analytics",
