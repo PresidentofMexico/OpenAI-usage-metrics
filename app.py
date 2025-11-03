@@ -3060,7 +3060,7 @@ def main():
                 ),
                 legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
                 barmode='stack',  # Changed to stack for message types
-                height=500,
+                height=280,
                 margin=dict(t=80, b=100),
                 hovermode='closest',
                 plot_bgcolor='rgba(0,0,0,0)',
@@ -3256,7 +3256,7 @@ def main():
                                 plot_bgcolor='rgba(0,0,0,0)',
                                 paper_bgcolor='rgba(0,0,0,0)',
                                 font=dict(color='white'),
-                                height=300,
+                                height=280,
                                 showlegend=False
                             )
                             
@@ -3363,7 +3363,7 @@ def main():
             fig.update_layout(
                 xaxis_title="Active Users",
                 yaxis_title="Department",
-                height=600,
+                height=280,
                 plot_bgcolor='rgba(0,0,0,0)',
                 paper_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='white')
@@ -3467,7 +3467,7 @@ def main():
             
             # Update layout
             fig.update_layout(
-                height=600,
+                height=280,
                 xaxis=dict(title='Active Users'),
                 yaxis=dict(title='Total Messages'),
                 plot_bgcolor='rgba(0,0,0,0)',
