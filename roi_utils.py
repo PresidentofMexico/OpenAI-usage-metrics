@@ -1,699 +1,483 @@
 """
-ROI Utilities for OpenAI Usage Metrics Dashboard
+ROI Utilities for AI Usage Analytics
 
-This module provides reusable functions for transforming raw OpenAI usage exports
-into actionable ROI (Return on Investment) figures. It includes utilities for:
-- Mapping feature usage to estimated time and cost savings
-- Inferring business value beyond direct costs
-- Calculating composite AI impact scores
-- Identifying value creation leaders by user/department
-- Computing opportunity cost metrics
-
-All formulas and benchmarks are documented with references to industry standards
-and research where applicable.
+Calculates Return on Investment (ROI) metrics by mapping usage events to
+estimated time savings and monetary value. Provides per-user, per-department,
+and composite ROI calculations for enterprise AI tool deployments.
 """
-
 import pandas as pd
 import numpy as np
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional, Union
+from datetime import datetime, date
+from typing import Dict, Optional, Union
 
 
-# ============================================================================
-# CONFIGURATION: Industry Benchmarks and Rates
-# ============================================================================
-
-# Time savings benchmarks (minutes saved per interaction)
-# Reference: McKinsey Global Institute (2023) - "The Economic Potential of Generative AI"
-# and OpenAI research on productivity gains
-TIME_SAVINGS_PER_FEATURE = {
-    'ChatGPT Messages': 12.0,      # Average time saved per message (research/writing tasks)
-    'Tool Messages': 25.0,          # Code generation, API calls save more time
-    'Project Messages': 18.0,       # Project-specific workflows
-    'BlueFlame Queries': 15.0,      # Enterprise search/knowledge retrieval
-    'API Calls': 20.0,              # Automated tasks
-    'General': 10.0                 # Default for unknown feature types
-}
-
-# Labor cost rates (USD per hour) by department
-# Reference: Bureau of Labor Statistics (2024) - median wage data
-# These are conservative estimates for enterprise employees
-LABOR_COST_PER_HOUR = {
-    'Engineering': 85.0,
-    'Product': 75.0,
-    'Finance': 70.0,
-    'Operations': 65.0,
-    'Marketing': 60.0,
-    'Sales': 65.0,
-    'HR': 60.0,
-    'Legal': 95.0,
-    'Executive': 150.0,
-    'IT': 75.0,
-    'Customer Success': 55.0,
-    'Unknown': 60.0,              # Conservative default
-    'Default': 60.0
-}
-
-# Department impact multipliers for strategic value
-# Captures differential business impact across departments
-# Reference: Custom framework based on organizational value chain analysis
-DEPARTMENT_IMPACT_MULTIPLIER = {
-    'Engineering': 1.3,           # High leverage - product development
-    'Product': 1.25,              # Strategic planning and roadmap
-    'Sales': 1.2,                 # Revenue generation
-    'Executive': 1.4,             # Strategic decisions
-    'Finance': 1.15,              # Risk management and planning
-    'Marketing': 1.1,             # Brand and customer acquisition
-    'Operations': 1.05,           # Efficiency improvements
-    'Customer Success': 1.1,      # Customer retention value
-    'HR': 1.0,                    # Standard impact
-    'Legal': 1.15,                # Risk mitigation
-    'IT': 1.1,                    # Infrastructure and support
-    'Unknown': 1.0,               # Neutral
-    'Default': 1.0
-}
-
-# Feature complexity weights for impact scoring
-# Higher weights indicate more complex/valuable use cases
-FEATURE_COMPLEXITY_WEIGHT = {
-    'Tool Messages': 1.5,         # Advanced features (code, APIs)
-    'Project Messages': 1.3,      # Collaborative/structured work
-    'ChatGPT Messages': 1.0,      # Standard usage
-    'BlueFlame Queries': 1.2,     # Knowledge retrieval
-    'API Calls': 1.4,             # Automation
-    'General': 1.0                # Default
+# Default configuration for ROI calculations
+DEFAULT_ROI_CONFIG = {
+    'minutes_saved_per_message': 5,  # Average time saved per AI interaction
+    'minutes_saved_per_tool_message': 10,  # Tool usage typically saves more time
+    'minutes_saved_per_project_message': 15,  # Project work has higher complexity
+    'hourly_rate_default': 50,  # Default hourly rate in USD
+    'hourly_rate_by_department': {
+        'Engineering': 75,
+        'Finance': 70,
+        'Legal': 100,
+        'Marketing': 55,
+        'Sales': 60,
+        'HR': 50,
+        'IT': 65,
+        'Operations': 55,
+        'Executive': 150,
+        'Unknown': 50
+    }
 }
 
 
-# ============================================================================
-# CORE ROI CALCULATION FUNCTIONS
-# ============================================================================
-
-def calculate_time_savings(usage_data: pd.DataFrame) -> pd.DataFrame:
+def estimate_hours_saved(
+    usage_count: Union[int, float],
+    feature_type: str = 'ChatGPT Messages',
+    config: Optional[Dict] = None
+) -> float:
     """
-    Calculate estimated time savings from AI usage based on feature types.
+    Estimate hours saved based on usage count and feature type.
     
-    This function maps feature usage counts to time saved using industry benchmarks
-    from McKinsey research on generative AI productivity gains. The calculation
-    assumes each interaction replaces manual work that would have taken longer.
-    
-    Formula:
-        time_saved_minutes = usage_count × time_savings_per_feature
-        time_saved_hours = time_saved_minutes / 60
+    Maps usage events to estimated time savings using configurable
+    minutes-per-message rates that vary by feature type.
     
     Args:
-        usage_data: DataFrame with columns ['feature_used', 'usage_count']
-                   Typically from usage_metrics table
-    
+        usage_count: Number of usage events (messages, queries, etc.)
+        feature_type: Type of feature used (e.g., 'ChatGPT Messages', 'Tool Messages')
+        config: Optional configuration dict with custom minutes_saved rates
+        
     Returns:
-        DataFrame with added columns:
-        - time_saved_minutes: Total minutes saved per record
-        - time_saved_hours: Total hours saved per record
-    
-    Reference:
-        McKinsey Global Institute (2023), "The Economic Potential of Generative AI"
-        Reports 10-30% productivity gains across knowledge work tasks
-    
-    Example:
-        >>> df = pd.DataFrame({
-        ...     'feature_used': ['ChatGPT Messages', 'Tool Messages'],
-        ...     'usage_count': [100, 50]
-        ... })
-        >>> result = calculate_time_savings(df)
-        >>> result['time_saved_hours'].sum()  # Total hours saved
-        45.83
+        float: Estimated hours saved
+        
+    Examples:
+        >>> estimate_hours_saved(60, 'ChatGPT Messages')
+        5.0
+        >>> estimate_hours_saved(0, 'Tool Messages')
+        0.0
+        >>> estimate_hours_saved(30, 'Project Messages')
+        7.5
     """
-    df = usage_data.copy()
+    if config is None:
+        config = DEFAULT_ROI_CONFIG
     
-    # Map feature types to time savings
-    df['time_saved_minutes'] = df.apply(
-        lambda row: row['usage_count'] * TIME_SAVINGS_PER_FEATURE.get(
-            row['feature_used'], 
-            TIME_SAVINGS_PER_FEATURE['General']
+    # Handle edge cases
+    if usage_count is None or pd.isna(usage_count):
+        return 0.0
+    
+    if usage_count <= 0:
+        return 0.0
+    
+    # Determine minutes saved per message based on feature type
+    feature_lower = str(feature_type).lower()
+    
+    if 'tool' in feature_lower:
+        minutes_per_message = config.get('minutes_saved_per_tool_message', 10)
+    elif 'project' in feature_lower:
+        minutes_per_message = config.get('minutes_saved_per_project_message', 15)
+    else:
+        minutes_per_message = config.get('minutes_saved_per_message', 5)
+    
+    # Calculate total minutes and convert to hours
+    total_minutes = usage_count * minutes_per_message
+    hours_saved = total_minutes / 60.0
+    
+    return round(hours_saved, 2)
+
+
+def calculate_monetary_value(
+    hours_saved: float,
+    department: str = 'Unknown',
+    hourly_rate: Optional[float] = None,
+    config: Optional[Dict] = None
+) -> float:
+    """
+    Calculate monetary value from hours saved.
+    
+    Uses department-specific or custom hourly rates to convert
+    time savings into dollar value.
+    
+    Args:
+        hours_saved: Number of hours saved
+        department: Department name for department-specific rates
+        hourly_rate: Optional custom hourly rate (overrides department rate)
+        config: Optional configuration dict with hourly rates
+        
+    Returns:
+        float: Estimated monetary value in USD
+        
+    Examples:
+        >>> calculate_monetary_value(10, 'Engineering')
+        750.0
+        >>> calculate_monetary_value(5, 'Unknown', hourly_rate=100)
+        500.0
+        >>> calculate_monetary_value(0, 'Finance')
+        0.0
+    """
+    if config is None:
+        config = DEFAULT_ROI_CONFIG
+    
+    # Handle edge cases
+    if hours_saved is None or pd.isna(hours_saved) or hours_saved <= 0:
+        return 0.0
+    
+    # Determine hourly rate
+    if hourly_rate is not None and hourly_rate > 0:
+        rate = hourly_rate
+    else:
+        # Normalize department name for lookup
+        # Converts to title case to match config keys (e.g., 'engineering' → 'Engineering')
+        dept_normalized = str(department).strip().title() if department else 'Unknown'
+        
+        # Look up department-specific rate
+        dept_rates = config.get('hourly_rate_by_department', {})
+        rate = dept_rates.get(dept_normalized, config.get('hourly_rate_default', 50))
+    
+    # Calculate monetary value
+    value = hours_saved * rate
+    
+    return round(value, 2)
+
+
+def calculate_roi_per_user(
+    usage_df: pd.DataFrame,
+    config: Optional[Dict] = None
+) -> pd.DataFrame:
+    """
+    Calculate ROI metrics per user.
+    
+    Aggregates usage data by user and calculates total hours saved,
+    monetary value, and ROI metrics for each user.
+    
+    Args:
+        usage_df: DataFrame with columns: user_id, user_name, department,
+                  feature_used, usage_count
+        config: Optional configuration dict for ROI calculations
+        
+    Returns:
+        DataFrame with columns: user_id, user_name, department, total_usage,
+                                hours_saved, monetary_value_usd
+                                
+    Raises:
+        ValueError: If required columns are missing from usage_df
+    """
+    if usage_df.empty:
+        return pd.DataFrame(columns=[
+            'user_id', 'user_name', 'department', 'total_usage',
+            'hours_saved', 'monetary_value_usd'
+        ])
+    
+    # Validate required columns
+    required_cols = ['user_id', 'usage_count']
+    missing_cols = [col for col in required_cols if col not in usage_df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    if config is None:
+        config = DEFAULT_ROI_CONFIG
+    
+    # Make a copy to avoid modifying original
+    df = usage_df.copy()
+    
+    # Calculate hours saved for each row
+    df['hours_saved'] = df.apply(
+        lambda row: estimate_hours_saved(
+            row.get('usage_count', 0),
+            row.get('feature_used', 'ChatGPT Messages'),
+            config
         ),
         axis=1
     )
     
-    # Convert to hours
-    df['time_saved_hours'] = df['time_saved_minutes'] / 60.0
-    
-    return df
-
-
-def calculate_cost_savings(usage_data: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate estimated cost savings based on time saved and labor costs.
-    
-    This function combines time savings estimates with department-specific labor
-    costs to quantify the economic value of AI usage. It uses Bureau of Labor
-    Statistics median wage data adjusted for enterprise contexts.
-    
-    Formula:
-        cost_saved_usd = time_saved_hours × labor_cost_per_hour[department]
-    
-    Args:
-        usage_data: DataFrame with columns ['time_saved_hours', 'department']
-                   Typically output from calculate_time_savings()
-    
-    Returns:
-        DataFrame with added column:
-        - cost_saved_usd: Estimated cost savings in USD
-    
-    Reference:
-        Bureau of Labor Statistics (2024) - Occupational Employment and Wage Statistics
-        Adjusted upward by 20% for enterprise benefits/overhead costs
-    
-    Example:
-        >>> df = calculate_time_savings(usage_df)
-        >>> df = calculate_cost_savings(df)
-        >>> df.groupby('department')['cost_saved_usd'].sum()
-    """
-    df = usage_data.copy()
-    
-    # Ensure time_saved_hours exists
-    if 'time_saved_hours' not in df.columns:
-        df = calculate_time_savings(df)
-    
-    # Normalize department names
-    df['department_normalized'] = df['department'].fillna('Unknown').str.strip()
-    
-    # Map departments to labor costs
-    df['labor_cost_per_hour'] = df['department_normalized'].apply(
-        lambda dept: LABOR_COST_PER_HOUR.get(dept, LABOR_COST_PER_HOUR['Default'])
+    # Calculate monetary value for each row
+    df['monetary_value'] = df.apply(
+        lambda row: calculate_monetary_value(
+            row.get('hours_saved', 0),
+            row.get('department', 'Unknown'),
+            config=config
+        ),
+        axis=1
     )
     
-    # Calculate cost savings
-    df['cost_saved_usd'] = df['time_saved_hours'] * df['labor_cost_per_hour']
+    # Aggregate by user
+    user_cols = ['user_id']
+    if 'user_name' in df.columns:
+        user_cols.append('user_name')
+    if 'department' in df.columns:
+        user_cols.append('department')
     
-    return df
-
-
-def calculate_business_value(usage_data: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate comprehensive business value beyond direct cost savings.
-    
-    This function applies department impact multipliers to recognize that AI usage
-    in strategic roles (e.g., Executive, Engineering) creates disproportionate value
-    through better decisions, faster innovation, and higher-leverage outcomes.
-    
-    Formula:
-        business_value_usd = cost_saved_usd × department_impact_multiplier
-    
-    The multiplier approach is based on organizational value chain analysis where
-    different functions have varying leverage on business outcomes.
-    
-    Args:
-        usage_data: DataFrame with columns ['cost_saved_usd', 'department']
-                   Typically output from calculate_cost_savings()
-    
-    Returns:
-        DataFrame with added columns:
-        - impact_multiplier: Department-specific multiplier
-        - business_value_usd: Adjusted value including strategic impact
-    
-    Reference:
-        Novel framework inspired by Porter's Value Chain Analysis (1985)
-        and activity-based costing principles
-    
-    Example:
-        >>> df = calculate_business_value(usage_df)
-        >>> total_value = df['business_value_usd'].sum()
-    """
-    df = usage_data.copy()
-    
-    # Ensure cost_saved_usd exists
-    if 'cost_saved_usd' not in df.columns:
-        df = calculate_cost_savings(df)
-    
-    # Normalize department names
-    if 'department_normalized' not in df.columns:
-        df['department_normalized'] = df['department'].fillna('Unknown').str.strip()
-    
-    # Apply impact multipliers
-    df['impact_multiplier'] = df['department_normalized'].apply(
-        lambda dept: DEPARTMENT_IMPACT_MULTIPLIER.get(dept, DEPARTMENT_IMPACT_MULTIPLIER['Default'])
-    )
-    
-    # Calculate business value
-    df['business_value_usd'] = df['cost_saved_usd'] * df['impact_multiplier']
-    
-    return df
-
-
-def calculate_ai_impact_score(usage_data: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate composite AI impact scores for users and departments.
-    
-    The AI Impact Score is a novel metric combining:
-    1. Usage volume (normalized)
-    2. Feature complexity (advanced features score higher)
-    3. Department strategic value
-    4. Consistency over time (if date data available)
-    
-    Formula:
-        base_score = log(1 + usage_count) × feature_complexity_weight
-        impact_score = base_score × department_multiplier × consistency_factor
-        normalized_score = (impact_score / max_score) × 100
-    
-    This creates a 0-100 score where higher values indicate users/departments
-    getting maximum strategic value from AI tools.
-    
-    Args:
-        usage_data: DataFrame with columns ['usage_count', 'feature_used', 'department']
-    
-    Returns:
-        DataFrame with added columns:
-        - ai_impact_score: Composite score (0-100)
-        - score_category: High/Medium/Low categorization
-    
-    Reference:
-        Novel metric inspired by Net Promoter Score methodology and
-        Digital Adoption Platform engagement scoring frameworks
-    
-    Example:
-        >>> df = calculate_ai_impact_score(usage_df)
-        >>> top_users = df.nlargest(10, 'ai_impact_score')
-    """
-    df = usage_data.copy()
-    
-    # Base score from usage (log scale to handle wide ranges)
-    df['base_usage_score'] = np.log1p(df['usage_count'])
-    
-    # Apply feature complexity weights
-    df['complexity_weight'] = df['feature_used'].apply(
-        lambda feat: FEATURE_COMPLEXITY_WEIGHT.get(feat, FEATURE_COMPLEXITY_WEIGHT['General'])
-    )
-    
-    # Normalize department names
-    if 'department_normalized' not in df.columns:
-        df['department_normalized'] = df['department'].fillna('Unknown').str.strip()
-    
-    # Apply department multipliers
-    if 'impact_multiplier' not in df.columns:
-        df['impact_multiplier'] = df['department_normalized'].apply(
-            lambda dept: DEPARTMENT_IMPACT_MULTIPLIER.get(dept, DEPARTMENT_IMPACT_MULTIPLIER['Default'])
-        )
-    
-    # Calculate raw impact score
-    df['raw_impact_score'] = (
-        df['base_usage_score'] * 
-        df['complexity_weight'] * 
-        df['impact_multiplier']
-    )
-    
-    # Normalize to 0-100 scale
-    max_score = df['raw_impact_score'].max()
-    if max_score > 0:
-        df['ai_impact_score'] = (df['raw_impact_score'] / max_score) * 100
-    else:
-        df['ai_impact_score'] = 0
-    
-    # Categorize scores
-    df['score_category'] = pd.cut(
-        df['ai_impact_score'],
-        bins=[0, 33, 66, 100],
-        labels=['Low', 'Medium', 'High'],
-        include_lowest=True
-    )
-    
-    return df
-
-
-def identify_value_leaders(
-    usage_data: pd.DataFrame,
-    by: str = 'user',
-    top_n: int = 10,
-    metric: str = 'business_value_usd'
-) -> pd.DataFrame:
-    """
-    Identify top value creators by user or department.
-    
-    This function aggregates value metrics and ranks users or departments to
-    identify where AI investments are creating the most impact. Useful for
-    targeting training, recognition, and resource allocation.
-    
-    Args:
-        usage_data: DataFrame with ROI metrics already calculated
-        by: Grouping dimension - 'user' or 'department'
-        top_n: Number of top leaders to return
-        metric: Metric to rank by (e.g., 'business_value_usd', 'time_saved_hours')
-    
-    Returns:
-        DataFrame with top leaders and their metrics
-    
-    Reference:
-        Based on Pareto analysis (80/20 rule) for identifying high-impact users
-    
-    Example:
-        >>> leaders = identify_value_leaders(usage_df, by='user', top_n=20)
-        >>> dept_leaders = identify_value_leaders(usage_df, by='department')
-    """
-    df = usage_data.copy()
-    
-    # Ensure required metric exists
-    if metric not in df.columns:
-        if metric == 'business_value_usd':
-            df = calculate_business_value(df)
-        elif metric == 'cost_saved_usd':
-            df = calculate_cost_savings(df)
-        elif metric == 'time_saved_hours':
-            df = calculate_time_savings(df)
-    
-    # Group by specified dimension
-    group_col = 'user_id' if by == 'user' else 'department'
-    
-    if group_col not in df.columns:
-        raise ValueError(f"Column '{group_col}' not found in usage_data")
-    
-    # Aggregate metrics
     agg_dict = {
         'usage_count': 'sum',
-        metric: 'sum'
+        'hours_saved': 'sum',
+        'monetary_value': 'sum'
     }
     
-    # Add optional metrics if they exist
-    if 'time_saved_hours' in df.columns and metric != 'time_saved_hours':
-        agg_dict['time_saved_hours'] = 'sum'
-    if 'cost_saved_usd' in df.columns and metric != 'cost_saved_usd':
-        agg_dict['cost_saved_usd'] = 'sum'
-    if 'business_value_usd' in df.columns and metric != 'business_value_usd':
-        agg_dict['business_value_usd'] = 'sum'
+    result = df.groupby(user_cols, as_index=False).agg(agg_dict)
     
-    # Include user_name if grouping by user
-    if by == 'user' and 'user_name' in df.columns:
-        # Get first user_name for each user_id
-        user_names = df.groupby('user_id')['user_name'].first()
-    
-    # Perform aggregation
-    leaders = df.groupby(group_col).agg(agg_dict).reset_index()
-    
-    # Add user names back if available
-    if by == 'user' and 'user_name' in df.columns:
-        leaders['user_name'] = leaders['user_id'].map(user_names)
-    
-    # Sort by metric and get top N
-    leaders = leaders.sort_values(metric, ascending=False).head(top_n)
-    
-    # Calculate percentage of total
-    total_value = df[metric].sum()
-    if total_value > 0:
-        leaders['pct_of_total'] = (leaders[metric] / total_value) * 100
-    else:
-        leaders['pct_of_total'] = 0
-    
-    return leaders
-
-
-def calculate_opportunity_cost(
-    usage_data: pd.DataFrame,
-    total_licenses: int,
-    license_cost_per_user: float = 0.0
-) -> Dict[str, float]:
-    """
-    Calculate opportunity costs of unused licenses and underutilization.
-    
-    This metric helps identify waste in AI tool investments by comparing
-    licensed seats to active users and measuring usage intensity.
-    
-    Formulas:
-        unused_licenses = total_licenses - active_users
-        unused_license_cost = unused_licenses × license_cost_per_user
-        underutilization_cost = (expected_value - actual_value) for low-use segments
-    
-    Args:
-        usage_data: DataFrame with user usage metrics
-        total_licenses: Total number of licenses purchased
-        license_cost_per_user: Monthly cost per license (default 0 if not tracked)
-    
-    Returns:
-        Dictionary with opportunity cost metrics:
-        - unused_licenses: Number of inactive licenses
-        - unused_license_cost_monthly: Cost of unused licenses per month
-        - active_users: Number of users with activity
-        - utilization_rate: Percentage of licenses being used
-        - low_usage_users: Count of users with minimal usage
-        - opportunity_for_improvement: Estimated additional value from full utilization
-    
-    Reference:
-        Based on SaaS spend optimization frameworks from Zylo and Productiv
-    
-    Example:
-        >>> metrics = calculate_opportunity_cost(usage_df, total_licenses=500, 
-        ...                                       license_cost_per_user=30)
-        >>> print(f"Wasted spend: ${metrics['unused_license_cost_monthly']:,.2f}")
-    """
-    df = usage_data.copy()
-    
-    # Calculate active users (unique users with any activity)
-    active_users = df['user_id'].nunique() if 'user_id' in df.columns else 0
-    
-    # Calculate unused licenses
-    unused_licenses = max(0, total_licenses - active_users)
-    unused_license_cost = unused_licenses * license_cost_per_user
-    
-    # Calculate utilization rate
-    utilization_rate = (active_users / total_licenses * 100) if total_licenses > 0 else 0
-    
-    # Identify low-usage users (below 25th percentile)
-    user_usage = df.groupby('user_id')['usage_count'].sum() if 'user_id' in df.columns else pd.Series()
-    
-    if len(user_usage) > 0:
-        low_usage_threshold = user_usage.quantile(0.25)
-        low_usage_users = (user_usage < low_usage_threshold).sum()
-        median_usage = user_usage.median()
-    else:
-        low_usage_users = 0
-        median_usage = 0
-    
-    # Estimate opportunity for improvement
-    # If low-usage users reached median usage, how much additional value?
-    if 'business_value_usd' in df.columns:
-        avg_value_per_message = df['business_value_usd'].sum() / max(df['usage_count'].sum(), 1)
-        
-        if len(user_usage) > 0:
-            current_low_usage = user_usage[user_usage < low_usage_threshold].sum()
-            potential_increase = low_usage_users * median_usage - current_low_usage
-            opportunity_value = potential_increase * avg_value_per_message
-        else:
-            opportunity_value = 0
-    else:
-        opportunity_value = 0
-    
-    return {
-        'total_licenses': total_licenses,
-        'active_users': active_users,
-        'unused_licenses': unused_licenses,
-        'unused_license_cost_monthly': unused_license_cost,
-        'utilization_rate_pct': utilization_rate,
-        'low_usage_users': low_usage_users,
-        'opportunity_for_improvement_usd': opportunity_value,
-        'license_cost_per_user': license_cost_per_user
-    }
-
-
-def calculate_roi_summary(
-    usage_data: pd.DataFrame,
-    total_licenses: int = 0,
-    license_cost_per_user: float = 0.0,
-    include_all_metrics: bool = True
-) -> Dict[str, Union[float, int, Dict]]:
-    """
-    Generate comprehensive ROI summary report across all metrics.
-    
-    This is a convenience function that runs all ROI calculations and returns
-    a consolidated summary suitable for dashboard display or reporting.
-    
-    Args:
-        usage_data: DataFrame with user usage data
-        total_licenses: Total licensed seats (optional)
-        license_cost_per_user: Cost per license (optional)
-        include_all_metrics: Whether to calculate all intermediate metrics
-    
-    Returns:
-        Dictionary containing:
-        - total_time_saved_hours: Aggregate time savings
-        - total_cost_saved_usd: Aggregate cost savings
-        - total_business_value_usd: Aggregate business value
-        - avg_time_saved_per_user_hours: Average per user
-        - avg_value_per_user_usd: Average value per user
-        - top_users: List of top 10 value creators
-        - top_departments: List of top departments
-        - opportunity_costs: Opportunity cost metrics
-        - roi_ratio: Business value / license costs (if costs provided)
-    
-    Example:
-        >>> summary = calculate_roi_summary(usage_df, total_licenses=500, 
-        ...                                  license_cost_per_user=30)
-        >>> print(f"Total ROI: ${summary['total_business_value_usd']:,.2f}")
-        >>> print(f"ROI Ratio: {summary['roi_ratio']:.2f}x")
-    """
-    # Calculate all enrichments
-    df = usage_data.copy()
-    
-    if include_all_metrics:
-        df = calculate_time_savings(df)
-        df = calculate_cost_savings(df)
-        df = calculate_business_value(df)
-        df = calculate_ai_impact_score(df)
-    
-    # Aggregate metrics
-    total_users = df['user_id'].nunique() if 'user_id' in df.columns else 0
-    total_usage = df['usage_count'].sum() if 'usage_count' in df.columns else 0
-    
-    summary = {
-        'total_users': total_users,
-        'total_usage': total_usage,
-        'avg_usage_per_user': total_usage / max(total_users, 1)
-    }
-    
-    # Time and cost metrics
-    if 'time_saved_hours' in df.columns:
-        summary['total_time_saved_hours'] = df['time_saved_hours'].sum()
-        summary['avg_time_saved_per_user_hours'] = summary['total_time_saved_hours'] / max(total_users, 1)
-    
-    if 'cost_saved_usd' in df.columns:
-        summary['total_cost_saved_usd'] = df['cost_saved_usd'].sum()
-        summary['avg_cost_saved_per_user_usd'] = summary['total_cost_saved_usd'] / max(total_users, 1)
-    
-    if 'business_value_usd' in df.columns:
-        summary['total_business_value_usd'] = df['business_value_usd'].sum()
-        summary['avg_business_value_per_user_usd'] = summary['total_business_value_usd'] / max(total_users, 1)
-    
-    # Value leaders
-    if 'business_value_usd' in df.columns:
-        summary['top_users'] = identify_value_leaders(df, by='user', top_n=10, 
-                                                      metric='business_value_usd').to_dict('records')
-        summary['top_departments'] = identify_value_leaders(df, by='department', top_n=10, 
-                                                            metric='business_value_usd').to_dict('records')
-    
-    # Opportunity costs
-    if total_licenses > 0:
-        summary['opportunity_costs'] = calculate_opportunity_cost(
-            df, total_licenses, license_cost_per_user
-        )
-        
-        # Calculate ROI ratio
-        if license_cost_per_user > 0 and 'total_business_value_usd' in summary:
-            total_license_cost = total_users * license_cost_per_user
-            if total_license_cost > 0:
-                summary['roi_ratio'] = summary['total_business_value_usd'] / total_license_cost
-            else:
-                summary['roi_ratio'] = 0
-    
-    return summary
-
-
-# ============================================================================
-# HELPER FUNCTIONS FOR CUSTOMIZATION
-# ============================================================================
-
-def update_time_savings_benchmark(feature: str, minutes_saved: float) -> None:
-    """
-    Update time savings benchmark for a specific feature type.
-    
-    Allows customization of time savings estimates based on organization-specific
-    benchmarks or measurement studies.
-    
-    Args:
-        feature: Feature type name (e.g., 'ChatGPT Messages')
-        minutes_saved: Updated estimate of minutes saved per interaction
-    
-    Example:
-        >>> update_time_savings_benchmark('Tool Messages', 30.0)
-    """
-    TIME_SAVINGS_PER_FEATURE[feature] = minutes_saved
-
-
-def update_labor_cost(department: str, cost_per_hour: float) -> None:
-    """
-    Update labor cost for a specific department.
-    
-    Allows customization based on actual organizational compensation data.
-    
-    Args:
-        department: Department name
-        cost_per_hour: Loaded labor cost in USD per hour
-    
-    Example:
-        >>> update_labor_cost('Engineering', 95.0)
-    """
-    LABOR_COST_PER_HOUR[department] = cost_per_hour
-
-
-def update_department_multiplier(department: str, multiplier: float) -> None:
-    """
-    Update strategic impact multiplier for a department.
-    
-    Allows customization based on organization's value chain and priorities.
-    
-    Args:
-        department: Department name
-        multiplier: Impact multiplier (1.0 = neutral, >1.0 = high leverage)
-    
-    Example:
-        >>> update_department_multiplier('Executive', 2.0)
-    """
-    DEPARTMENT_IMPACT_MULTIPLIER[department] = multiplier
-
-
-def get_current_benchmarks() -> Dict[str, Dict]:
-    """
-    Get current configuration of all benchmarks and rates.
-    
-    Returns:
-        Dictionary with all current benchmark configurations
-    
-    Example:
-        >>> benchmarks = get_current_benchmarks()
-        >>> print(benchmarks['time_savings'])
-    """
-    return {
-        'time_savings': TIME_SAVINGS_PER_FEATURE.copy(),
-        'labor_costs': LABOR_COST_PER_HOUR.copy(),
-        'department_multipliers': DEPARTMENT_IMPACT_MULTIPLIER.copy(),
-        'feature_complexity': FEATURE_COMPLEXITY_WEIGHT.copy()
-    }
-
-
-if __name__ == '__main__':
-    """
-    Example usage demonstrating the ROI utilities module.
-    """
-    # Sample data
-    sample_data = pd.DataFrame({
-        'user_id': ['user1@company.com', 'user2@company.com', 'user3@company.com'] * 3,
-        'user_name': ['Alice', 'Bob', 'Charlie'] * 3,
-        'department': ['Engineering', 'Sales', 'Finance'] * 3,
-        'feature_used': ['ChatGPT Messages', 'Tool Messages', 'Project Messages'] * 3,
-        'usage_count': [150, 200, 100, 80, 120, 90, 50, 180, 110]
+    # Rename columns for clarity
+    result = result.rename(columns={
+        'usage_count': 'total_usage',
+        'monetary_value': 'monetary_value_usd'
     })
     
-    print("ROI Utilities Example Usage")
-    print("=" * 80)
+    # Round numeric columns
+    result['hours_saved'] = result['hours_saved'].round(2)
+    result['monetary_value_usd'] = result['monetary_value_usd'].round(2)
     
-    # Calculate comprehensive ROI
-    enriched_data = calculate_time_savings(sample_data)
-    enriched_data = calculate_cost_savings(enriched_data)
-    enriched_data = calculate_business_value(enriched_data)
-    enriched_data = calculate_ai_impact_score(enriched_data)
+    return result
+
+
+def calculate_roi_per_department(
+    usage_df: pd.DataFrame,
+    config: Optional[Dict] = None
+) -> pd.DataFrame:
+    """
+    Calculate ROI metrics per department.
     
-    print("\nEnriched Data Sample:")
-    print(enriched_data[['user_name', 'department', 'usage_count', 
-                         'time_saved_hours', 'cost_saved_usd', 
-                         'business_value_usd', 'ai_impact_score']].head())
+    Aggregates usage data by department and calculates total hours saved,
+    monetary value, and ROI metrics for each department.
     
-    print("\n\nTop Value Leaders (by User):")
-    top_users = identify_value_leaders(enriched_data, by='user', top_n=5)
-    print(top_users[['user_id', 'usage_count', 'business_value_usd', 'pct_of_total']])
+    Args:
+        usage_df: DataFrame with columns: department, feature_used, usage_count
+        config: Optional configuration dict for ROI calculations
+        
+    Returns:
+        DataFrame with columns: department, total_usage, active_users,
+                                hours_saved, monetary_value_usd, avg_value_per_user
+                                
+    Raises:
+        ValueError: If required columns are missing from usage_df
+    """
+    if usage_df.empty:
+        return pd.DataFrame(columns=[
+            'department', 'total_usage', 'active_users',
+            'hours_saved', 'monetary_value_usd', 'avg_value_per_user'
+        ])
     
-    print("\n\nTop Departments:")
-    top_depts = identify_value_leaders(enriched_data, by='department', top_n=5)
-    print(top_depts[['department', 'usage_count', 'business_value_usd', 'pct_of_total']])
+    # Validate required columns
+    required_cols = ['usage_count']
+    missing_cols = [col for col in required_cols if col not in usage_df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
     
-    print("\n\nROI Summary:")
-    summary = calculate_roi_summary(enriched_data, total_licenses=500, license_cost_per_user=30)
-    for key, value in summary.items():
-        if not isinstance(value, (list, dict)):
-            print(f"{key}: {value}")
+    if config is None:
+        config = DEFAULT_ROI_CONFIG
     
-    print("\n" + "=" * 80)
+    # Make a copy and ensure department column exists
+    df = usage_df.copy()
+    if 'department' not in df.columns:
+        df['department'] = 'Unknown'
+    
+    # Calculate hours saved for each row
+    df['hours_saved'] = df.apply(
+        lambda row: estimate_hours_saved(
+            row.get('usage_count', 0),
+            row.get('feature_used', 'ChatGPT Messages'),
+            config
+        ),
+        axis=1
+    )
+    
+    # Calculate monetary value for each row
+    df['monetary_value'] = df.apply(
+        lambda row: calculate_monetary_value(
+            row.get('hours_saved', 0),
+            row.get('department', 'Unknown'),
+            config=config
+        ),
+        axis=1
+    )
+    
+    # Aggregate by department
+    agg_dict = {
+        'usage_count': 'sum',
+        'hours_saved': 'sum',
+        'monetary_value': 'sum'
+    }
+    
+    # Add user count if user_id exists
+    if 'user_id' in df.columns:
+        agg_dict['user_id'] = 'nunique'
+    
+    result = df.groupby('department', as_index=False).agg(agg_dict)
+    
+    # Rename columns for clarity
+    result = result.rename(columns={
+        'usage_count': 'total_usage',
+        'monetary_value': 'monetary_value_usd'
+    })
+    
+    if 'user_id' in result.columns:
+        result = result.rename(columns={'user_id': 'active_users'})
+        # Calculate average value per user
+        result['avg_value_per_user'] = (
+            result['monetary_value_usd'] / result['active_users']
+        ).round(2)
+    else:
+        result['active_users'] = 0
+        result['avg_value_per_user'] = 0.0
+    
+    # Round numeric columns
+    result['hours_saved'] = result['hours_saved'].round(2)
+    result['monetary_value_usd'] = result['monetary_value_usd'].round(2)
+    
+    # Sort by monetary value descending
+    result = result.sort_values('monetary_value_usd', ascending=False)
+    
+    return result
+
+
+def calculate_composite_roi(
+    usage_df: pd.DataFrame,
+    date_column: str = 'date',
+    config: Optional[Dict] = None
+) -> Dict:
+    """
+    Calculate composite ROI metrics across all usage data.
+    
+    Provides organization-wide ROI summary including total hours saved,
+    total monetary value, metrics by time period, and efficiency indicators.
+    
+    Args:
+        usage_df: DataFrame with usage data
+        date_column: Name of the date column for time-based analysis
+        config: Optional configuration dict for ROI calculations
+        
+    Returns:
+        dict: Composite ROI metrics including:
+            - total_hours_saved
+            - total_monetary_value_usd
+            - total_users
+            - total_usage_events
+            - avg_hours_per_user
+            - avg_value_per_user
+            - date_range (if date column valid)
+            - monthly_average_value (if date column valid)
+    """
+    if usage_df.empty:
+        return {
+            'total_hours_saved': 0.0,
+            'total_monetary_value_usd': 0.0,
+            'total_users': 0,
+            'total_usage_events': 0,
+            'avg_hours_per_user': 0.0,
+            'avg_value_per_user': 0.0,
+            'date_range': None,
+            'monthly_average_value': 0.0
+        }
+    
+    if config is None:
+        config = DEFAULT_ROI_CONFIG
+    
+    # Make a copy
+    df = usage_df.copy()
+    
+    # Calculate hours saved for each row
+    df['hours_saved'] = df.apply(
+        lambda row: estimate_hours_saved(
+            row.get('usage_count', 0),
+            row.get('feature_used', 'ChatGPT Messages'),
+            config
+        ),
+        axis=1
+    )
+    
+    # Calculate monetary value for each row
+    df['monetary_value'] = df.apply(
+        lambda row: calculate_monetary_value(
+            row.get('hours_saved', 0),
+            row.get('department', 'Unknown'),
+            config=config
+        ),
+        axis=1
+    )
+    
+    # Calculate aggregate metrics
+    total_hours = df['hours_saved'].sum()
+    total_value = df['monetary_value'].sum()
+    total_usage = df['usage_count'].sum()
+    
+    # Calculate user metrics
+    total_users = df['user_id'].nunique() if 'user_id' in df.columns else 0
+    avg_hours_per_user = total_hours / total_users if total_users > 0 else 0.0
+    avg_value_per_user = total_value / total_users if total_users > 0 else 0.0
+    
+    # Calculate date-based metrics if date column exists and is valid
+    date_range = None
+    monthly_avg = 0.0
+    
+    if date_column in df.columns:
+        try:
+            # Convert to datetime, handling various formats
+            df['date_parsed'] = pd.to_datetime(df[date_column], errors='coerce')
+            valid_dates = df['date_parsed'].dropna()
+            
+            if len(valid_dates) > 0:
+                min_date = valid_dates.min()
+                max_date = valid_dates.max()
+                date_range = f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
+                
+                # Calculate monthly average
+                days_range = (max_date - min_date).days + 1
+                months_range = days_range / 30.44  # Average days per month
+                if months_range > 0:
+                    monthly_avg = total_value / months_range
+        except Exception:
+            # If date parsing fails, leave date metrics as None/0
+            pass
+    
+    return {
+        'total_hours_saved': round(total_hours, 2),
+        'total_monetary_value_usd': round(total_value, 2),
+        'total_users': total_users,
+        'total_usage_events': int(total_usage),
+        'avg_hours_per_user': round(avg_hours_per_user, 2),
+        'avg_value_per_user': round(avg_value_per_user, 2),
+        'date_range': date_range,
+        'monthly_average_value': round(monthly_avg, 2)
+    }
+
+
+def validate_date_field(date_value: Union[str, datetime, date, pd.Timestamp]) -> bool:
+    """
+    Validate if a date field is valid and not in the future.
+    
+    Args:
+        date_value: Date value to validate
+        
+    Returns:
+        bool: True if date is valid and not in the future, False otherwise
+        
+    Examples:
+        >>> validate_date_field('2024-01-01')
+        True
+        >>> validate_date_field('invalid')
+        False
+        >>> validate_date_field(None)
+        False
+    """
+    if date_value is None or pd.isna(date_value):
+        return False
+    
+    try:
+        # Convert to datetime if it's a string
+        if isinstance(date_value, str):
+            parsed_date = pd.to_datetime(date_value, errors='coerce')
+            if pd.isna(parsed_date):
+                return False
+        elif isinstance(date_value, (datetime, date, pd.Timestamp)):
+            parsed_date = pd.to_datetime(date_value)
+        else:
+            return False
+        
+        # Check if date is not in the future
+        # Normalize both dates to remove time components for fair comparison
+        today = pd.Timestamp.now().normalize()
+        parsed_normalized = pd.Timestamp(parsed_date).normalize()
+        if parsed_normalized > today:
+            return False
+        
+        return True
+    except Exception:
+        return False

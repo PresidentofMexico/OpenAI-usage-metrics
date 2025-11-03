@@ -1,478 +1,624 @@
 """
-Unit Tests for ROI Utilities Module
+Comprehensive test suite for ROI utilities and metrics.
 
-Tests all core ROI calculation functions to ensure accuracy and reliability.
+Tests all major ROI calculation functions including:
+- Mapping usage events to estimated hours/value
+- Edge cases (zero usage, unknown department, future/invalid dates)
+- Per-user ROI metrics
+- Per-department ROI metrics
+- Composite ROI calculations
 """
 
 import sys
 import os
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
 
 # Add project root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 sys.path.insert(0, project_root)
 
-import pandas as pd
-import numpy as np
 from roi_utils import (
-    calculate_time_savings,
-    calculate_cost_savings,
-    calculate_business_value,
-    calculate_ai_impact_score,
-    identify_value_leaders,
-    calculate_opportunity_cost,
-    calculate_roi_summary,
-    update_time_savings_benchmark,
-    update_labor_cost,
-    update_department_multiplier,
-    get_current_benchmarks,
-    TIME_SAVINGS_PER_FEATURE,
-    LABOR_COST_PER_HOUR,
-    DEPARTMENT_IMPACT_MULTIPLIER
+    estimate_hours_saved,
+    calculate_monetary_value,
+    calculate_roi_per_user,
+    calculate_roi_per_department,
+    calculate_composite_roi,
+    validate_date_field,
+    DEFAULT_ROI_CONFIG
 )
 
 
-def test_calculate_time_savings():
-    """Test time savings calculation with known values."""
-    print("\n" + "=" * 80)
-    print("TEST: Calculate Time Savings")
-    print("=" * 80)
+def test_estimate_hours_saved_basic():
+    """Test basic hours saved calculation for standard messages."""
+    print("\n🧪 Testing estimate_hours_saved - Basic Calculation")
     
-    # Create test data
-    test_data = pd.DataFrame({
-        'feature_used': ['ChatGPT Messages', 'Tool Messages', 'General'],
-        'usage_count': [100, 50, 20]
-    })
+    # Test standard ChatGPT messages (5 min per message)
+    hours = estimate_hours_saved(60, 'ChatGPT Messages')
+    expected = 5.0  # 60 messages * 5 min / 60 = 5 hours
+    assert hours == expected, f"Expected {expected} hours, got {hours}"
+    print(f"✅ Standard messages: 60 messages = {hours} hours")
     
-    # Calculate time savings
-    result = calculate_time_savings(test_data)
+    # Test tool messages (10 min per message)
+    hours = estimate_hours_saved(30, 'Tool Messages')
+    expected = 5.0  # 30 messages * 10 min / 60 = 5 hours
+    assert hours == expected, f"Expected {expected} hours, got {hours}"
+    print(f"✅ Tool messages: 30 messages = {hours} hours")
     
-    # Verify columns exist
-    assert 'time_saved_minutes' in result.columns, "Missing time_saved_minutes column"
-    assert 'time_saved_hours' in result.columns, "Missing time_saved_hours column"
+    # Test project messages (15 min per message)
+    hours = estimate_hours_saved(20, 'Project Messages')
+    expected = 5.0  # 20 messages * 15 min / 60 = 5 hours
+    assert hours == expected, f"Expected {expected} hours, got {hours}"
+    print(f"✅ Project messages: 20 messages = {hours} hours")
     
-    # Verify calculations
-    # ChatGPT Messages: 100 * 12 = 1200 minutes = 20 hours
-    assert result.iloc[0]['time_saved_minutes'] == 1200, \
-        f"Expected 1200 minutes, got {result.iloc[0]['time_saved_minutes']}"
-    assert result.iloc[0]['time_saved_hours'] == 20.0, \
-        f"Expected 20 hours, got {result.iloc[0]['time_saved_hours']}"
-    
-    # Tool Messages: 50 * 25 = 1250 minutes = 20.833 hours
-    assert abs(result.iloc[1]['time_saved_hours'] - 20.833) < 0.01, \
-        f"Expected ~20.833 hours, got {result.iloc[1]['time_saved_hours']}"
-    
-    # General: 20 * 10 = 200 minutes
-    assert result.iloc[2]['time_saved_minutes'] == 200, \
-        f"Expected 200 minutes, got {result.iloc[2]['time_saved_minutes']}"
-    
-    print("✅ Time savings calculated correctly")
-    print(f"   Total hours saved: {result['time_saved_hours'].sum():.2f}")
     return True
 
 
-def test_calculate_cost_savings():
-    """Test cost savings calculation with department-specific rates."""
-    print("\n" + "=" * 80)
-    print("TEST: Calculate Cost Savings")
-    print("=" * 80)
+def test_estimate_hours_saved_edge_cases():
+    """Test hours saved calculation with edge cases."""
+    print("\n🧪 Testing estimate_hours_saved - Edge Cases")
     
-    # Create test data with time savings already calculated
-    test_data = pd.DataFrame({
-        'feature_used': ['ChatGPT Messages', 'Tool Messages'],
-        'usage_count': [100, 50],
-        'department': ['Engineering', 'Sales'],
-        'time_saved_hours': [20.0, 20.833]
-    })
+    # Test zero usage
+    hours = estimate_hours_saved(0, 'ChatGPT Messages')
+    assert hours == 0.0, f"Expected 0.0 for zero usage, got {hours}"
+    print(f"✅ Zero usage: {hours} hours")
     
-    # Calculate cost savings
-    result = calculate_cost_savings(test_data)
+    # Test negative usage (should return 0)
+    hours = estimate_hours_saved(-10, 'ChatGPT Messages')
+    assert hours == 0.0, f"Expected 0.0 for negative usage, got {hours}"
+    print(f"✅ Negative usage: {hours} hours")
     
-    # Verify columns exist
-    assert 'cost_saved_usd' in result.columns, "Missing cost_saved_usd column"
-    assert 'labor_cost_per_hour' in result.columns, "Missing labor_cost_per_hour column"
+    # Test None usage
+    hours = estimate_hours_saved(None, 'ChatGPT Messages')
+    assert hours == 0.0, f"Expected 0.0 for None usage, got {hours}"
+    print(f"✅ None usage: {hours} hours")
     
-    # Verify calculations
-    # Engineering: 20 hours * $85/hour = $1700
-    expected_eng_cost = 20.0 * LABOR_COST_PER_HOUR['Engineering']
-    assert abs(result.iloc[0]['cost_saved_usd'] - expected_eng_cost) < 0.01, \
-        f"Expected ${expected_eng_cost}, got ${result.iloc[0]['cost_saved_usd']}"
+    # Test NaN usage
+    hours = estimate_hours_saved(np.nan, 'ChatGPT Messages')
+    assert hours == 0.0, f"Expected 0.0 for NaN usage, got {hours}"
+    print(f"✅ NaN usage: {hours} hours")
     
-    # Sales: 20.833 hours * $65/hour
-    expected_sales_cost = 20.833 * LABOR_COST_PER_HOUR['Sales']
-    assert abs(result.iloc[1]['cost_saved_usd'] - expected_sales_cost) < 1.0, \
-        f"Expected ~${expected_sales_cost}, got ${result.iloc[1]['cost_saved_usd']}"
+    # Test float usage
+    hours = estimate_hours_saved(12.5, 'ChatGPT Messages')
+    expected = 1.04  # 12.5 * 5 / 60 = 1.041666... → 1.04 (rounded)
+    assert hours == expected, f"Expected {expected} hours, got {hours}"
+    print(f"✅ Float usage: 12.5 messages = {hours} hours")
     
-    print("✅ Cost savings calculated correctly")
-    print(f"   Total cost saved: ${result['cost_saved_usd'].sum():,.2f}")
     return True
 
 
-def test_calculate_business_value():
-    """Test business value calculation with impact multipliers."""
-    print("\n" + "=" * 80)
-    print("TEST: Calculate Business Value")
-    print("=" * 80)
+def test_estimate_hours_saved_custom_config():
+    """Test hours saved calculation with custom configuration."""
+    print("\n🧪 Testing estimate_hours_saved - Custom Configuration")
     
-    # Create test data with cost savings
-    test_data = pd.DataFrame({
-        'feature_used': ['ChatGPT Messages', 'Tool Messages'],
-        'usage_count': [100, 50],
-        'department': ['Engineering', 'Finance'],
-        'time_saved_hours': [20.0, 20.0],
-        'cost_saved_usd': [1700.0, 1400.0]
-    })
+    # Custom config with different time estimates
+    custom_config = {
+        'minutes_saved_per_message': 10,  # Double the default
+        'minutes_saved_per_tool_message': 20,
+        'minutes_saved_per_project_message': 30
+    }
     
-    # Calculate business value
-    result = calculate_business_value(test_data)
+    hours = estimate_hours_saved(30, 'ChatGPT Messages', config=custom_config)
+    expected = 5.0  # 30 messages * 10 min / 60 = 5 hours
+    assert hours == expected, f"Expected {expected} hours, got {hours}"
+    print(f"✅ Custom config (10 min/msg): 30 messages = {hours} hours")
     
-    # Verify columns exist
-    assert 'business_value_usd' in result.columns, "Missing business_value_usd column"
-    assert 'impact_multiplier' in result.columns, "Missing impact_multiplier column"
-    
-    # Verify multipliers are applied
-    # Engineering: 1700 * 1.3 = 2210
-    expected_eng_value = 1700.0 * DEPARTMENT_IMPACT_MULTIPLIER['Engineering']
-    assert abs(result.iloc[0]['business_value_usd'] - expected_eng_value) < 0.01, \
-        f"Expected ${expected_eng_value}, got ${result.iloc[0]['business_value_usd']}"
-    
-    # Finance: 1400 * 1.15 = 1610
-    expected_fin_value = 1400.0 * DEPARTMENT_IMPACT_MULTIPLIER['Finance']
-    assert abs(result.iloc[1]['business_value_usd'] - expected_fin_value) < 0.01, \
-        f"Expected ${expected_fin_value}, got ${result.iloc[1]['business_value_usd']}"
-    
-    print("✅ Business value calculated correctly")
-    print(f"   Total business value: ${result['business_value_usd'].sum():,.2f}")
     return True
 
 
-def test_calculate_ai_impact_score():
-    """Test AI impact score calculation."""
-    print("\n" + "=" * 80)
-    print("TEST: Calculate AI Impact Score")
-    print("=" * 80)
+def test_calculate_monetary_value_basic():
+    """Test basic monetary value calculation."""
+    print("\n🧪 Testing calculate_monetary_value - Basic Calculation")
     
-    # Create test data
-    test_data = pd.DataFrame({
-        'feature_used': ['Tool Messages', 'ChatGPT Messages', 'General'] * 2,
-        'usage_count': [200, 100, 50, 180, 120, 40],
-        'department': ['Engineering', 'Sales', 'Finance'] * 2,
-        'user_id': ['user1@test.com', 'user2@test.com', 'user3@test.com'] * 2
-    })
+    # Test Engineering department
+    value = calculate_monetary_value(10, 'Engineering')
+    expected = 750.0  # 10 hours * $75/hour
+    assert value == expected, f"Expected ${expected}, got ${value}"
+    print(f"✅ Engineering: 10 hours = ${value}")
     
-    # Calculate impact scores
-    result = calculate_ai_impact_score(test_data)
+    # Test Finance department
+    value = calculate_monetary_value(10, 'Finance')
+    expected = 700.0  # 10 hours * $70/hour
+    assert value == expected, f"Expected ${expected}, got ${value}"
+    print(f"✅ Finance: 10 hours = ${value}")
     
-    # Verify columns exist
-    assert 'ai_impact_score' in result.columns, "Missing ai_impact_score column"
-    assert 'score_category' in result.columns, "Missing score_category column"
+    # Test Unknown department (default rate)
+    value = calculate_monetary_value(10, 'Unknown')
+    expected = 500.0  # 10 hours * $50/hour
+    assert value == expected, f"Expected ${expected}, got ${value}"
+    print(f"✅ Unknown department: 10 hours = ${value}")
     
-    # Verify scores are in 0-100 range
-    assert result['ai_impact_score'].min() >= 0, "Score below 0"
-    assert result['ai_impact_score'].max() <= 100, "Score above 100"
-    
-    # Verify categories are assigned
-    assert result['score_category'].isin(['Low', 'Medium', 'High']).all(), \
-        "Invalid score categories"
-    
-    # Higher usage should generally produce higher scores
-    high_usage_score = result[result['usage_count'] == 200]['ai_impact_score'].iloc[0]
-    low_usage_score = result[result['usage_count'] == 40]['ai_impact_score'].iloc[0]
-    assert high_usage_score > low_usage_score, \
-        f"Higher usage should have higher score: {high_usage_score} vs {low_usage_score}"
-    
-    print("✅ AI impact scores calculated correctly")
-    print(f"   Score range: {result['ai_impact_score'].min():.1f} - {result['ai_impact_score'].max():.1f}")
-    print(f"   Category distribution: {result['score_category'].value_counts().to_dict()}")
     return True
 
 
-def test_identify_value_leaders():
-    """Test value leader identification."""
-    print("\n" + "=" * 80)
-    print("TEST: Identify Value Leaders")
-    print("=" * 80)
+def test_calculate_monetary_value_edge_cases():
+    """Test monetary value calculation with edge cases."""
+    print("\n🧪 Testing calculate_monetary_value - Edge Cases")
     
-    # Create test data with known values
-    test_data = pd.DataFrame({
-        'user_id': ['user1@test.com', 'user2@test.com', 'user3@test.com'] * 3,
-        'user_name': ['Alice', 'Bob', 'Charlie'] * 3,
-        'department': ['Engineering', 'Sales', 'Finance'] * 3,
-        'feature_used': ['ChatGPT Messages'] * 9,
-        'usage_count': [100, 200, 50, 150, 180, 60, 120, 220, 70],
-        'business_value_usd': [1000, 2000, 500, 1500, 1800, 600, 1200, 2200, 700]
-    })
+    # Test zero hours
+    value = calculate_monetary_value(0, 'Engineering')
+    assert value == 0.0, f"Expected $0.0 for zero hours, got ${value}"
+    print(f"✅ Zero hours: ${value}")
     
-    # Test user leaders
-    user_leaders = identify_value_leaders(test_data, by='user', top_n=3, metric='business_value_usd')
+    # Test negative hours (should return 0)
+    value = calculate_monetary_value(-5, 'Engineering')
+    assert value == 0.0, f"Expected $0.0 for negative hours, got ${value}"
+    print(f"✅ Negative hours: ${value}")
     
-    # Verify structure
-    assert len(user_leaders) <= 3, f"Expected max 3 leaders, got {len(user_leaders)}"
-    assert 'user_id' in user_leaders.columns, "Missing user_id column"
-    assert 'business_value_usd' in user_leaders.columns, "Missing business_value_usd column"
-    assert 'pct_of_total' in user_leaders.columns, "Missing pct_of_total column"
+    # Test None hours
+    value = calculate_monetary_value(None, 'Engineering')
+    assert value == 0.0, f"Expected $0.0 for None hours, got ${value}"
+    print(f"✅ None hours: ${value}")
     
-    # Verify sorting (descending by value)
-    assert user_leaders['business_value_usd'].is_monotonic_decreasing or \
-           (user_leaders['business_value_usd'].iloc[0] >= user_leaders['business_value_usd'].iloc[-1]), \
-           "Leaders not sorted by value"
+    # Test NaN hours
+    value = calculate_monetary_value(np.nan, 'Engineering')
+    assert value == 0.0, f"Expected $0.0 for NaN hours, got ${value}"
+    print(f"✅ NaN hours: ${value}")
     
-    # Test department leaders
-    dept_leaders = identify_value_leaders(test_data, by='department', top_n=3, metric='business_value_usd')
+    # Test unknown department (should use default)
+    value = calculate_monetary_value(10, 'NonExistentDept')
+    expected = 500.0  # 10 hours * $50/hour (default)
+    assert value == expected, f"Expected ${expected}, got ${value}"
+    print(f"✅ Unknown dept with fallback: ${value}")
     
-    assert len(dept_leaders) <= 3, f"Expected max 3 departments, got {len(dept_leaders)}"
-    assert 'department' in dept_leaders.columns, "Missing department column"
+    # Test custom hourly rate override
+    value = calculate_monetary_value(10, 'Engineering', hourly_rate=100)
+    expected = 1000.0  # 10 hours * $100/hour (override)
+    assert value == expected, f"Expected ${expected}, got ${value}"
+    print(f"✅ Custom hourly rate override: ${value}")
     
-    print("✅ Value leaders identified correctly")
-    print(f"   Top user value: ${user_leaders['business_value_usd'].iloc[0]:,.2f}")
-    print(f"   Top department: {dept_leaders['department'].iloc[0]}")
     return True
 
 
-def test_calculate_opportunity_cost():
-    """Test opportunity cost calculations."""
-    print("\n" + "=" * 80)
-    print("TEST: Calculate Opportunity Cost")
-    print("=" * 80)
+def test_calculate_roi_per_user():
+    """Test per-user ROI calculation."""
+    print("\n🧪 Testing calculate_roi_per_user")
     
-    # Create test data with varied usage
+    # Create test data with multiple users
     test_data = pd.DataFrame({
-        'user_id': [f'user{i}@test.com' for i in range(1, 11)],
-        'usage_count': [200, 180, 150, 120, 100, 80, 60, 40, 20, 10],
-        'feature_used': ['ChatGPT Messages'] * 10,
-        'department': ['Engineering'] * 10,
-        'business_value_usd': [2000, 1800, 1500, 1200, 1000, 800, 600, 400, 200, 100]
+        'user_id': ['user1@test.com', 'user1@test.com', 'user2@test.com', 'user2@test.com'],
+        'user_name': ['Alice', 'Alice', 'Bob', 'Bob'],
+        'department': ['Engineering', 'Engineering', 'Finance', 'Finance'],
+        'feature_used': ['ChatGPT Messages', 'Tool Messages', 'ChatGPT Messages', 'ChatGPT Messages'],
+        'usage_count': [60, 30, 120, 0]  # Alice: 60+30, Bob: 120+0
     })
     
-    # Calculate opportunity costs
-    result = calculate_opportunity_cost(
-        test_data,
-        total_licenses=20,
-        license_cost_per_user=30.0
-    )
+    result = calculate_roi_per_user(test_data)
     
-    # Verify structure
-    assert 'total_licenses' in result, "Missing total_licenses"
-    assert 'active_users' in result, "Missing active_users"
-    assert 'unused_licenses' in result, "Missing unused_licenses"
-    assert 'utilization_rate_pct' in result, "Missing utilization_rate_pct"
-    assert 'opportunity_for_improvement_usd' in result, "Missing opportunity_for_improvement_usd"
+    # Validate structure
+    assert len(result) == 2, f"Expected 2 users, got {len(result)}"
+    assert 'user_id' in result.columns, "Missing user_id column"
+    assert 'hours_saved' in result.columns, "Missing hours_saved column"
+    assert 'monetary_value_usd' in result.columns, "Missing monetary_value_usd column"
+    print(f"✅ Result has correct structure with {len(result)} users")
     
-    # Verify calculations
-    assert result['total_licenses'] == 20, "Incorrect total licenses"
-    assert result['active_users'] == 10, f"Expected 10 active users, got {result['active_users']}"
-    assert result['unused_licenses'] == 10, f"Expected 10 unused licenses, got {result['unused_licenses']}"
+    # Validate Alice's metrics
+    alice = result[result['user_id'] == 'user1@test.com'].iloc[0]
+    # Alice: 60 msgs * 5 min + 30 msgs * 10 min = 300 + 300 = 600 min = 10 hours
+    assert alice['hours_saved'] == 10.0, f"Alice hours: expected 10.0, got {alice['hours_saved']}"
+    # Alice: 10 hours * $75 (Engineering) = $750
+    assert alice['monetary_value_usd'] == 750.0, f"Alice value: expected $750, got ${alice['monetary_value_usd']}"
+    print(f"✅ Alice metrics: {alice['hours_saved']} hours, ${alice['monetary_value_usd']}")
     
-    # Utilization should be 50% (10/20)
-    assert abs(result['utilization_rate_pct'] - 50.0) < 0.1, \
-        f"Expected 50% utilization, got {result['utilization_rate_pct']:.1f}%"
+    # Validate Bob's metrics
+    bob = result[result['user_id'] == 'user2@test.com'].iloc[0]
+    # Bob: 120 msgs * 5 min = 600 min = 10 hours
+    assert bob['hours_saved'] == 10.0, f"Bob hours: expected 10.0, got {bob['hours_saved']}"
+    # Bob: 10 hours * $70 (Finance) = $700
+    assert bob['monetary_value_usd'] == 700.0, f"Bob value: expected $700, got ${bob['monetary_value_usd']}"
+    print(f"✅ Bob metrics: {bob['hours_saved']} hours, ${bob['monetary_value_usd']}")
     
-    # Unused license cost should be 10 * $30 = $300
-    assert result['unused_license_cost_monthly'] == 300.0, \
-        f"Expected $300 unused cost, got ${result['unused_license_cost_monthly']}"
-    
-    print("✅ Opportunity costs calculated correctly")
-    print(f"   Utilization rate: {result['utilization_rate_pct']:.1f}%")
-    print(f"   Unused licenses: {result['unused_licenses']}")
-    print(f"   Unused cost/month: ${result['unused_license_cost_monthly']:,.2f}")
     return True
 
 
-def test_calculate_roi_summary():
-    """Test comprehensive ROI summary generation."""
-    print("\n" + "=" * 80)
-    print("TEST: Calculate ROI Summary")
-    print("=" * 80)
+def test_calculate_roi_per_user_edge_cases():
+    """Test per-user ROI calculation with edge cases."""
+    print("\n🧪 Testing calculate_roi_per_user - Edge Cases")
+    
+    # Test empty dataframe
+    empty_df = pd.DataFrame()
+    result = calculate_roi_per_user(empty_df)
+    assert result.empty, "Expected empty result for empty input"
+    print("✅ Empty dataframe handled correctly")
+    
+    # Test missing required columns
+    bad_df = pd.DataFrame({'name': ['Alice'], 'count': [100]})
+    try:
+        result = calculate_roi_per_user(bad_df)
+        assert False, "Should have raised ValueError for missing columns"
+    except ValueError as e:
+        assert 'Missing required columns' in str(e), f"Unexpected error message: {e}"
+        print("✅ Missing columns detected correctly")
+    
+    # Test user with zero usage
+    zero_usage_df = pd.DataFrame({
+        'user_id': ['user1@test.com'],
+        'user_name': ['Alice'],
+        'department': ['Engineering'],
+        'feature_used': ['ChatGPT Messages'],
+        'usage_count': [0]
+    })
+    result = calculate_roi_per_user(zero_usage_df)
+    assert len(result) == 1, "Should have one user"
+    assert result.iloc[0]['hours_saved'] == 0.0, "Zero usage should give zero hours"
+    assert result.iloc[0]['monetary_value_usd'] == 0.0, "Zero usage should give zero value"
+    print("✅ Zero usage user handled correctly")
+    
+    # Test user with unknown department
+    unknown_dept_df = pd.DataFrame({
+        'user_id': ['user1@test.com'],
+        'user_name': ['Alice'],
+        'department': ['SomethingNew'],
+        'feature_used': ['ChatGPT Messages'],
+        'usage_count': [60]
+    })
+    result = calculate_roi_per_user(unknown_dept_df)
+    assert len(result) == 1, "Should have one user"
+    # 60 msgs * 5 min / 60 = 5 hours
+    assert result.iloc[0]['hours_saved'] == 5.0, f"Expected 5.0 hours, got {result.iloc[0]['hours_saved']}"
+    # 5 hours * $50 (default) = $250
+    assert result.iloc[0]['monetary_value_usd'] == 250.0, f"Expected $250, got {result.iloc[0]['monetary_value_usd']}"
+    print("✅ Unknown department uses default rate")
+    
+    return True
+
+
+def test_calculate_roi_per_department():
+    """Test per-department ROI calculation."""
+    print("\n🧪 Testing calculate_roi_per_department")
+    
+    # Create test data with multiple departments
+    test_data = pd.DataFrame({
+        'user_id': ['user1@test.com', 'user2@test.com', 'user3@test.com', 'user4@test.com'],
+        'department': ['Engineering', 'Engineering', 'Finance', 'Finance'],
+        'feature_used': ['ChatGPT Messages', 'ChatGPT Messages', 'Tool Messages', 'ChatGPT Messages'],
+        'usage_count': [60, 120, 30, 60]
+    })
+    
+    result = calculate_roi_per_department(test_data)
+    
+    # Validate structure
+    assert len(result) == 2, f"Expected 2 departments, got {len(result)}"
+    assert 'department' in result.columns, "Missing department column"
+    assert 'hours_saved' in result.columns, "Missing hours_saved column"
+    assert 'monetary_value_usd' in result.columns, "Missing monetary_value_usd column"
+    assert 'active_users' in result.columns, "Missing active_users column"
+    assert 'avg_value_per_user' in result.columns, "Missing avg_value_per_user column"
+    print(f"✅ Result has correct structure with {len(result)} departments")
+    
+    # Validate Engineering metrics
+    eng = result[result['department'] == 'Engineering'].iloc[0]
+    assert eng['active_users'] == 2, f"Engineering users: expected 2, got {eng['active_users']}"
+    # Engineering: (60 + 120) * 5 min / 60 = 15 hours
+    assert eng['hours_saved'] == 15.0, f"Engineering hours: expected 15.0, got {eng['hours_saved']}"
+    # Engineering: 15 hours * $75 = $1125
+    assert eng['monetary_value_usd'] == 1125.0, f"Engineering value: expected $1125, got ${eng['monetary_value_usd']}"
+    # Avg per user: $1125 / 2 = $562.50
+    assert eng['avg_value_per_user'] == 562.5, f"Engineering avg: expected $562.5, got ${eng['avg_value_per_user']}"
+    print(f"✅ Engineering: {eng['active_users']} users, {eng['hours_saved']} hours, ${eng['monetary_value_usd']}")
+    
+    # Validate Finance metrics
+    fin = result[result['department'] == 'Finance'].iloc[0]
+    assert fin['active_users'] == 2, f"Finance users: expected 2, got {fin['active_users']}"
+    # Finance: 30 tool msgs * 10 min + 60 msgs * 5 min = 300 + 300 = 600 min = 10 hours
+    assert fin['hours_saved'] == 10.0, f"Finance hours: expected 10.0, got {fin['hours_saved']}"
+    # Finance: 10 hours * $70 = $700
+    assert fin['monetary_value_usd'] == 700.0, f"Finance value: expected $700, got ${fin['monetary_value_usd']}"
+    print(f"✅ Finance: {fin['active_users']} users, {fin['hours_saved']} hours, ${fin['monetary_value_usd']}")
+    
+    return True
+
+
+def test_calculate_roi_per_department_edge_cases():
+    """Test per-department ROI calculation with edge cases."""
+    print("\n🧪 Testing calculate_roi_per_department - Edge Cases")
+    
+    # Test empty dataframe
+    empty_df = pd.DataFrame()
+    result = calculate_roi_per_department(empty_df)
+    assert result.empty, "Expected empty result for empty input"
+    print("✅ Empty dataframe handled correctly")
+    
+    # Test missing department column (should default to 'Unknown')
+    no_dept_df = pd.DataFrame({
+        'user_id': ['user1@test.com'],
+        'feature_used': ['ChatGPT Messages'],
+        'usage_count': [60]
+    })
+    result = calculate_roi_per_department(no_dept_df)
+    assert len(result) == 1, "Should have one department"
+    assert result.iloc[0]['department'] == 'Unknown', f"Expected 'Unknown', got {result.iloc[0]['department']}"
+    print("✅ Missing department defaults to 'Unknown'")
+    
+    # Test department with zero total usage
+    zero_usage_df = pd.DataFrame({
+        'user_id': ['user1@test.com', 'user2@test.com'],
+        'department': ['Marketing', 'Marketing'],
+        'feature_used': ['ChatGPT Messages', 'ChatGPT Messages'],
+        'usage_count': [0, 0]
+    })
+    result = calculate_roi_per_department(zero_usage_df)
+    marketing = result[result['department'] == 'Marketing'].iloc[0]
+    assert marketing['hours_saved'] == 0.0, "Zero usage should give zero hours"
+    assert marketing['monetary_value_usd'] == 0.0, "Zero usage should give zero value"
+    print("✅ Department with zero usage handled correctly")
+    
+    return True
+
+
+def test_calculate_composite_roi():
+    """Test composite ROI calculation across all data."""
+    print("\n🧪 Testing calculate_composite_roi")
     
     # Create comprehensive test data
     test_data = pd.DataFrame({
-        'user_id': ['user1@test.com', 'user2@test.com', 'user3@test.com'] * 3,
-        'user_name': ['Alice', 'Bob', 'Charlie'] * 3,
-        'department': ['Engineering', 'Sales', 'Finance'] * 3,
-        'feature_used': ['ChatGPT Messages', 'Tool Messages', 'Project Messages'] * 3,
-        'usage_count': [150, 200, 100, 80, 120, 90, 50, 180, 110]
+        'user_id': ['user1@test.com', 'user2@test.com', 'user3@test.com'],
+        'department': ['Engineering', 'Finance', 'Engineering'],
+        'feature_used': ['ChatGPT Messages', 'Tool Messages', 'ChatGPT Messages'],
+        'usage_count': [60, 30, 120],
+        'date': ['2024-01-01', '2024-01-15', '2024-02-01']
     })
     
-    # Calculate ROI summary
-    summary = calculate_roi_summary(
-        test_data,
-        total_licenses=500,
-        license_cost_per_user=30.0,
-        include_all_metrics=True
-    )
+    result = calculate_composite_roi(test_data)
     
-    # Verify key metrics exist
-    assert 'total_users' in summary, "Missing total_users"
-    assert 'total_usage' in summary, "Missing total_usage"
-    assert 'total_time_saved_hours' in summary, "Missing total_time_saved_hours"
-    assert 'total_cost_saved_usd' in summary, "Missing total_cost_saved_usd"
-    assert 'total_business_value_usd' in summary, "Missing total_business_value_usd"
-    assert 'top_users' in summary, "Missing top_users"
-    assert 'top_departments' in summary, "Missing top_departments"
-    assert 'opportunity_costs' in summary, "Missing opportunity_costs"
-    assert 'roi_ratio' in summary, "Missing roi_ratio"
+    # Validate structure
+    assert 'total_hours_saved' in result, "Missing total_hours_saved"
+    assert 'total_monetary_value_usd' in result, "Missing total_monetary_value_usd"
+    assert 'total_users' in result, "Missing total_users"
+    assert 'total_usage_events' in result, "Missing total_usage_events"
+    assert 'avg_hours_per_user' in result, "Missing avg_hours_per_user"
+    assert 'avg_value_per_user' in result, "Missing avg_value_per_user"
+    assert 'date_range' in result, "Missing date_range"
+    assert 'monthly_average_value' in result, "Missing monthly_average_value"
+    print("✅ Result has all required fields")
     
-    # Verify values are reasonable
-    assert summary['total_users'] == 3, f"Expected 3 users, got {summary['total_users']}"
-    assert summary['total_usage'] > 0, "Total usage should be positive"
-    assert summary['total_time_saved_hours'] > 0, "Time saved should be positive"
-    assert summary['total_business_value_usd'] > 0, "Business value should be positive"
+    # Validate total users
+    assert result['total_users'] == 3, f"Expected 3 users, got {result['total_users']}"
+    print(f"✅ Total users: {result['total_users']}")
     
-    # ROI ratio should be positive
-    assert summary['roi_ratio'] > 0, "ROI ratio should be positive"
+    # Validate total usage
+    assert result['total_usage_events'] == 210, f"Expected 210 events, got {result['total_usage_events']}"
+    print(f"✅ Total usage: {result['total_usage_events']}")
     
-    print("✅ ROI summary generated correctly")
-    print(f"   Total users: {summary['total_users']}")
-    print(f"   Total value: ${summary['total_business_value_usd']:,.2f}")
-    print(f"   ROI ratio: {summary['roi_ratio']:.2f}x")
+    # Validate total hours
+    # user1: 60 * 5 min = 300 min = 5 hours (Engineering)
+    # user2: 30 * 10 min = 300 min = 5 hours (Finance, tool msgs)
+    # user3: 120 * 5 min = 600 min = 10 hours (Engineering)
+    # Total: 20 hours
+    assert result['total_hours_saved'] == 20.0, f"Expected 20.0 hours, got {result['total_hours_saved']}"
+    print(f"✅ Total hours saved: {result['total_hours_saved']}")
+    
+    # Validate total value
+    # user1: 5 hours * $75 = $375
+    # user2: 5 hours * $70 = $350
+    # user3: 10 hours * $75 = $750
+    # Total: $1475
+    assert result['total_monetary_value_usd'] == 1475.0, f"Expected $1475, got ${result['total_monetary_value_usd']}"
+    print(f"✅ Total value: ${result['total_monetary_value_usd']}")
+    
+    # Validate averages
+    expected_avg_hours = 20.0 / 3  # 6.67 hours
+    assert abs(result['avg_hours_per_user'] - expected_avg_hours) < 0.01, f"Expected ~{expected_avg_hours} avg hours, got {result['avg_hours_per_user']}"
+    
+    expected_avg_value = 1475.0 / 3  # 491.67
+    assert abs(result['avg_value_per_user'] - expected_avg_value) < 0.01, f"Expected ~{expected_avg_value} avg value, got {result['avg_value_per_user']}"
+    print(f"✅ Averages: {result['avg_hours_per_user']} hours/user, ${result['avg_value_per_user']}/user")
+    
+    # Validate date range
+    assert result['date_range'] is not None, "Date range should not be None"
+    assert '2024-01-01' in result['date_range'], "Date range should include start date"
+    assert '2024-02-01' in result['date_range'], "Date range should include end date"
+    print(f"✅ Date range: {result['date_range']}")
+    
+    # Validate monthly average is calculated
+    assert result['monthly_average_value'] > 0, f"Monthly average should be > 0, got {result['monthly_average_value']}"
+    print(f"✅ Monthly average: ${result['monthly_average_value']}")
+    
     return True
 
 
-def test_benchmark_customization():
-    """Test ability to customize benchmarks."""
-    print("\n" + "=" * 80)
-    print("TEST: Benchmark Customization")
-    print("=" * 80)
+def test_calculate_composite_roi_edge_cases():
+    """Test composite ROI calculation with edge cases."""
+    print("\n🧪 Testing calculate_composite_roi - Edge Cases")
     
-    # Get original benchmarks
-    original = get_current_benchmarks()
-    original_time_savings = original['time_savings']['ChatGPT Messages']
-    original_labor_cost = original['labor_costs']['Engineering']
-    original_multiplier = original['department_multipliers']['Engineering']
+    # Test empty dataframe
+    empty_df = pd.DataFrame()
+    result = calculate_composite_roi(empty_df)
+    assert result['total_hours_saved'] == 0.0, "Empty data should give zero hours"
+    assert result['total_monetary_value_usd'] == 0.0, "Empty data should give zero value"
+    assert result['total_users'] == 0, "Empty data should have zero users"
+    print("✅ Empty dataframe handled correctly")
     
-    # Update benchmarks
-    update_time_savings_benchmark('ChatGPT Messages', 15.0)
-    update_labor_cost('Engineering', 100.0)
-    update_department_multiplier('Engineering', 1.5)
+    # Test with invalid dates
+    invalid_dates_df = pd.DataFrame({
+        'user_id': ['user1@test.com'],
+        'department': ['Engineering'],
+        'feature_used': ['ChatGPT Messages'],
+        'usage_count': [60],
+        'date': ['invalid-date']
+    })
+    result = calculate_composite_roi(invalid_dates_df)
+    # Should still calculate hours and value, but date_range might be None
+    assert result['total_hours_saved'] == 5.0, f"Expected 5.0 hours despite invalid date, got {result['total_hours_saved']}"
+    print("✅ Invalid dates handled gracefully")
     
-    # Verify updates
-    updated = get_current_benchmarks()
-    assert updated['time_savings']['ChatGPT Messages'] == 15.0, "Time savings not updated"
-    assert updated['labor_costs']['Engineering'] == 100.0, "Labor cost not updated"
-    assert updated['department_multipliers']['Engineering'] == 1.5, "Multiplier not updated"
+    # Test with future dates (should still calculate, validation is separate)
+    future_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+    future_dates_df = pd.DataFrame({
+        'user_id': ['user1@test.com'],
+        'department': ['Engineering'],
+        'feature_used': ['ChatGPT Messages'],
+        'usage_count': [60],
+        'date': [future_date]
+    })
+    result = calculate_composite_roi(future_dates_df)
+    assert result['total_hours_saved'] == 5.0, f"Expected 5.0 hours, got {result['total_hours_saved']}"
+    print("✅ Future dates processed (validation is separate)")
     
-    # Restore originals
-    update_time_savings_benchmark('ChatGPT Messages', original_time_savings)
-    update_labor_cost('Engineering', original_labor_cost)
-    update_department_multiplier('Engineering', original_multiplier)
-    
-    print("✅ Benchmark customization works correctly")
-    print(f"   Updated and restored benchmarks successfully")
     return True
 
 
-def test_integration_full_pipeline():
-    """Test the complete ROI calculation pipeline end-to-end."""
-    print("\n" + "=" * 80)
-    print("TEST: Full ROI Pipeline Integration")
-    print("=" * 80)
+def test_validate_date_field():
+    """Test date field validation."""
+    print("\n🧪 Testing validate_date_field")
     
-    # Create realistic usage data
-    np.random.seed(42)
-    users = [f'user{i}@company.com' for i in range(1, 21)]
-    departments = ['Engineering', 'Sales', 'Finance', 'Marketing', 'Operations']
-    features = ['ChatGPT Messages', 'Tool Messages', 'Project Messages']
+    # Test valid past date (string)
+    assert validate_date_field('2024-01-01'), "Valid past date should return True"
+    print("✅ Valid past date (string): True")
     
-    rows = []
-    for user in users:
-        dept = np.random.choice(departments)
-        for feature in features:
-            usage = int(np.random.uniform(10, 200))
-            rows.append({
-                'user_id': user,
-                'user_name': user.split('@')[0].title(),
-                'department': dept,
-                'feature_used': feature,
-                'usage_count': usage
-            })
+    # Test valid past date (datetime)
+    past_date = datetime(2024, 1, 1)
+    assert validate_date_field(past_date), "Valid past date (datetime) should return True"
+    print("✅ Valid past date (datetime): True")
     
-    test_data = pd.DataFrame(rows)
+    # Test today (should be valid)
+    today = pd.Timestamp.now().normalize()
+    assert validate_date_field(today), "Today should be valid"
+    print("✅ Today: True")
     
-    # Run full pipeline
-    enriched = calculate_time_savings(test_data)
-    enriched = calculate_cost_savings(enriched)
-    enriched = calculate_business_value(enriched)
-    enriched = calculate_ai_impact_score(enriched)
+    # Test future date (should be invalid)
+    future_date = datetime.now() + timedelta(days=30)
+    assert not validate_date_field(future_date), "Future date should return False"
+    print("✅ Future date: False")
     
-    # Verify all columns were added
-    expected_cols = [
-        'time_saved_minutes', 'time_saved_hours',
-        'cost_saved_usd', 'business_value_usd',
-        'ai_impact_score', 'score_category'
+    # Test invalid string
+    assert not validate_date_field('not-a-date'), "Invalid date string should return False"
+    print("✅ Invalid date string: False")
+    
+    # Test None
+    assert not validate_date_field(None), "None should return False"
+    print("✅ None: False")
+    
+    # Test NaN
+    assert not validate_date_field(np.nan), "NaN should return False"
+    print("✅ NaN: False")
+    
+    # Test empty string
+    assert not validate_date_field(''), "Empty string should return False"
+    print("✅ Empty string: False")
+    
+    return True
+
+
+def test_with_sample_csv():
+    """Test ROI calculations with actual sample CSV data from the repository."""
+    print("\n🧪 Testing with Sample CSV Data")
+    
+    # Try to load sample CSV from repository
+    sample_files = [
+        'sample_monthly_data.csv',
+        'sample_weekly_data.csv',
+        'OpenAI User Data/sample.csv'
     ]
-    for col in expected_cols:
-        assert col in enriched.columns, f"Missing column: {col}"
     
-    # Verify no NaN values in key metrics
-    assert not enriched['time_saved_hours'].isna().any(), "NaN in time_saved_hours"
-    assert not enriched['cost_saved_usd'].isna().any(), "NaN in cost_saved_usd"
-    assert not enriched['business_value_usd'].isna().any(), "NaN in business_value_usd"
+    sample_loaded = False
+    for sample_file in sample_files:
+        full_path = os.path.join(project_root, sample_file)
+        if os.path.exists(full_path):
+            try:
+                df = pd.read_csv(full_path)
+                print(f"📂 Loaded sample file: {sample_file}")
+                print(f"   Rows: {len(df)}, Columns: {list(df.columns)[:5]}...")
+                
+                # Try to process if it has the right structure
+                if 'email' in df.columns or 'user_email' in df.columns:
+                    # Normalize to expected format - use proper column access
+                    test_df = pd.DataFrame()
+                    test_df['user_id'] = df['email'] if 'email' in df.columns else df['user_email']
+                    test_df['user_name'] = df['name'] if 'name' in df.columns else (
+                        df['user_name'] if 'user_name' in df.columns else pd.Series(['User'] * len(df))
+                    )
+                    test_df['department'] = df['department'] if 'department' in df.columns else pd.Series(['Unknown'] * len(df))
+                    test_df['feature_used'] = 'ChatGPT Messages'
+                    test_df['usage_count'] = df['messages'] if 'messages' in df.columns else (
+                        df['usage_count'] if 'usage_count' in df.columns else pd.Series([10] * len(df))
+                    )
+                    
+                    # Calculate ROI metrics
+                    if not test_df.empty and test_df['user_id'].notna().any():
+                        composite = calculate_composite_roi(test_df)
+                        print(f"   Total hours saved: {composite['total_hours_saved']}")
+                        print(f"   Total value: ${composite['total_monetary_value_usd']}")
+                        print(f"   Total users: {composite['total_users']}")
+                        sample_loaded = True
+                        break
+            except Exception as e:
+                print(f"   ⚠️  Could not process {sample_file}: {e}")
     
-    # Generate summary
-    summary = calculate_roi_summary(enriched, total_licenses=100, license_cost_per_user=30)
+    if sample_loaded:
+        print("✅ Successfully tested with sample CSV data")
+    else:
+        print("ℹ️  No suitable sample CSV found - creating synthetic data")
+        # Create synthetic data for testing
+        synthetic_df = pd.DataFrame({
+            'user_id': [f'user{i}@test.com' for i in range(1, 11)],
+            'user_name': [f'User {i}' for i in range(1, 11)],
+            'department': ['Engineering'] * 3 + ['Finance'] * 3 + ['Marketing'] * 4,
+            'feature_used': ['ChatGPT Messages'] * 10,
+            'usage_count': [100, 80, 60, 50, 40, 30, 25, 20, 15, 10]
+        })
+        composite = calculate_composite_roi(synthetic_df)
+        print(f"   Total hours saved: {composite['total_hours_saved']}")
+        print(f"   Total value: ${composite['total_monetary_value_usd']}")
+        print(f"   Total users: {composite['total_users']}")
+        print("✅ Successfully tested with synthetic data")
     
-    # Verify summary completeness
-    assert summary['total_users'] == 20, "User count mismatch"
-    assert summary['total_usage'] > 0, "No usage recorded"
-    assert summary['total_business_value_usd'] > 0, "No value calculated"
-    
-    print("✅ Full pipeline integration successful")
-    print(f"   Processed {len(enriched)} records for {summary['total_users']} users")
-    print(f"   Total business value: ${summary['total_business_value_usd']:,.2f}")
-    print(f"   Average value/user: ${summary['avg_business_value_per_user_usd']:,.2f}")
     return True
 
 
 def run_all_tests():
-    """Run all ROI utilities tests."""
-    print("\n")
-    print("╔" + "=" * 78 + "╗")
-    print("║" + " " * 20 + "ROI UTILITIES TEST SUITE" + " " * 34 + "║")
-    print("╚" + "=" * 78 + "╝")
-    
-    tests = [
-        ("Time Savings Calculation", test_calculate_time_savings),
-        ("Cost Savings Calculation", test_calculate_cost_savings),
-        ("Business Value Calculation", test_calculate_business_value),
-        ("AI Impact Score Calculation", test_calculate_ai_impact_score),
-        ("Value Leader Identification", test_identify_value_leaders),
-        ("Opportunity Cost Calculation", test_calculate_opportunity_cost),
-        ("ROI Summary Generation", test_calculate_roi_summary),
-        ("Benchmark Customization", test_benchmark_customization),
-        ("Full Pipeline Integration", test_integration_full_pipeline)
-    ]
-    
-    results = []
-    for name, test_func in tests:
-        try:
-            success = test_func()
-            results.append((name, success, None))
-        except Exception as e:
-            print(f"❌ {name} FAILED with error: {e}")
-            import traceback
-            traceback.print_exc()
-            results.append((name, False, str(e)))
-    
-    # Print summary
-    print("\n")
-    print("╔" + "=" * 78 + "╗")
-    print("║" + " " * 30 + "TEST SUMMARY" + " " * 36 + "║")
-    print("╚" + "=" * 78 + "╝")
-    
-    passed = sum(1 for _, success, _ in results if success)
-    total = len(results)
-    
-    for name, success, error in results:
-        status = "✅ PASS" if success else "❌ FAIL"
-        print(f"{status:10} {name}")
-        if error:
-            print(f"           Error: {error}")
-    
-    print("\n" + "=" * 80)
-    print(f"Results: {passed}/{total} tests passed ({passed/total*100:.1f}%)")
+    """Run all test functions and report results."""
+    print("=" * 80)
+    print("ROI UTILITIES TEST SUITE")
     print("=" * 80)
     
-    return passed == total
+    tests = [
+        ("Hours Saved - Basic", test_estimate_hours_saved_basic),
+        ("Hours Saved - Edge Cases", test_estimate_hours_saved_edge_cases),
+        ("Hours Saved - Custom Config", test_estimate_hours_saved_custom_config),
+        ("Monetary Value - Basic", test_calculate_monetary_value_basic),
+        ("Monetary Value - Edge Cases", test_calculate_monetary_value_edge_cases),
+        ("ROI Per User", test_calculate_roi_per_user),
+        ("ROI Per User - Edge Cases", test_calculate_roi_per_user_edge_cases),
+        ("ROI Per Department", test_calculate_roi_per_department),
+        ("ROI Per Department - Edge Cases", test_calculate_roi_per_department_edge_cases),
+        ("Composite ROI", test_calculate_composite_roi),
+        ("Composite ROI - Edge Cases", test_calculate_composite_roi_edge_cases),
+        ("Date Validation", test_validate_date_field),
+        ("Sample CSV Integration", test_with_sample_csv),
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for test_name, test_func in tests:
+        try:
+            result = test_func()
+            if result:
+                passed += 1
+                print(f"\n✅ PASSED: {test_name}")
+            else:
+                failed += 1
+                print(f"\n❌ FAILED: {test_name}")
+        except Exception as e:
+            failed += 1
+            print(f"\n❌ FAILED: {test_name}")
+            print(f"   Error: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    print("\n" + "=" * 80)
+    print("TEST SUMMARY")
+    print("=" * 80)
+    print(f"Total Tests: {len(tests)}")
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
+    print(f"Success Rate: {(passed/len(tests)*100):.1f}%")
+    print("=" * 80)
+    
+    return failed == 0
 
 
 if __name__ == '__main__':
