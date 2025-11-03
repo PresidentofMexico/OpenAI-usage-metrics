@@ -30,6 +30,11 @@ from cost_calculator import EnterpriseCostCalculator
 # Constants
 WEEKLY_CHART_DATE_FORMAT = '%m/%d/%Y'  # Format for displaying week dates in weekly trend charts
 
+# ROI Analytics Configuration
+# These values can be customized based on organization-specific benchmarks
+ROI_HOURLY_VALUE = 50  # Dollar value per hour of time saved (adjust based on average salary)
+ROI_MONTHLY_WORK_HOURS = 160  # Standard monthly work hours (20 days × 8 hours/day)
+
 # Page configuration
 st.set_page_config(
     page_title="AI Usage Analytics Dashboard",
@@ -2178,6 +2183,7 @@ def main():
         "🤖 OpenAI Analytics",
         "⭐ Power Users",
         "📈 Message Type Analytics",
+        "💎 ROI Analytics",
         "🏢 Department Mapper",
         "💰 ROI",
         "🔧 Database Management"
@@ -4838,6 +4844,626 @@ def main():
                     st.info("Not enough data for department comparison")
             else:
                 st.info("No feature usage data available")
+    
+    # TAB ROI: ROI Analytics
+    with tab_roi:
+        st.header("💎 ROI Analytics")
+        
+        st.markdown("""
+        <div class="help-tooltip">
+            💡 <strong>Beyond Traditional Metrics:</strong> This tab provides novel ROI analytics that connect AI usage 
+            to business value. Explore time savings, strategic impact, adoption trajectories, and power user dynamics 
+            to understand the true return on your AI investment.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if data.empty:
+            st.info("📊 Upload usage data to see ROI analytics.")
+        else:
+            # ========================================================================
+            # VISUALIZATION 1: TIME SAVINGS ANALYSIS
+            # ========================================================================
+            # Methodology: Estimate time saved based on feature usage with industry benchmarks
+            # - ChatGPT Messages: avg 10 minutes saved per complex query (research, writing, analysis)
+            # - Tool Messages: avg 30 minutes saved per task (code generation, data analysis)
+            # - Project Messages: avg 15 minutes saved per collaborative task
+            # - GPT Messages: avg 20 minutes saved per custom GPT interaction
+            # - BlueFlame Messages: avg 12 minutes saved per enterprise query
+            # 
+            # These estimates are conservative and based on typical task completion times.
+            # Organizations should calibrate these values based on their specific use cases.
+            # ========================================================================
+            
+            st.markdown("### ⏱️ Time Savings Analysis")
+            st.caption("Estimated productivity gains from AI tool usage based on industry benchmarks")
+            
+            # Define time savings per message type (in minutes)
+            time_savings_map = {
+                'ChatGPT Messages': 10,      # General AI assistance
+                'Tool Messages': 30,          # Code Interpreter, advanced tools
+                'Project Messages': 15,       # Collaborative workspace usage
+                'GPT Messages': 20,           # Custom GPT interactions
+                'BlueFlame Messages': 12      # Enterprise-specific queries
+            }
+            
+            # Calculate time savings by feature and department
+            time_data = data.copy()
+            time_data['minutes_saved'] = time_data.apply(
+                lambda row: row['usage_count'] * time_savings_map.get(row['feature_used'], 10),
+                axis=1
+            )
+            time_data['hours_saved'] = time_data['minutes_saved'] / 60
+            
+            # Overall time savings metrics
+            total_hours_saved = time_data['hours_saved'].sum()
+            total_days_saved = total_hours_saved / 8  # 8-hour workday
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    "Total Hours Saved",
+                    f"{total_hours_saved:,.0f}",
+                    help="Estimated cumulative time savings across all AI interactions"
+                )
+            
+            with col2:
+                st.metric(
+                    "Work Days Saved",
+                    f"{total_days_saved:,.0f}",
+                    help="Equivalent full work days saved (8-hour days)"
+                )
+            
+            with col3:
+                avg_hours_per_user = total_hours_saved / max(data['user_id'].nunique(), 1)
+                st.metric(
+                    "Avg Hours/User",
+                    f"{avg_hours_per_user:,.1f}",
+                    help="Average time savings per active user"
+                )
+            
+            with col4:
+                # Calculate monthly productivity boost as percentage
+                # Using configurable monthly work hours (default: 160 hours = 20 days × 8 hours)
+                total_users = data['user_id'].nunique()
+                available_hours = total_users * ROI_MONTHLY_WORK_HOURS
+                productivity_boost = (total_hours_saved / max(available_hours, 1)) * 100
+                st.metric(
+                    "Productivity Boost",
+                    f"{productivity_boost:,.1f}%",
+                    help="Estimated productivity increase based on time saved vs. available work hours"
+                )
+            
+            # Time savings by feature type
+            st.markdown("**Time Savings Breakdown by AI Feature**")
+            
+            savings_by_feature = time_data.groupby('feature_used').agg({
+                'hours_saved': 'sum',
+                'usage_count': 'sum'
+            }).reset_index()
+            savings_by_feature = savings_by_feature.sort_values('hours_saved', ascending=False)
+            
+            fig_time_savings = px.bar(
+                savings_by_feature,
+                x='feature_used',
+                y='hours_saved',
+                title='Estimated Time Savings by Feature Type',
+                labels={'hours_saved': 'Hours Saved', 'feature_used': 'Feature'},
+                color='hours_saved',
+                color_continuous_scale='Viridis',
+                text='hours_saved'
+            )
+            
+            fig_time_savings.update_traces(
+                texttemplate='%{text:,.0f}h',
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Hours Saved: %{y:,.0f}<br>Messages: %{customdata[0]:,}<extra></extra>',
+                customdata=savings_by_feature[['usage_count']].values
+            )
+            
+            fig_time_savings.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white'),
+                height=400,
+                showlegend=False,
+                xaxis_title='AI Feature',
+                yaxis_title='Hours Saved'
+            )
+            
+            st.plotly_chart(fig_time_savings, use_container_width=True)
+            
+            # Methodology note
+            with st.expander("📊 Calculation Methodology"):
+                st.markdown(f"""
+                **Time Savings Estimates:**
+                
+                These estimates are based on industry research and conservative assumptions about time saved per AI interaction:
+                
+                {chr(10).join([f'- **{feature}**: {minutes} minutes saved per message' for feature, minutes in time_savings_map.items()])}
+                
+                **Total Calculation:**
+                - Messages: {data['usage_count'].sum():,}
+                - Estimated Hours Saved: {total_hours_saved:,.0f}
+                - Equivalent Work Days: {total_days_saved:,.0f}
+                
+                **Note:** These are conservative estimates. Actual time savings may vary based on:
+                - Task complexity and context
+                - User proficiency with AI tools
+                - Availability of alternative solutions
+                - Quality of AI-generated outputs
+                
+                Organizations should calibrate these values based on internal benchmarking and user surveys.
+                """)
+            
+            st.divider()
+            
+            # ========================================================================
+            # VISUALIZATION 2: ADOPTION TRAJECTORY & VALUE TRENDS
+            # ========================================================================
+            # Methodology: Track cumulative business value over time using composite metrics
+            # - Cumulative messages as proxy for AI integration depth
+            # - Active user growth rate as adoption velocity indicator
+            # - Feature diversity score as capability maturity metric
+            # - Combined into a "Value Trajectory Score" normalized 0-100
+            # 
+            # This reveals whether the organization is in:
+            # - Early adoption (growing but low volume)
+            # - Scaling phase (rapid growth)
+            # - Mature adoption (high volume, stable growth)
+            # ========================================================================
+            
+            st.markdown("### 📈 Adoption Trajectory & Value Trends")
+            st.caption("Track the evolution of AI integration and business value over time")
+            
+            # Prepare time-series data
+            ts_data = data.copy()
+            ts_data['date'] = pd.to_datetime(ts_data['date'], errors='coerce')
+            ts_data = ts_data.dropna(subset=['date'])
+            
+            if not ts_data.empty:
+                # Group by month for trend analysis
+                ts_data['month'] = ts_data['date'].dt.to_period('M').astype(str)
+                
+                # Calculate monthly metrics
+                monthly_stats = []
+                
+                for month in sorted(ts_data['month'].unique()):
+                    month_data = ts_data[ts_data['month'] == month]
+                    
+                    # Core metrics
+                    active_users = month_data['user_id'].nunique()
+                    total_messages = month_data['usage_count'].sum()
+                    unique_features = month_data['feature_used'].nunique()
+                    
+                    # Time savings for this month
+                    month_data['hours_saved'] = month_data.apply(
+                        lambda row: row['usage_count'] * time_savings_map.get(row['feature_used'], 10) / 60,
+                        axis=1
+                    )
+                    hours_saved = month_data['hours_saved'].sum()
+                    
+                    # Composite Value Score (normalized 0-100)
+                    # Components:
+                    # - User adoption (30%): Active users relative to max observed
+                    # - Usage intensity (30%): Messages per user
+                    # - Feature diversity (20%): Features used / total available
+                    # - Time value (20%): Hours saved
+                    
+                    monthly_stats.append({
+                        'month': month,
+                        'active_users': active_users,
+                        'total_messages': total_messages,
+                        'messages_per_user': total_messages / max(active_users, 1),
+                        'unique_features': unique_features,
+                        'hours_saved': hours_saved,
+                        'value_delivered': hours_saved * ROI_HOURLY_VALUE  # Configurable hourly value
+                    })
+                
+                monthly_df = pd.DataFrame(monthly_stats)
+                
+                # Calculate composite value score
+                max_users = monthly_df['active_users'].max()
+                max_msgs_per_user = monthly_df['messages_per_user'].max()
+                max_features = monthly_df['unique_features'].max()
+                max_hours = monthly_df['hours_saved'].max()
+                
+                monthly_df['value_score'] = (
+                    (monthly_df['active_users'] / max(max_users, 1) * 30) +
+                    (monthly_df['messages_per_user'] / max(max_msgs_per_user, 1) * 30) +
+                    (monthly_df['unique_features'] / max(max_features, 1) * 20) +
+                    (monthly_df['hours_saved'] / max(max_hours, 1) * 20)
+                )
+                
+                # Create dual-axis chart: cumulative messages & value score
+                fig_trajectory = make_subplots(
+                    specs=[[{"secondary_y": True}]]
+                )
+                
+                # Cumulative messages (primary axis)
+                monthly_df['cumulative_messages'] = monthly_df['total_messages'].cumsum()
+                
+                fig_trajectory.add_trace(
+                    go.Scatter(
+                        x=monthly_df['month'],
+                        y=monthly_df['cumulative_messages'],
+                        name='Cumulative Messages',
+                        mode='lines+markers',
+                        line=dict(color='#00D9FF', width=3),
+                        fill='tozeroy',
+                        fillcolor='rgba(0, 217, 255, 0.1)',
+                        hovertemplate='<b>%{x}</b><br>Cumulative Messages: %{y:,}<extra></extra>'
+                    ),
+                    secondary_y=False
+                )
+                
+                # Value score (secondary axis)
+                fig_trajectory.add_trace(
+                    go.Scatter(
+                        x=monthly_df['month'],
+                        y=monthly_df['value_score'],
+                        name='Value Trajectory Score',
+                        mode='lines+markers',
+                        line=dict(color='#FFD700', width=3, dash='dot'),
+                        marker=dict(size=10),
+                        hovertemplate='<b>%{x}</b><br>Value Score: %{y:.1f}/100<extra></extra>'
+                    ),
+                    secondary_y=True
+                )
+                
+                fig_trajectory.update_layout(
+                    title='AI Adoption & Value Creation Over Time',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    height=450,
+                    hovermode='x unified',
+                    legend=dict(
+                        orientation='h',
+                        yanchor='bottom',
+                        y=1.02,
+                        xanchor='right',
+                        x=1
+                    )
+                )
+                
+                fig_trajectory.update_xaxes(title_text='Month')
+                fig_trajectory.update_yaxes(title_text='Cumulative Messages', secondary_y=False, color='#00D9FF')
+                fig_trajectory.update_yaxes(title_text='Value Score (0-100)', secondary_y=True, color='#FFD700')
+                
+                st.plotly_chart(fig_trajectory, use_container_width=True)
+                
+                # Growth insights
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if len(monthly_df) >= 2:
+                        first_month_users = monthly_df.iloc[0]['active_users']
+                        last_month_users = monthly_df.iloc[-1]['active_users']
+                        user_growth = ((last_month_users - first_month_users) / max(first_month_users, 1)) * 100
+                        st.metric(
+                            "User Growth",
+                            f"{user_growth:+.1f}%",
+                            help="Change in active users from first to last month"
+                        )
+                
+                with col2:
+                    total_value_delivered = monthly_df['value_delivered'].sum()
+                    st.metric(
+                        "Est. Value Created",
+                        f"${total_value_delivered:,.0f}",
+                        help=f"Estimated business value based on time saved (${ROI_HOURLY_VALUE}/hour)"
+                    )
+                
+                with col3:
+                    current_value_score = monthly_df.iloc[-1]['value_score'] if len(monthly_df) > 0 else 0
+                    st.metric(
+                        "Current Value Score",
+                        f"{current_value_score:.1f}/100",
+                        help="Composite metric: user adoption + usage intensity + feature diversity + time value"
+                    )
+                
+                # Methodology note
+                with st.expander("📊 Value Score Methodology"):
+                    st.markdown("""
+                    **Composite Value Trajectory Score (0-100):**
+                    
+                    This novel metric combines multiple dimensions of AI ROI:
+                    
+                    1. **User Adoption (30%)**: Active users relative to peak month
+                    2. **Usage Intensity (30%)**: Messages per user (engagement depth)
+                    3. **Feature Diversity (20%)**: Number of different AI features being used
+                    4. **Time Value (20%)**: Hours saved through AI assistance
+                    
+                    **Score Interpretation:**
+                    - **0-30**: Early adoption phase - building awareness
+                    - **31-60**: Scaling phase - growing engagement
+                    - **61-85**: Mature adoption - organization-wide integration
+                    - **86-100**: Advanced optimization - maximizing value
+                    
+                    **Why This Matters:**
+                    This score goes beyond simple usage counts to measure true business impact. 
+                    A rising trajectory indicates successful AI integration delivering increasing value.
+                    """)
+            else:
+                st.info("Time-series data not available for trajectory analysis")
+            
+            st.divider()
+            
+            # ========================================================================
+            # VISUALIZATION 3: POWER USER & DEPARTMENT IMPACT MATRIX
+            # ========================================================================
+            # Methodology: Capability quadrant analysis plotting departments/users on two axes:
+            # - X-axis: Usage Volume (messages sent) - represents engagement level
+            # - Y-axis: Feature Diversity (unique features used) - represents capability breadth
+            # 
+            # Quadrants:
+            # - High Volume, High Diversity: "Strategic Leaders" - driving innovation
+            # - High Volume, Low Diversity: "Focused Power Users" - deep expertise in specific tools
+            # - Low Volume, High Diversity: "Explorers" - broad experimentation, growth potential
+            # - Low Volume, Low Diversity: "Emerging Users" - need training/enablement
+            # 
+            # Bubble size represents estimated business value (time saved * $50/hour)
+            # ========================================================================
+            
+            st.markdown("### 🎯 Department Impact Matrix (Capability Quadrant)")
+            st.caption("Identify strategic leaders, power users, explorers, and emerging adopters")
+            
+            # Calculate department-level metrics
+            dept_metrics = []
+            
+            for dept in data['department'].unique():
+                if pd.isna(dept) or dept == '':
+                    dept = 'Unknown'
+                
+                dept_data = data[data['department'] == dept]
+                
+                total_messages = dept_data['usage_count'].sum()
+                unique_features = dept_data['feature_used'].nunique()
+                active_users = dept_data['user_id'].nunique()
+                
+                # Calculate time savings
+                dept_data_copy = dept_data.copy()
+                dept_data_copy['hours_saved'] = dept_data_copy.apply(
+                    lambda row: row['usage_count'] * time_savings_map.get(row['feature_used'], 10) / 60,
+                    axis=1
+                )
+                hours_saved = dept_data_copy['hours_saved'].sum()
+                value_estimate = hours_saved * ROI_HOURLY_VALUE  # Configurable hourly value
+                
+                dept_metrics.append({
+                    'department': dept,
+                    'total_messages': total_messages,
+                    'unique_features': unique_features,
+                    'active_users': active_users,
+                    'messages_per_user': total_messages / max(active_users, 1),
+                    'hours_saved': hours_saved,
+                    'value_estimate': value_estimate
+                })
+            
+            dept_df = pd.DataFrame(dept_metrics)
+            
+            # Create quadrant scatter plot
+            fig_quadrant = px.scatter(
+                dept_df,
+                x='total_messages',
+                y='unique_features',
+                size='value_estimate',
+                color='messages_per_user',
+                hover_name='department',
+                hover_data={
+                    'total_messages': ':,',
+                    'unique_features': True,
+                    'active_users': True,
+                    'hours_saved': ':.0f',
+                    'value_estimate': ':$,.0f',
+                    'messages_per_user': ':.1f'
+                },
+                labels={
+                    'total_messages': 'Usage Volume (Messages)',
+                    'unique_features': 'Feature Diversity (Unique Features)',
+                    'messages_per_user': 'Avg Messages/User',
+                    'value_estimate': 'Est. Value'
+                },
+                title='Department Capability Quadrant Analysis',
+                color_continuous_scale='Viridis',
+                size_max=60
+            )
+            
+            # Add quadrant lines (median splits)
+            median_messages = dept_df['total_messages'].median()
+            median_features = dept_df['unique_features'].median()
+            
+            fig_quadrant.add_hline(
+                y=median_features,
+                line_dash='dash',
+                line_color='rgba(255,255,255,0.3)',
+                annotation_text='Median Feature Diversity',
+                annotation_position='right'
+            )
+            
+            fig_quadrant.add_vline(
+                x=median_messages,
+                line_dash='dash',
+                line_color='rgba(255,255,255,0.3)',
+                annotation_text='Median Usage',
+                annotation_position='top'
+            )
+            
+            # Add quadrant labels
+            max_messages = dept_df['total_messages'].max()
+            max_features = dept_df['unique_features'].max()
+            
+            annotations = [
+                dict(x=median_messages * 1.5, y=max_features * 0.95, text='<b>Strategic Leaders</b><br>High usage + High diversity',
+                     showarrow=False, font=dict(size=10, color='rgba(255,255,255,0.7)'), align='center'),
+                dict(x=median_messages * 1.5, y=median_features * 0.3, text='<b>Focused Power Users</b><br>High usage + Specialized',
+                     showarrow=False, font=dict(size=10, color='rgba(255,255,255,0.7)'), align='center'),
+                dict(x=median_messages * 0.3, y=max_features * 0.95, text='<b>Explorers</b><br>Experimenting broadly',
+                     showarrow=False, font=dict(size=10, color='rgba(255,255,255,0.7)'), align='center'),
+                dict(x=median_messages * 0.3, y=median_features * 0.3, text='<b>Emerging Users</b><br>Growth potential',
+                     showarrow=False, font=dict(size=10, color='rgba(255,255,255,0.7)'), align='center'),
+            ]
+            
+            fig_quadrant.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white'),
+                height=500,
+                annotations=annotations,
+                xaxis_title='Usage Volume (Total Messages)',
+                yaxis_title='Feature Diversity (Unique Features Used)'
+            )
+            
+            st.plotly_chart(fig_quadrant, use_container_width=True)
+            
+            # Identify top performers in each quadrant
+            st.markdown("**Department Categorization:**")
+            
+            quad_col1, quad_col2, quad_col3, quad_col4 = st.columns(4)
+            
+            with quad_col1:
+                strategic_leaders = dept_df[
+                    (dept_df['total_messages'] >= median_messages) & 
+                    (dept_df['unique_features'] >= median_features)
+                ].sort_values('value_estimate', ascending=False)
+                
+                st.markdown("**🌟 Strategic Leaders**")
+                if not strategic_leaders.empty:
+                    for _, dept in strategic_leaders.head(3).iterrows():
+                        st.markdown(f"- {dept['department']}")
+                        st.caption(f"  {dept['total_messages']:,} msgs, {dept['unique_features']} features")
+                else:
+                    st.caption("None identified")
+            
+            with quad_col2:
+                power_users = dept_df[
+                    (dept_df['total_messages'] >= median_messages) & 
+                    (dept_df['unique_features'] < median_features)
+                ].sort_values('total_messages', ascending=False)
+                
+                st.markdown("**💪 Focused Power Users**")
+                if not power_users.empty:
+                    for _, dept in power_users.head(3).iterrows():
+                        st.markdown(f"- {dept['department']}")
+                        st.caption(f"  {dept['total_messages']:,} msgs, {dept['unique_features']} features")
+                else:
+                    st.caption("None identified")
+            
+            with quad_col3:
+                explorers = dept_df[
+                    (dept_df['total_messages'] < median_messages) & 
+                    (dept_df['unique_features'] >= median_features)
+                ].sort_values('unique_features', ascending=False)
+                
+                st.markdown("**🔍 Explorers**")
+                if not explorers.empty:
+                    for _, dept in explorers.head(3).iterrows():
+                        st.markdown(f"- {dept['department']}")
+                        st.caption(f"  {dept['total_messages']:,} msgs, {dept['unique_features']} features")
+                else:
+                    st.caption("None identified")
+            
+            with quad_col4:
+                emerging = dept_df[
+                    (dept_df['total_messages'] < median_messages) & 
+                    (dept_df['unique_features'] < median_features)
+                ].sort_values('active_users', ascending=False)
+                
+                st.markdown("**🌱 Emerging Users**")
+                if not emerging.empty:
+                    for _, dept in emerging.head(3).iterrows():
+                        st.markdown(f"- {dept['department']}")
+                        st.caption(f"  {dept['active_users']} users, {dept['total_messages']:,} msgs")
+                else:
+                    st.caption("None identified")
+            
+            # Methodology note
+            with st.expander("📊 Quadrant Analysis Methodology"):
+                st.markdown("""
+                **Capability Quadrant Framework:**
+                
+                This analysis maps departments on two critical dimensions:
+                
+                **X-Axis: Usage Volume**
+                - Measures total messages sent by department
+                - Indicates level of AI tool engagement and dependency
+                - Higher values suggest deeper integration into workflows
+                
+                **Y-Axis: Feature Diversity**
+                - Counts unique AI features being utilized
+                - Represents capability breadth and tool sophistication
+                - Higher values indicate mature, multi-faceted AI adoption
+                
+                **Bubble Size: Estimated Business Value**
+                - Based on time saved (hours) × ${ROI_HOURLY_VALUE}/hour (configurable)
+                - Larger bubbles = greater estimated ROI
+                - Helps prioritize high-impact departments
+                
+                **Quadrant Interpretation:**
+                
+                1. **Strategic Leaders** (High Usage + High Diversity)
+                   - Driving AI innovation across the organization
+                   - Should be showcased as success stories
+                   - Consider for peer mentoring programs
+                
+                2. **Focused Power Users** (High Usage + Low Diversity)
+                   - Deep expertise in specific AI tools
+                   - Opportunity: Introduce adjacent features for expansion
+                   - May benefit from advanced training on other capabilities
+                
+                3. **Explorers** (Low Usage + High Diversity)
+                   - Experimenting broadly with different features
+                   - High growth potential with proper support
+                   - Target for success stories to boost confidence
+                
+                4. **Emerging Users** (Low Usage + Low Diversity)
+                   - Early in AI adoption journey
+                   - Require training, awareness, and enablement
+                   - Focus on quick wins to build momentum
+                
+                **Strategic Actions:**
+                - Move Emerging → Explorers: Training & awareness campaigns
+                - Move Explorers → Strategic Leaders: Success showcases & support
+                - Move Power Users → Strategic Leaders: Feature education
+                - Maintain Strategic Leaders: Advanced workshops & innovation programs
+                """)
+            
+            # Summary insights
+            st.divider()
+            st.markdown("### 🎯 Strategic ROI Insights")
+            
+            insight1, insight2, insight3 = st.columns(3)
+            
+            with insight1:
+                st.markdown("""
+                <div class="metric-card">
+                    <h4>💰 Total Estimated Value</h4>
+                    <div class="metric-value">${:,.0f}</div>
+                    <div class="metric-label">Based on time saved</div>
+                </div>
+                """.format(dept_df['value_estimate'].sum()), unsafe_allow_html=True)
+            
+            with insight2:
+                top_dept = dept_df.loc[dept_df['value_estimate'].idxmax()] if not dept_df.empty else None
+                if top_dept is not None:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h4>🏆 Highest Impact Department</h4>
+                        <div class="metric-value">{top_dept['department']}</div>
+                        <div class="metric-label">${top_dept['value_estimate']:,.0f} value created</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            with insight3:
+                avg_value_per_dept = dept_df['value_estimate'].mean()
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h4>📊 Avg Value per Department</h4>
+                    <div class="metric-value">${avg_value_per_dept:,.0f}</div>
+                    <div class="metric-label">Opportunity for underperformers</div>
+                </div>
+                """, unsafe_allow_html=True)
     
     # TAB 5: Department Mapper
     with tab5:
