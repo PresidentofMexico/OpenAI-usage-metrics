@@ -2710,14 +2710,16 @@ def main():
                     month_start = pd.Timestamp(year=row['date'].year, month=row['date'].month, day=1)
                     month_end = month_start + pd.DateOffset(months=1) - pd.Timedelta(days=1)
                     
-                    # Get all ISO week starts within this month
+                    # Get all ISO week starts within this month (use set for performance)
                     current = month_start
-                    weeks_in_month = []
+                    weeks_in_month = set()
                     while current <= month_end:
                         week_start = current - pd.to_timedelta(current.weekday(), 'D')
-                        if week_start not in weeks_in_month:
-                            weeks_in_month.append(week_start)
+                        weeks_in_month.add(week_start)
                         current += pd.Timedelta(days=7)
+                    
+                    # Convert back to sorted list for iteration
+                    weeks_in_month = sorted(weeks_in_month)
                     
                     # Allocate usage evenly across weeks
                     if weeks_in_month:
