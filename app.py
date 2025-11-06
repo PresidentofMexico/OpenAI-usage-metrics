@@ -1864,7 +1864,7 @@ def get_user_message_breakdown(data, email, exclude_tool_messages=False):
     
     return breakdown
 
-def get_all_users_with_stats(data, search_query=None, page=1, per_page=20, exclude_tool_messages=True):
+def get_all_users_with_stats(data, search_query=None, page=1, per_page=20, exclude_tool_messages=True, sort_by="Total Messages (High to Low)"):
     """
     Get all users with their usage statistics, with optional search and pagination.
     
@@ -1874,15 +1874,22 @@ def get_all_users_with_stats(data, search_query=None, page=1, per_page=20, exclu
         page: Page number (1-indexed)
         per_page: Number of results per page
         exclude_tool_messages: If True, excludes Tool Messages from totals
+        sort_by: Sort order - "Total Messages (High to Low)", "Total Messages (Low to High)", 
+                "Name (A-Z)", or "Department (A-Z)"
         
     Returns:
-        Dictionary with 'users' DataFrame, 'total_count', 'total_pages'
+        Dictionary with:
+        - 'users': DataFrame with paginated user statistics
+        - 'total_count': Total number of users matching filters
+        - 'total_pages': Total number of pages
+        - 'current_page': Current page number
     """
     if data.empty:
         return {
             'users': pd.DataFrame(),
             'total_count': 0,
-            'total_pages': 0
+            'total_pages': 0,
+            'current_page': page
         }
     
     # Group by email to get unique users
@@ -1927,8 +1934,15 @@ def get_all_users_with_stats(data, search_query=None, page=1, per_page=20, exclu
         )
         user_stats = user_stats[mask]
     
-    # Sort by total messages descending
-    user_stats = user_stats.sort_values('total_messages', ascending=False)
+    # Apply sorting based on sort_by parameter
+    if sort_by == "Total Messages (High to Low)":
+        user_stats = user_stats.sort_values('total_messages', ascending=False)
+    elif sort_by == "Total Messages (Low to High)":
+        user_stats = user_stats.sort_values('total_messages', ascending=True)
+    elif sort_by == "Name (A-Z)":
+        user_stats = user_stats.sort_values('user_name', ascending=True)
+    elif sort_by == "Department (A-Z)":
+        user_stats = user_stats.sort_values('department', ascending=True)
     
     # Calculate pagination
     total_count = len(user_stats)
@@ -1975,6 +1989,79 @@ def get_organization_message_breakdown(data):
         breakdown = message_counts
     
     return breakdown
+
+def get_top_n_users(data, n=10, ranking_mode="Total Messages (All)", department=None, exclude_tool_messages=True):
+    """
+    Get top N users based on selected ranking criteria.
+    
+    Args:
+        data: DataFrame with usage data
+        n: Number of top users to return
+        ranking_mode: Ranking criteria - "Total Messages (All)", "OpenAI Messages Only", 
+                     "BlueFlame Messages Only", or "ChatGPT Messages Only"
+        department: Optional department filter
+        exclude_tool_messages: If True, excludes Tool Messages from totals
+        
+    Returns:
+        DataFrame with top N users sorted by selected metric
+    """
+    if data.empty:
+        return pd.DataFrame()
+    
+    # Apply department filter if specified
+    filtered_data = data.copy()
+    if department:
+        filtered_data = filtered_data[filtered_data['department'] == department]
+    
+    if filtered_data.empty:
+        return pd.DataFrame()
+    
+    # Calculate user statistics based on ranking mode
+    user_stats = []
+    
+    for email in filtered_data['email'].unique():
+        if pd.isna(email) or not email:
+            continue
+        
+        user_data = filtered_data[filtered_data['email'] == email]
+        breakdown = get_user_message_breakdown(filtered_data, email, exclude_tool_messages=exclude_tool_messages)
+        
+        # Determine ranking metric based on mode
+        if ranking_mode == "OpenAI Messages Only":
+            ranking_value = breakdown['totals']['openai_total_excl_tools']
+        elif ranking_mode == "BlueFlame Messages Only":
+            ranking_value = breakdown['totals']['blueflame_total']
+        elif ranking_mode == "ChatGPT Messages Only":
+            ranking_value = breakdown['openai']['ChatGPT Messages']
+        else:  # "Total Messages (All)"
+            ranking_value = breakdown['totals']['grand_total']
+        
+        # Get user info
+        user_name = user_data['user_name'].iloc[0] if not user_data.empty else 'Unknown'
+        department_val = user_data['department'].iloc[0] if not user_data.empty else 'Unknown'
+        
+        user_stats.append({
+            'email': email,
+            'user_name': user_name,
+            'department': department_val,
+            'total_messages': breakdown['totals']['grand_total'],
+            'openai_messages': breakdown['totals']['openai_total_excl_tools'],
+            'blueflame_messages': breakdown['totals']['blueflame_total'],
+            'chatgpt_messages': breakdown['openai']['ChatGPT Messages'],
+            'tool_messages': breakdown['openai']['Tool Messages'],
+            'ranking_value': ranking_value
+        })
+    
+    # Create DataFrame and sort by ranking value
+    users_df = pd.DataFrame(user_stats)
+    
+    if users_df.empty:
+        return pd.DataFrame()
+    
+    # Sort by ranking value (descending) and take top N
+    users_df = users_df.sort_values('ranking_value', ascending=False).head(n)
+    
+    return users_df
 
 def format_message_breakdown_text(breakdown_dict):
     """Format a message breakdown dictionary into readable text."""
@@ -2301,13 +2388,13 @@ def main():
     # NOTE: Keep tab count and variable count in sync to avoid unpacking errors
     # Variable order matches tab label order for clarity:
     # tab1=Executive Overview, tab2=Tool Comparison, tab_openai=OpenAI Analytics,
-    # tab3=Power Users, tab4=Message Type Analytics, tab_roi=ROI Analytics,
+    # tab3=User Directory, tab4=Message Type Analytics, tab_roi=ROI Analytics,
     # tab5=Department Mapper, tab6=Database Management
     tab1, tab2, tab_openai, tab3, tab4, tab_roi, tab5, tab6 = st.tabs([
         "📊 Executive Overview", 
         "🔄 Tool Comparison",
         "🤖 OpenAI Analytics",
-        "⭐ Power Users",
+        "👥 User Directory",
         "📈 Message Type Analytics",
         "💎 ROI Analytics",
         "🏢 Department Mapper",
@@ -4645,119 +4732,144 @@ def main():
                 except ImportError:
                     st.info("Install openpyxl to enable Excel export: pip install openpyxl")
     
-    # TAB 3: Power Users & User Directory
+    # TAB 3: User Directory with Top N Leaderboard
     with tab3:
-        st.header("⭐ Power Users & User Directory")
+        st.header("👥 User Directory")
         
         # Help text
         st.markdown("""
         <div class="help-tooltip">
-            💡 <strong>Power Users</strong> are defined as the top 5% of users by total usage.
-            These elite users demonstrate exceptional engagement and are ideal candidates for feedback, beta testing, and advocacy programs.
-            Note: The message breakdown display excludes ChatGPT Tool messages from totals for clearer engagement metrics.
+            💡 <strong>User Directory</strong> provides a comprehensive view of all users with detailed message breakdowns and rankings.
+            Top performers are highlighted with badges. Tool Messages are excluded from totals for clearer engagement metrics.
         </div>
         """, unsafe_allow_html=True)
         
-        # Create tabs for Power Users and Full User Directory
-        subtab1, subtab2 = st.tabs(["🏆 Power User Directory", "👥 Full User Directory"])
-        
-        # Calculate max messages once for performance (used in min_messages input)
-        max_user_messages = int(data.groupby('user_id')['usage_count'].sum().max()) if not data.empty else 1000
-        
-        # SUBTAB 1: Power User Directory
-        with subtab1:
-            # Add filtering controls for Power Users
-            st.markdown("**🎯 Customize Power User Threshold**")
-            filter_col1, filter_col2 = st.columns([1, 1])
+        if data.empty:
+            st.info("📊 Upload usage data to see users.")
+        else:
+            # ==============================================================
+            # TOP N USERS LEADERBOARD
+            # ==============================================================
+            st.markdown('<div class="section-header"><h3>🏆 Top Performers</h3></div>', unsafe_allow_html=True)
             
-            with filter_col1:
-                # Percentile threshold for power users
-                power_user_percentile = st.slider(
-                    "Top % of users to include",
-                    min_value=1,
-                    max_value=25,
-                    value=5,
-                    step=1,
-                    help="Adjust the percentage threshold for identifying power users"
+            # Top N configuration controls
+            col1, col2, col3 = st.columns([2, 2, 2])
+            
+            with col1:
+                # Number of top users to display
+                top_n = st.selectbox(
+                    "Show Top N Users",
+                    options=[5, 10, 20, 50, 100],
+                    index=1,  # Default to 10
+                    help="Number of top-performing users to display"
                 )
             
-            with filter_col2:
-                # Minimum message threshold (using cached max value)
-                min_messages = st.number_input(
-                    "Min. Total Messages",
-                    min_value=0,
-                    max_value=max_user_messages,
-                    value=0,
-                    help="Only show users with at least this many total messages"
+            with col2:
+                # Ranking mode selector
+                ranking_mode = st.selectbox(
+                    "Rank By",
+                    options=[
+                        "Total Messages (All)",
+                        "OpenAI Messages Only",
+                        "BlueFlame Messages Only",
+                        "ChatGPT Messages Only"
+                    ],
+                    help="Select which metric to use for ranking users"
                 )
             
-            power_users = calculate_power_users(data, threshold_percentile=(100 - power_user_percentile))
+            with col3:
+                # Department filter (optional)
+                all_depts = ['All Departments'] + sorted([d for d in data['department'].unique() if pd.notna(d) and d])
+                dept_filter = st.selectbox(
+                    "Filter by Department",
+                    options=all_depts,
+                    help="Optionally filter to a specific department"
+                )
             
-            # Apply minimum message filter
-            if min_messages > 0 and not power_users.empty:
-                power_users = power_users[power_users['usage_count'] >= min_messages]
+            # Get top N users based on selected ranking mode
+            top_users_df = get_top_n_users(
+                data, 
+                n=top_n, 
+                ranking_mode=ranking_mode, 
+                department=dept_filter if dept_filter != 'All Departments' else None,
+                exclude_tool_messages=True
+            )
             
-            if not power_users.empty:
-                # Enhanced metrics row
+            # Calculate total usage once for performance (used in metrics below)
+            total_all_usage = data.groupby('email')['usage_count'].sum().sum() if not data.empty else 0
+            
+            if not top_users_df.empty:
+                # Display leaderboard metrics
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
                     st.metric(
-                        "Total Power Users", 
-                        len(power_users),
-                        help="Number of users identified as power users"
+                        "Top Users", 
+                        len(top_users_df),
+                        help="Number of top users displayed"
                     )
                 
                 with col2:
-                    pct = (len(power_users) / max(data['user_id'].nunique(), 1)) * 100
+                    total_top_usage = top_users_df['total_messages'].sum()
+                    pct_of_total = (total_top_usage / max(total_all_usage, 1)) * 100
                     st.metric(
-                        "% of Active Users", 
-                        f"{pct:.1f}%",
-                        help="Percentage of all users who are power users"
+                        "% of Total Usage", 
+                        f"{pct_of_total:.1f}%",
+                        help="Percentage of total usage by top users"
                     )
                 
                 with col3:
-                    power_usage = power_users['usage_count'].sum()
-                    total_usage_pct = (power_usage / data['usage_count'].sum()) * 100
+                    avg_messages = top_users_df['total_messages'].mean()
                     st.metric(
-                        "Power User Usage", 
-                        f"{power_usage:,}",
-                        delta=f"{total_usage_pct:.1f}% of total",
-                        help="Total usage by power users"
+                        "Avg Messages", 
+                        f"{avg_messages:,.0f}",
+                        help="Average messages per top user"
                     )
                 
                 st.divider()
-                st.caption("📝 Note: Tool Messages are excluded from totals but shown separately below")
+                st.caption(f"📝 Note: Rankings based on '{ranking_mode}' | Tool Messages excluded from totals")
                 
-                # Enhanced table display with better formatting and clearer breakdown
-                for idx, row in power_users.head(20).iterrows():
-                    # Get message breakdown for this user (exclude Tool Messages from totals)
+                # Display top users with badges
+                for rank, (idx, row) in enumerate(top_users_df.iterrows(), start=1):
+                    # Get detailed message breakdown for this user
                     breakdown = get_user_message_breakdown(data, row['email'], exclude_tool_messages=True)
                     
-                    # Create a card-like container for each power user
+                    # Assign badge based on rank
+                    if rank == 1:
+                        badge = "🥇"
+                        border_color = "#FFD700"  # Gold
+                    elif rank == 2:
+                        badge = "🥈"
+                        border_color = "#C0C0C0"  # Silver
+                    elif rank == 3:
+                        badge = "🥉"
+                        border_color = "#CD7F32"  # Bronze
+                    else:
+                        badge = f"#{rank}"
+                        border_color = "#667eea"  # Default
+                    
+                    # Create a card-like container for each top user
                     st.markdown(f"""
                     <div style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); 
                                 padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0; 
-                                border-left: 4px solid #667eea;">
+                                border-left: 4px solid {border_color};">
                     """, unsafe_allow_html=True)
                     
                     col1, col2, col3 = st.columns([3, 4, 3])
                     
                     with col1:
-                        # Handle NULL/empty user_name
+                        # User info with badge
                         display_name = row['user_name'] if pd.notna(row['user_name']) and row['user_name'] else 'Unknown User'
-                        st.write(f"**{display_name}**")
-                        # Handle NULL/empty email
+                        st.write(f"{badge} **{display_name}**")
                         display_email = row['email'] if pd.notna(row['email']) and row['email'] else 'No email'
                         st.caption(display_email)
-                        # Handle NULL/empty department
                         display_dept = row['department'] if pd.notna(row['department']) and row['department'] else 'Unknown'
                         st.caption(f"🏢 {display_dept}")
                     
                     with col2:
-                        st.write("**Message Breakdown:**")
+                        st.write("**Message Details:**")
                         
-                        # OpenAI Messages Section (excluding Tool Messages)
+                        # OpenAI Messages (excluding Tool Messages)
                         openai_excl_tools = breakdown['totals']['openai_total_excl_tools']
                         if openai_excl_tools > 0:
                             st.caption(f"**OpenAI Messages:** {openai_excl_tools:,}")
@@ -4768,11 +4880,11 @@ def main():
                             if breakdown['openai']['Project Messages'] > 0:
                                 st.caption(f"  📁 Projects: {breakdown['openai']['Project Messages']:,}")
                         
-                        # BlueFlame Messages Section
+                        # BlueFlame Messages
                         if breakdown['totals']['blueflame_total'] > 0:
                             st.caption(f"**BlueFlame Messages:** {breakdown['totals']['blueflame_total']:,}")
                         
-                        # Tool Messages shown separately (not included in totals)
+                        # Tool Messages shown separately
                         if breakdown['openai']['Tool Messages'] > 0:
                             st.caption(f"_Tool Messages (not in total): {breakdown['openai']['Tool Messages']:,}_")
                     
@@ -4780,32 +4892,31 @@ def main():
                         st.write(f"**Total: {breakdown['totals']['grand_total']:,}**")
                         st.caption(f"OpenAI: {openai_excl_tools:,}")
                         st.caption(f"BlueFlame: {breakdown['totals']['blueflame_total']:,}")
-                        # Handle NULL/empty tool_source
-                        display_tools = row['tool_source'] if pd.notna(row['tool_source']) and row['tool_source'] else 'Unknown'
-                        st.markdown(f'<span class="power-user-badge">{display_tools}</span>', 
-                                  unsafe_allow_html=True)
                     
                     st.markdown('</div>', unsafe_allow_html=True)
             else:
-                # Enhanced empty state for power users
+                # Empty state for top users
                 st.markdown("""
                 <div class="empty-state">
-                    <div class="empty-state-icon">⭐</div>
-                    <div class="empty-state-title">No Power Users Yet</div>
+                    <div class="empty-state-icon">🏆</div>
+                    <div class="empty-state-title">No Users Found</div>
                     <div class="empty-state-text">
-                        Power users will appear here once you have sufficient usage data.<br>
-                        Upload more monthly reports to identify your most active users.
+                        No users match the current filters. Try adjusting your department selection.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-        
-        # SUBTAB 2: Full User Directory with Search and Pagination
-        with subtab2:
+            
+            st.divider()
+            
+            # ==============================================================
+            # FULL USER DIRECTORY WITH SEARCH AND PAGINATION
+            # ==============================================================
+            st.markdown('<div class="section-header"><h3>🔍 All Users</h3></div>', unsafe_allow_html=True)
             st.markdown("**🔍 Search All Users**")
-            st.caption("Search through all users in the organization and view detailed message statistics")
+            st.caption("Search and filter through all users in the organization")
             
             # Search and filter controls
-            col1, col2, col3 = st.columns([3, 1, 1])
+            col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
             
             with col1:
                 search_query = st.text_input(
@@ -4815,14 +4926,27 @@ def main():
                 )
             
             with col2:
+                # Sort by selector
+                sort_by = st.selectbox(
+                    "Sort By",
+                    options=[
+                        "Total Messages (High to Low)",
+                        "Total Messages (Low to High)",
+                        "Name (A-Z)",
+                        "Department (A-Z)"
+                    ],
+                    key="user_directory_sort"
+                )
+            
+            with col3:
                 per_page = st.selectbox(
-                    "Results per page",
+                    "Per Page",
                     options=[10, 20, 50, 100],
                     index=1,
                     key="user_directory_per_page"
                 )
             
-            with col3:
+            with col4:
                 # Initialize page in session state if not exists
                 if 'user_directory_page' not in st.session_state:
                     st.session_state.user_directory_page = 1
@@ -4836,7 +4960,8 @@ def main():
                 search_query=search_query, 
                 page=st.session_state.user_directory_page,
                 per_page=per_page,
-                exclude_tool_messages=True
+                exclude_tool_messages=True,
+                sort_by=sort_by
             )
             
             users_df = user_results['users']
