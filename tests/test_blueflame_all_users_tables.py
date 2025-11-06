@@ -142,9 +142,13 @@ def test_all_users_vs_top_users_deduplication():
     # Count how many records we have for John
     john_data = result_df[result_df['user_id'] == 'john.boddiford@eldridge.com']
     
-    # John should have exactly 2 records (Sep and Oct), not 6 (2 months × 3 table appearances)
-    # The deduplication should have removed the duplicates
-    assert len(john_data) == 2, f"Expected 2 records for John (deduped), got {len(john_data)}"
+    # John should have one record per unique month, not multiple records per month
+    # The deduplication should have removed the duplicates from appearing in multiple tables
+    unique_months_in_data = 2  # Sep and Oct based on test data
+    assert len(john_data) == unique_months_in_data, f"Expected {unique_months_in_data} records for John (deduped), got {len(john_data)}"
+    
+    # Verify deduplication worked: number of records should equal number of unique months
+    assert len(john_data) == john_data['date'].nunique(), "John has duplicate records for the same month!"
     print(f"✅ John's records properly deduplicated: {len(john_data)} unique months")
     
     # Verify the counts are correct (not summed)
@@ -192,7 +196,12 @@ def test_top_users_still_processed():
     
     # Verify all users were captured
     assert not result_df.empty, "No data processed from 'Top Users' tables!"
-    assert len(result_df) == 8, f"Expected 8 records (4 users × 2 months), got {len(result_df)}"
+    
+    # Calculate expected records: unique users × unique months in test data
+    unique_users = 4
+    unique_months = 2  # Sep and Oct
+    expected_records = unique_users * unique_months
+    assert len(result_df) == expected_records, f"Expected {expected_records} records ({unique_users} users × {unique_months} months), got {len(result_df)}"
     print(f"✅ All 'Top Users' processed: {len(result_df)} records")
     
     # Verify specific users
