@@ -22,13 +22,14 @@ from data_processor import DataProcessor
 from database import DatabaseManager
 
 
+# Mock database manager for testing (we don't need real DB for these tests)
+class MockDB:
+    pass
+
+
 def test_parse_blueflame_month_column():
     """Test the helper function that parses both date formats."""
     print("\n🧪 Testing parse_blueflame_month_column Helper Function...")
-    
-    # Create a mock database manager (we don't need real DB for this test)
-    class MockDB:
-        pass
     
     processor = DataProcessor(MockDB())
     
@@ -76,10 +77,6 @@ def test_parse_blueflame_month_column():
 def test_normalize_blueflame_data_with_yy_mon_format():
     """Test that normalize_blueflame_data correctly processes YY-Mon format."""
     print("\n🧪 Testing normalize_blueflame_data with YY-Mon Format...")
-    
-    # Create a mock database manager
-    class MockDB:
-        pass
     
     processor = DataProcessor(MockDB())
     
@@ -136,10 +133,6 @@ def test_normalize_blueflame_data_with_mon_yy_format():
     """Test that normalize_blueflame_data still works with Mon-YY format (backward compatibility)."""
     print("\n🧪 Testing normalize_blueflame_data with Mon-YY Format (Backward Compatibility)...")
     
-    # Create a mock database manager
-    class MockDB:
-        pass
-    
     processor = DataProcessor(MockDB())
     
     # Create test data with Mon-YY format columns (original format)
@@ -175,10 +168,6 @@ def test_normalize_blueflame_data_with_mon_yy_format():
 def test_user_level_data_with_yy_mon_format():
     """Test user-level data processing with YY-Mon format."""
     print("\n🧪 Testing User-Level Data with YY-Mon Format...")
-    
-    # Create a mock database manager
-    class MockDB:
-        pass
     
     processor = DataProcessor(MockDB())
     

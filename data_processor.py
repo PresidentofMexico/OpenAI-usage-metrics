@@ -284,10 +284,10 @@ class DataProcessor:
         - 'YY-Mon' format (e.g., '25-Sep')
         
         Args:
-            month_col: Column name containing month information
+            month_col (str): Column name containing month information
             
         Returns:
-            pandas.Timestamp or pd.NaT if parsing fails
+            pandas.Timestamp: Parsed datetime if successful, pd.NaT if parsing fails
         """
         # Try Mon-YY format first (original format)
         month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
