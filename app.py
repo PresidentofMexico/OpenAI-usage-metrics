@@ -1176,7 +1176,10 @@ def normalize_blueflame_data(df, filename):
         monthly_trends = df[df['Table'] == 'Overall Monthly Trends']
         user_data = df[(df['Table'] == 'Top 20 Users Total') | 
                       (df['Table'] == 'Top 10 Increasing Users') | 
-                      (df['Table'] == 'Top 10 Decreasing Users')]
+                      (df['Table'] == 'Top 10 Decreasing Users') |
+                      (df['Table'] == 'All Users Total') |
+                      (df['Table'] == 'All Increasing Users') |
+                      (df['Table'] == 'All Decreasing Users')]
         
         # Note: We skip processing monthly trends/aggregate metrics in favor of real user data
         # The user data from Top 20/Top 10 tables provides the actual usage information
