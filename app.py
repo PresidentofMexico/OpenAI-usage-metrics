@@ -1878,7 +1878,11 @@ def get_all_users_with_stats(data, search_query=None, page=1, per_page=20, exclu
                 "Name (A-Z)", or "Department (A-Z)"
         
     Returns:
-        Dictionary with 'users' DataFrame, 'total_count', 'total_pages'
+        Dictionary with:
+        - 'users': DataFrame with paginated user statistics
+        - 'total_count': Total number of users matching filters
+        - 'total_pages': Total number of pages
+        - 'current_page': Current page number
     """
     if data.empty:
         return {
@@ -4791,6 +4795,9 @@ def main():
                 exclude_tool_messages=True
             )
             
+            # Calculate total usage once for performance (used in metrics below)
+            total_all_usage = data.groupby('email')['usage_count'].sum().sum() if not data.empty else 0
+            
             if not top_users_df.empty:
                 # Display leaderboard metrics
                 col1, col2, col3 = st.columns(3)
@@ -4804,8 +4811,7 @@ def main():
                 
                 with col2:
                     total_top_usage = top_users_df['total_messages'].sum()
-                    all_usage = data.groupby('email').agg({'usage_count': 'sum'}).sum()['usage_count']
-                    pct_of_total = (total_top_usage / max(all_usage, 1)) * 100
+                    pct_of_total = (total_top_usage / max(total_all_usage, 1)) * 100
                     st.metric(
                         "% of Total Usage", 
                         f"{pct_of_total:.1f}%",
