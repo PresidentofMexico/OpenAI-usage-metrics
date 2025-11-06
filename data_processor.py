@@ -335,6 +335,10 @@ class DataProcessor:
                               (df['Table'] == 'All Increasing Users') |
                               (df['Table'] == 'All Decreasing Users')]
                 
+                # Deduplicate user data - same user may appear in multiple tables
+                if not user_data.empty and 'User ID' in user_data.columns:
+                    user_data = user_data.drop_duplicates(subset=['User ID'], keep='first')
+                
                 # Process monthly trends (aggregate metrics)
                 if not monthly_trends.empty:
                     # Get month columns (excluding MoM variance columns)
