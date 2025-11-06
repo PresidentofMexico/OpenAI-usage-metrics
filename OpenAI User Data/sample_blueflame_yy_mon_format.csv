@@ -1,0 +1,14 @@
+Table,Rank,User ID,Metric,25-Apr,25-May,25-Jun,25-Jul,25-Aug,25-Sep,25-Oct,MoM Var Jul-25,MoM Var Aug-25,MoM Var Sep-25,MoM Var Oct-25
+Overall Monthly Trends,,,Total Messages,100,250,400,650,1318,3475,3872,9431,2157,397,5559
+Overall Monthly Trends,,,MoM Growth %,,,,,,,,,,
+Overall Monthly Trends,,,Monthly Active Users (MAUs),5,8,10,15,11,30,62,19,32,74
+Overall Monthly Trends,,,Avg. Messages per MAU,20,31,40,43,119,115,62,-4,-53,7
+Overall Monthly Trends,,,Registered Users,5,8,10,15,11,30,63,,,,
+Overall Monthly Trends,,,MAU % (of Registered Users),,,,,,,,,,
+Overall Monthly Trends,,,Licensed Users,,,,,,,100,,,,
+Overall Monthly Trends,,,MAU % (of Licensed Users),,,,,,,,,,
+All Users Total,1,john.boddiford@eldridge.com,,,,,44,858,,,814
+All Users Total,2,ted.divis@eldridge.com,,,,,233,758,601,,,
+All Users Total,3,jack.steed@eldridge.com,,,,,252,90,187,,,
+All Increasing Users,1,john.boddiford@eldridge.com,,,,,44,858,,,814
+All Decreasing Users,1,jack.steed@eldridge.com,,,,,252,90,187,,,
