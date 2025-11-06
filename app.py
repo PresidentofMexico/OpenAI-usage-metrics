@@ -1898,17 +1898,24 @@ def get_all_users_with_stats(data, search_query=None, page=1, per_page=20, exclu
     user_stats['blueflame_messages'] = 0
     user_stats['tool_messages'] = 0
     
-    for idx, row in user_stats.iterrows():
-        breakdown = get_user_message_breakdown(data, row['email'], exclude_tool_messages=exclude_tool_messages)
-        user_stats.at[idx, 'openai_messages'] = breakdown['totals']['openai_total_excl_tools']
-        user_stats.at[idx, 'blueflame_messages'] = breakdown['totals']['blueflame_total']
-        user_stats.at[idx, 'tool_messages'] = breakdown['openai']['Tool Messages']
+    # Calculate message breakdowns for each user more efficiently
+    user_stats['openai_messages'] = 0
+    user_stats['blueflame_messages'] = 0
+    user_stats['tool_messages'] = 0
     
-    # Recalculate total_messages based on exclude_tool_messages setting
-    if exclude_tool_messages:
-        user_stats['total_messages'] = user_stats['openai_messages'] + user_stats['blueflame_messages']
-    else:
-        user_stats['total_messages'] = user_stats['usage_count']
+    # Use apply instead of iterrows for better performance
+    def calculate_breakdown(row):
+        breakdown = get_user_message_breakdown(data, row['email'], exclude_tool_messages=exclude_tool_messages)
+        return pd.Series({
+            'openai_messages': breakdown['totals']['openai_total_excl_tools'],
+            'blueflame_messages': breakdown['totals']['blueflame_total'],
+            'tool_messages': breakdown['openai']['Tool Messages'],
+            'total_messages': breakdown['totals']['grand_total']
+        })
+    
+    # Apply breakdown calculation efficiently
+    breakdown_cols = user_stats.apply(calculate_breakdown, axis=1)
+    user_stats[['openai_messages', 'blueflame_messages', 'tool_messages', 'total_messages']] = breakdown_cols
     
     # Apply search filter if provided
     if search_query and search_query.strip():
@@ -4645,13 +4652,17 @@ def main():
         # Help text
         st.markdown("""
         <div class="help-tooltip">
-            💡 <strong>Power Users</strong> are defined as the top 5% of users by total usage (excluding ChatGPT Tool messages).
+            💡 <strong>Power Users</strong> are defined as the top 5% of users by total usage.
             These elite users demonstrate exceptional engagement and are ideal candidates for feedback, beta testing, and advocacy programs.
+            Note: The message breakdown display excludes ChatGPT Tool messages from totals for clearer engagement metrics.
         </div>
         """, unsafe_allow_html=True)
         
         # Create tabs for Power Users and Full User Directory
         subtab1, subtab2 = st.tabs(["🏆 Power User Directory", "👥 Full User Directory"])
+        
+        # Calculate max messages once for performance (used in min_messages input)
+        max_user_messages = int(data.groupby('user_id')['usage_count'].sum().max()) if not data.empty else 1000
         
         # SUBTAB 1: Power User Directory
         with subtab1:
@@ -4671,11 +4682,11 @@ def main():
                 )
             
             with filter_col2:
-                # Minimum message threshold
+                # Minimum message threshold (using cached max value)
                 min_messages = st.number_input(
                     "Min. Total Messages",
                     min_value=0,
-                    max_value=int(data.groupby('user_id')['usage_count'].sum().max()) if not data.empty else 1000,
+                    max_value=max_user_messages,
                     value=0,
                     help="Only show users with at least this many total messages"
                 )
