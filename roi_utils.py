@@ -399,7 +399,8 @@ def calculate_composite_roi(
     total_usage = df['usage_count'].sum()
     
     # Calculate user metrics
-    total_users = df['user_id'].nunique() if 'user_id' in df.columns else 0
+    # Count unique emails to avoid over-counting users with multiple records
+    total_users = df['email'].dropna().str.lower().nunique() if 'email' in df.columns else (df['user_id'].nunique() if 'user_id' in df.columns else 0)
     avg_hours_per_user = total_hours / total_users if total_users > 0 else 0.0
     avg_value_per_user = total_value / total_users if total_users > 0 else 0.0
     
