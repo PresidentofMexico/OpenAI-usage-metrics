@@ -69,12 +69,14 @@ class DataProcessor:
             # Get tool source for the data
             tool_source = processed_df['tool_source'].iloc[0] if 'tool_source' in processed_df.columns else 'Unknown'
             
-            # UNIVERSAL DATA SUPERSEDING FOR BOTH BLUEFLAME AND OPENAI
+            # UNIVERSAL DATA SUPERSEDING FOR BOTH BlueFlame AND OpenAI
             # This ensures that each new upload fully replaces data for covered months and users
             # Prevents duplicate/inflated message counts from re-uploads
             if tool_source in ['BlueFlame AI', 'ChatGPT'] and 'date' in processed_df.columns:
                 # Extract unique months and users from the new data
-                processed_df['date'] = pd.to_datetime(processed_df['date'])
+                processed_df['date'] = pd.to_datetime(processed_df['date'], errors='coerce')
+                # Filter out any invalid dates
+                processed_df = processed_df.dropna(subset=['date'])
                 unique_months = processed_df['date'].dt.to_period('M').unique()
                 unique_users = processed_df['user_id'].unique() if 'user_id' in processed_df.columns else []
                 

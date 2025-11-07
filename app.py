@@ -2474,6 +2474,14 @@ def main():
         )
         
         if uploaded_file is not None:
+            # Reset confirmation flags when new file is uploaded
+            # This prevents stale confirmation state from previous uploads
+            if st.session_state.get('last_uploaded_file') != uploaded_file.name:
+                st.session_state['upload_confirmed'] = False
+                st.session_state['requires_confirmation'] = False
+                st.session_state['superseding_preview'] = None
+                st.session_state['last_uploaded_file'] = uploaded_file.name
+            
             # Show file info with enhanced styling
             file_size_mb = uploaded_file.size / (1024 * 1024)
             st.success(f"✅ File loaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")

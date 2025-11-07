@@ -513,14 +513,21 @@ class DatabaseManager:
                     month_end = (month_period + 1).to_timestamp().strftime('%Y-%m-%d')
                     month_conditions.append(f"(date >= ? AND date < ?)")
                     params.extend([month_start, month_end])
-                except:
+                except (ValueError, pd.errors.ParserError) as e:
+                    # Skip invalid month formats
+                    print(f"Warning: Could not parse month {month_str}: {e}")
                     continue
             
             if not month_conditions:
                 conn.close()
                 return {'total_records': 0, 'affected_users': 0, 'months': []}
             
-            # Build user condition
+            # Validate users list to prevent SQL injection
+            if not all(isinstance(u, str) for u in users):
+                conn.close()
+                return {'total_records': 0, 'affected_users': 0, 'months': []}
+            
+            # Build user condition with safe parameterized query
             user_placeholders = ','.join(['?' for _ in users])
             params.extend(users)
             
