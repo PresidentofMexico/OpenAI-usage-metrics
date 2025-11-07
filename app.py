@@ -1280,21 +1280,60 @@ def normalize_blueflame_data(df, filename):
         # Skip processing as we prefer real user data from other formats
         print("Skipping aggregate-only format without user data")
     
-    # If we have the top users file format with User ID column
+    # If we have the wide-format file with User ID column (new format without 'Table' column)
     elif 'User ID' in df.columns:
-        # Get month columns (excluding MoM variance columns)
-        month_cols = [col for col in df.columns if col not in ['User ID'] and not col.startswith('MoM Var')]
+        # Get month columns (excluding MoM variance columns, Rank, Metric, and User ID)
+        month_cols = [col for col in df.columns if col not in ['User ID', 'Rank', 'Metric'] 
+                     and not col.startswith('MoM Var')]
         
         # Process each user record
         for _, row in df.iterrows():
             user_email = row['User ID']
-            user_name = user_email.split('@')[0].replace('.', ' ').title()
+            if pd.isna(user_email) or not user_email:
+                continue
+            
+            # Look up employee by email to get authoritative department
+            employee = None
+            try:
+                employee = db.get_employee_by_email(user_email) if user_email else None
+                
+                # If no match by email, try to extract name from email and match
+                if not employee and user_email:
+                    # Try to parse name from email (e.g., john.doe@company.com -> John Doe)
+                    email_name = user_email.split('@')[0].replace('.', ' ').strip()
+                    name_parts = email_name.split()
+                    if len(name_parts) >= 2:
+                        first_name = name_parts[0]
+                        last_name = ' '.join(name_parts[1:])
+                        employee = db.get_employee_by_name(first_name, last_name)
+            except AttributeError:
+                # Handle cache error - database object missing methods
+                employee = None
+            
+            if employee:
+                # Use employee data as source of truth
+                dept = employee['department'] if employee['department'] else 'Unknown'
+                user_name = f"{employee['first_name']} {employee['last_name']}".strip()
+                if not user_name:
+                    user_name = user_email.split('@')[0].replace('.', ' ').title()
+            else:
+                # User not in employee roster - flag as unidentified
+                dept = 'Unknown'
+                user_name = user_email.split('@')[0].replace('.', ' ').title()
             
             # Process each month for this user
             for month_col in month_cols:
                 try:
-                    # Parse month to a datetime
-                    month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                    # Parse month to a datetime (format like '25-Sep' or 'Sep-25')
+                    month_date = None
+                    for fmt in ['%y-%b', '%b-%y', '%Y-%b', '%b-%Y']:
+                        try:
+                            month_date = pd.to_datetime(month_col, format=fmt, errors='coerce')
+                            if not pd.isna(month_date):
+                                break
+                        except:
+                            continue
+                    
                     if pd.isna(month_date):
                         continue
                     
@@ -1303,7 +1342,7 @@ def normalize_blueflame_data(df, filename):
                     
                     # Handle dash placeholders and formatting
                     if isinstance(message_count, str):
-                        if message_count in ['–', '-', '—', 'N/A']:
+                        if message_count in ['–', '-', '—', 'N/A', '']:
                             continue
                         message_count = int(message_count.replace(',', ''))
                     
@@ -1316,10 +1355,10 @@ def normalize_blueflame_data(df, filename):
                         'user_id': user_email,
                         'user_name': user_name,
                         'email': user_email,
-                        'department': 'BlueFlame Users',  # Default department, can be updated later
+                        'department': dept,
                         'date': month_date,
                         'feature_used': 'BlueFlame Messages',
-                        'usage_count': message_count,
+                        'usage_count': int(message_count),
                         'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                         'tool_source': 'BlueFlame AI',
                         'file_source': filename
@@ -2435,6 +2474,14 @@ def main():
         )
         
         if uploaded_file is not None:
+            # Reset confirmation flags when new file is uploaded
+            # This prevents stale confirmation state from previous uploads
+            if st.session_state.get('last_uploaded_file') != uploaded_file.name:
+                st.session_state['upload_confirmed'] = False
+                st.session_state['requires_confirmation'] = False
+                st.session_state['superseding_preview'] = None
+                st.session_state['last_uploaded_file'] = uploaded_file.name
+            
             # Show file info with enhanced styling
             file_size_mb = uploaded_file.size / (1024 * 1024)
             st.success(f"✅ File loaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")
@@ -2469,7 +2516,98 @@ def main():
                 st.error(f"❌ Cannot preview file: {str(e)}")
                 st.info("💡 Please ensure your file is a valid CSV or Excel file")
             
-            if st.button("🚀 Process Upload", type="primary", use_container_width=True):
+            # ANALYZE FILE FIRST - Before processing button
+            if uploaded_file is not None:
+                try:
+                    # Read and analyze file to show superseding preview
+                    with st.spinner("🔍 Analyzing file..."):
+                        df_analyze, read_error = read_file_robust(uploaded_file)
+                        
+                        if not read_error and df_analyze is not None and not df_analyze.empty:
+                            # Detect data source
+                            if tool_type == 'Auto-Detect':
+                                detected_tool = detect_data_source(df_analyze)
+                            else:
+                                detected_tool = tool_type.replace('OpenAI ', '')
+                            
+                            # Normalize data to get months and users
+                            if 'ChatGPT' in detected_tool:
+                                normalized_preview = normalize_openai_data(df_analyze, uploaded_file.name)
+                                tool_source_name = 'ChatGPT'
+                            elif 'BlueFlame' in detected_tool:
+                                normalized_preview = normalize_blueflame_data(df_analyze, uploaded_file.name)
+                                tool_source_name = 'BlueFlame AI'
+                            else:
+                                normalized_preview = pd.DataFrame()
+                                tool_source_name = None
+                            
+                            # If we have normalized data, check for superseding
+                            if not normalized_preview.empty and tool_source_name:
+                                # Get months and users from preview
+                                normalized_preview['date'] = pd.to_datetime(normalized_preview['date'], errors='coerce')
+                                unique_months = normalized_preview['date'].dropna().dt.to_period('M').unique()
+                                unique_users = normalized_preview['user_id'].unique()
+                                
+                                # Get superseding preview
+                                preview_info = db.get_superseding_preview(
+                                    tool_source_name,
+                                    [str(m) for m in unique_months],
+                                    list(unique_users)
+                                )
+                                
+                                # Show warning if existing records will be superseded
+                                if preview_info['total_records'] > 0:
+                                    st.warning(f"""
+                                    ⚠️ **Data Superseding Warning**
+                                    
+                                    This upload will **REPLACE** existing data:
+                                    - **{preview_info['total_records']}** existing records will be deleted
+                                    - **{preview_info['affected_users']}** users affected
+                                    - **{len(preview_info['months'])}** month(s): {', '.join(preview_info['months'])}
+                                    
+                                    The new file contains {len(normalized_preview)} records that will replace the old data.
+                                    """)
+                                    
+                                    # Store preview info in session state for confirmation
+                                    st.session_state['superseding_preview'] = preview_info
+                                    st.session_state['requires_confirmation'] = True
+                                else:
+                                    st.info(f"""
+                                    ℹ️ **New Data Upload**
+                                    
+                                    No existing records found for these months/users. This is a new data upload.
+                                    - **{len(normalized_preview)}** new records will be added
+                                    - **{len(unique_users)}** users
+                                    - **{len(unique_months)}** month(s): {', '.join([str(m) for m in unique_months])}
+                                    """)
+                                    st.session_state['requires_confirmation'] = False
+                                
+                except Exception as e:
+                    st.warning(f"Could not analyze file for superseding preview: {str(e)}")
+                    st.session_state['requires_confirmation'] = False
+            
+            # Process button with confirmation check
+            button_disabled = False
+            button_label = "🚀 Process Upload"
+            
+            if st.session_state.get('requires_confirmation', False):
+                if not st.session_state.get('upload_confirmed', False):
+                    button_label = "⚠️ Confirm and Process Upload"
+            
+            if st.button(button_label, type="primary", use_container_width=True):
+                # Check if confirmation is required
+                if st.session_state.get('requires_confirmation', False):
+                    if not st.session_state.get('upload_confirmed', False):
+                        # First click - set confirmation flag
+                        st.session_state['upload_confirmed'] = True
+                        st.warning("⚠️ Click 'Confirm and Process Upload' again to confirm data replacement")
+                        st.rerun()
+                        return
+                
+                # Reset confirmation flags
+                st.session_state['upload_confirmed'] = False
+                st.session_state['requires_confirmation'] = False
+                
                 # Initialize progress tracking
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -2524,6 +2662,12 @@ def main():
                     if not normalized_df.empty:
                         success = processor.process_monthly_data(normalized_df, uploaded_file.name)
                         
+                        progress_bar.progress(90)
+                        
+                        # Step 5: Validate - check for duplicates
+                        status_text.text("✅ Validating data...")
+                        duplicates_df = db.detect_duplicates()
+                        
                         progress_bar.progress(100)
                         
                         if success:
@@ -2544,6 +2688,19 @@ def main():
                                 st.metric("Users Found", normalized_df['user_id'].nunique())
                             with col2:
                                 st.metric("Total Usage", f"{normalized_df['usage_count'].sum():,}")
+                            
+                            # Show duplicate warning if any found
+                            if not duplicates_df.empty:
+                                st.warning(f"""
+                                ⚠️ **Duplicate Records Detected**
+                                
+                                Found {len(duplicates_df)} sets of duplicate records. 
+                                This may indicate an issue with the upload.
+                                """)
+                                with st.expander("View Duplicate Details"):
+                                    st.dataframe(duplicates_df)
+                            else:
+                                st.success("✅ No duplicate records detected")
                             
                             st.balloons()
                             st.rerun()
