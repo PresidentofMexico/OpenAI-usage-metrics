@@ -296,11 +296,20 @@ def calculate_roi_per_department(
         'monetary_value': 'sum'
     }
     
-    # Add user count if user_id exists
-    if 'user_id' in df.columns:
+    # Add user count - prioritize email for accuracy
+    if 'email' in df.columns:
+        result = df.groupby('department', as_index=False).agg({
+            **agg_dict,
+            'email': lambda x: x.dropna().str.lower().nunique()
+        })
+        result = result.rename(columns={'email': 'active_users'})
+    elif 'user_id' in df.columns:
         agg_dict['user_id'] = 'nunique'
-    
-    result = df.groupby('department', as_index=False).agg(agg_dict)
+        result = df.groupby('department', as_index=False).agg(agg_dict)
+        result = result.rename(columns={'user_id': 'active_users'})
+    else:
+        result = df.groupby('department', as_index=False).agg(agg_dict)
+        result['active_users'] = 0
     
     # Rename columns for clarity
     result = result.rename(columns={
@@ -308,8 +317,7 @@ def calculate_roi_per_department(
         'monetary_value': 'monetary_value_usd'
     })
     
-    if 'user_id' in result.columns:
-        result = result.rename(columns={'user_id': 'active_users'})
+    if 'active_users' in result.columns:
         # Calculate average value per user
         result['avg_value_per_user'] = (
             result['monetary_value_usd'] / result['active_users']

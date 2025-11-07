@@ -2245,8 +2245,11 @@ def calculate_duau(data):
     if data.empty or 'date' not in data.columns:
         return 0
     
-    # Group by date and count unique users
-    daily_users = data.groupby('date')['user_id'].nunique()
+    # Group by date and count unique users (using email for accuracy)
+    if 'email' in data.columns:
+        daily_users = data.groupby('date')['email'].apply(lambda x: x.dropna().str.lower().nunique())
+    else:
+        daily_users = data.groupby('date')['user_id'].nunique()
     
     # Calculate average
     duau = daily_users.mean() if not daily_users.empty else 0
@@ -2415,10 +2418,16 @@ def calculate_weekly_trends(data):
     data_copy['week'] = data_copy['date'].dt.to_period('W')
     
     # Aggregate by week
-    weekly = data_copy.groupby('week').agg({
-        'user_id': 'nunique',
-        'usage_count': 'sum'
-    }).reset_index()
+    if 'email' in data_copy.columns:
+        weekly = data_copy.groupby('week').agg({
+            'email': lambda x: x.dropna().str.lower().nunique(),
+            'usage_count': 'sum'
+        }).reset_index()
+    else:
+        weekly = data_copy.groupby('week').agg({
+            'user_id': 'nunique',
+            'usage_count': 'sum'
+        }).reset_index()
     weekly.columns = ['week', 'active_users', 'total_messages']
     
     # Format week for display as MM/DD/YYYY (vectorized)
@@ -2695,7 +2704,8 @@ def main():
                             # Show summary metrics
                             col1, col2 = st.columns(2)
                             with col1:
-                                st.metric("Users Found", normalized_df['user_id'].nunique())
+                                user_count = normalized_df['email'].dropna().str.lower().nunique() if 'email' in normalized_df.columns else normalized_df['user_id'].nunique()
+                                st.metric("Users Found", user_count)
                             with col2:
                                 st.metric("Total Usage", f"{normalized_df['usage_count'].sum():,}")
                             
@@ -3529,10 +3539,16 @@ def main():
         if not data.empty and 'tool_source' in data.columns:
             st.markdown('<div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 0.5rem; border: 1px solid #e2e8f0;">', unsafe_allow_html=True)
             st.write("**Data Sources:**")
-            source_summary = data.groupby('tool_source').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum'
-            }).reset_index()
+            if 'email' in data.columns:
+                source_summary = data.groupby('tool_source').agg({
+                    'email': lambda x: x.dropna().str.lower().nunique(),
+                    'usage_count': 'sum'
+                }).reset_index()
+            else:
+                source_summary = data.groupby('tool_source').agg({
+                    'user_id': 'nunique',
+                    'usage_count': 'sum'
+                }).reset_index()
             source_summary.columns = ['Provider', 'Users', 'Messages']
             
             total_messages = data['usage_count'].sum()
@@ -3554,10 +3570,16 @@ def main():
             monthly_data['month'] = monthly_data['date'].dt.to_period('M').astype(str)
             
             # Calculate monthly metrics
-            monthly_metrics = monthly_data.groupby('month').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum'
-            }).reset_index()
+            if 'email' in monthly_data.columns:
+                monthly_metrics = monthly_data.groupby('month').agg({
+                    'email': lambda x: x.dropna().str.lower().nunique(),
+                    'usage_count': 'sum'
+                }).reset_index()
+            else:
+                monthly_metrics = monthly_data.groupby('month').agg({
+                    'user_id': 'nunique',
+                    'usage_count': 'sum'
+                }).reset_index()
             monthly_metrics.columns = ['Month', 'Active Users', 'Total Usage']
             
             # Calculate MoM changes
@@ -3624,10 +3646,16 @@ def main():
         st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Department Performance</h3>', unsafe_allow_html=True)
         
         # Calculate comprehensive department statistics with message type breakdown
-        dept_stats = data.groupby('department').agg({
-            'user_id': 'nunique',
-            'usage_count': 'sum'
-        }).reset_index()
+        if 'email' in data.columns:
+            dept_stats = data.groupby('department').agg({
+                'email': lambda x: x.dropna().str.lower().nunique(),
+                'usage_count': 'sum'
+            }).reset_index()
+        else:
+            dept_stats = data.groupby('department').agg({
+                'user_id': 'nunique',
+                'usage_count': 'sum'
+            }).reset_index()
         dept_stats.columns = ['Department', 'Active Users', 'Total Usage']
         
         # Calculate message type breakdown for each department

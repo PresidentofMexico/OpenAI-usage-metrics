@@ -37,11 +37,18 @@ def generate_excel_export(data, include_pivots=True):
             user_summary.to_excel(writer, sheet_name='User Summary', index=False)
             
             # Department summary pivot
-            dept_summary = data.groupby('department').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum',
-                'cost_usd': 'sum'
-            }).reset_index()
+            if 'email' in data.columns:
+                dept_summary = data.groupby('department').agg({
+                    'email': lambda x: x.dropna().str.lower().nunique(),
+                    'usage_count': 'sum',
+                    'cost_usd': 'sum'
+                }).reset_index()
+            else:
+                dept_summary = data.groupby('department').agg({
+                    'user_id': 'nunique',
+                    'usage_count': 'sum',
+                    'cost_usd': 'sum'
+                }).reset_index()
             dept_summary.columns = ['Department', 'Active Users', 'Total Usage', 'Total Cost']
             dept_summary['Avg Cost per User'] = dept_summary['Total Cost'] / dept_summary['Active Users']
             dept_summary = dept_summary.sort_values('Total Usage', ascending=False)
@@ -54,22 +61,36 @@ def generate_excel_export(data, include_pivots=True):
                 monthly_data = monthly_data.dropna(subset=['date'])
                 monthly_data['month'] = monthly_data['date'].dt.to_period('M').astype(str)
                 
-                monthly_summary = monthly_data.groupby('month').agg({
-                    'user_id': 'nunique',
-                    'usage_count': 'sum',
-                    'cost_usd': 'sum'
-                }).reset_index()
+                if 'email' in monthly_data.columns:
+                    monthly_summary = monthly_data.groupby('month').agg({
+                        'email': lambda x: x.dropna().str.lower().nunique(),
+                        'usage_count': 'sum',
+                        'cost_usd': 'sum'
+                    }).reset_index()
+                else:
+                    monthly_summary = monthly_data.groupby('month').agg({
+                        'user_id': 'nunique',
+                        'usage_count': 'sum',
+                        'cost_usd': 'sum'
+                    }).reset_index()
                 monthly_summary.columns = ['Month', 'Active Users', 'Total Usage', 'Total Cost']
                 monthly_summary.to_excel(writer, sheet_name='Monthly Trends', index=False)
             except:
                 pass
             
             # Feature usage pivot
-            feature_summary = data.groupby('feature_used').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum',
-                'cost_usd': 'sum'
-            }).reset_index()
+            if 'email' in data.columns:
+                feature_summary = data.groupby('feature_used').agg({
+                    'email': lambda x: x.dropna().str.lower().nunique(),
+                    'usage_count': 'sum',
+                    'cost_usd': 'sum'
+                }).reset_index()
+            else:
+                feature_summary = data.groupby('feature_used').agg({
+                    'user_id': 'nunique',
+                    'usage_count': 'sum',
+                    'cost_usd': 'sum'
+                }).reset_index()
             feature_summary.columns = ['Feature', 'Unique Users', 'Total Usage', 'Total Cost']
             feature_summary = feature_summary.sort_values('Total Usage', ascending=False)
             feature_summary.to_excel(writer, sheet_name='Feature Usage', index=False)
@@ -90,16 +111,24 @@ def generate_pdf_report_html(data, report_title="AI Usage Analytics Report"):
     """
     # Calculate key metrics
     total_cost = data['cost_usd'].sum()
-    total_users = data['user_id'].nunique()
+    # Count unique emails for accurate user count
+    total_users = data['email'].dropna().str.lower().nunique() if 'email' in data.columns else data['user_id'].nunique()
     total_usage = data['usage_count'].sum()
     avg_cost_per_user = total_cost / max(total_users, 1)
     
     # Get top departments
-    dept_stats = data.groupby('department').agg({
-        'user_id': 'nunique',
-        'usage_count': 'sum',
-        'cost_usd': 'sum'
-    }).reset_index()
+    if 'email' in data.columns:
+        dept_stats = data.groupby('department').agg({
+            'email': lambda x: x.dropna().str.lower().nunique(),
+            'usage_count': 'sum',
+            'cost_usd': 'sum'
+        }).reset_index()
+    else:
+        dept_stats = data.groupby('department').agg({
+            'user_id': 'nunique',
+            'usage_count': 'sum',
+            'cost_usd': 'sum'
+        }).reset_index()
     dept_stats.columns = ['Department', 'Active Users', 'Total Usage', 'Total Cost']
     dept_stats = dept_stats.sort_values('Total Usage', ascending=False).head(5)
     
@@ -118,11 +147,18 @@ def generate_pdf_report_html(data, report_title="AI Usage Analytics Report"):
         monthly_data = monthly_data.dropna(subset=['date'])
         monthly_data['month'] = monthly_data['date'].dt.to_period('M').astype(str)
         
-        monthly_summary = monthly_data.groupby('month').agg({
-            'user_id': 'nunique',
-            'usage_count': 'sum',
-            'cost_usd': 'sum'
-        }).reset_index()
+        if 'email' in monthly_data.columns:
+            monthly_summary = monthly_data.groupby('month').agg({
+                'email': lambda x: x.dropna().str.lower().nunique(),
+                'usage_count': 'sum',
+                'cost_usd': 'sum'
+            }).reset_index()
+        else:
+            monthly_summary = monthly_data.groupby('month').agg({
+                'user_id': 'nunique',
+                'usage_count': 'sum',
+                'cost_usd': 'sum'
+            }).reset_index()
         monthly_summary.columns = ['Month', 'Active Users', 'Total Usage', 'Total Cost']
         
         monthly_html = monthly_summary.to_html(index=False, classes='data-table')
