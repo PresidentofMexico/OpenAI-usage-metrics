@@ -296,11 +296,20 @@ def calculate_roi_per_department(
         'monetary_value': 'sum'
     }
     
-    # Add user count if user_id exists
-    if 'user_id' in df.columns:
+    # Add user count - prioritize email for accuracy
+    if 'email' in df.columns:
+        result = df.groupby('department', as_index=False).agg({
+            **agg_dict,
+            'email': lambda x: x.dropna().str.lower().nunique()
+        })
+        result = result.rename(columns={'email': 'active_users'})
+    elif 'user_id' in df.columns:
         agg_dict['user_id'] = 'nunique'
-    
-    result = df.groupby('department', as_index=False).agg(agg_dict)
+        result = df.groupby('department', as_index=False).agg(agg_dict)
+        result = result.rename(columns={'user_id': 'active_users'})
+    else:
+        result = df.groupby('department', as_index=False).agg(agg_dict)
+        result['active_users'] = 0
     
     # Rename columns for clarity
     result = result.rename(columns={
@@ -308,8 +317,7 @@ def calculate_roi_per_department(
         'monetary_value': 'monetary_value_usd'
     })
     
-    if 'user_id' in result.columns:
-        result = result.rename(columns={'user_id': 'active_users'})
+    if 'active_users' in result.columns:
         # Calculate average value per user
         result['avg_value_per_user'] = (
             result['monetary_value_usd'] / result['active_users']
@@ -399,7 +407,8 @@ def calculate_composite_roi(
     total_usage = df['usage_count'].sum()
     
     # Calculate user metrics
-    total_users = df['user_id'].nunique() if 'user_id' in df.columns else 0
+    # Count unique emails to avoid over-counting users with multiple records
+    total_users = df['email'].dropna().str.lower().nunique() if 'email' in df.columns else (df['user_id'].nunique() if 'user_id' in df.columns else 0)
     avg_hours_per_user = total_hours / total_users if total_users > 0 else 0.0
     avg_value_per_user = total_value / total_users if total_users > 0 else 0.0
     

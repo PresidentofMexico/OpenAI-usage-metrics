@@ -2149,7 +2149,8 @@ def display_tool_comparison(data):
             st.markdown(f'<div class="tool-badge {badge_class}">{tool}</div>', unsafe_allow_html=True)
             
             # Key metrics - USAGE ONLY, NO COSTS
-            active_users = tool_data['user_id'].nunique()
+            # Count unique emails (not user_id) to avoid over-counting users with multiple records
+            active_users = tool_data['email'].dropna().str.lower().nunique() if 'email' in tool_data.columns else tool_data['user_id'].nunique()
             total_usage = tool_data['usage_count'].sum()
             
             st.metric("Active Users", f"{active_users}")
@@ -2244,8 +2245,11 @@ def calculate_duau(data):
     if data.empty or 'date' not in data.columns:
         return 0
     
-    # Group by date and count unique users
-    daily_users = data.groupby('date')['user_id'].nunique()
+    # Group by date and count unique users (using email for accuracy)
+    if 'email' in data.columns:
+        daily_users = data.groupby('date')['email'].apply(lambda x: x.dropna().str.lower().nunique())
+    else:
+        daily_users = data.groupby('date')['user_id'].nunique()
     
     # Calculate average
     duau = daily_users.mean() if not daily_users.empty else 0
@@ -2414,10 +2418,16 @@ def calculate_weekly_trends(data):
     data_copy['week'] = data_copy['date'].dt.to_period('W')
     
     # Aggregate by week
-    weekly = data_copy.groupby('week').agg({
-        'user_id': 'nunique',
-        'usage_count': 'sum'
-    }).reset_index()
+    if 'email' in data_copy.columns:
+        weekly = data_copy.groupby('week').agg({
+            'email': lambda x: x.dropna().str.lower().nunique(),
+            'usage_count': 'sum'
+        }).reset_index()
+    else:
+        weekly = data_copy.groupby('week').agg({
+            'user_id': 'nunique',
+            'usage_count': 'sum'
+        }).reset_index()
     weekly.columns = ['week', 'active_users', 'total_messages']
     
     # Format week for display as MM/DD/YYYY (vectorized)
@@ -2694,7 +2704,8 @@ def main():
                             # Show summary metrics
                             col1, col2 = st.columns(2)
                             with col1:
-                                st.metric("Users Found", normalized_df['user_id'].nunique())
+                                user_count = normalized_df['email'].dropna().str.lower().nunique() if 'email' in normalized_df.columns else normalized_df['user_id'].nunique()
+                                st.metric("Users Found", user_count)
                             with col2:
                                 st.metric("Total Usage", f"{normalized_df['usage_count'].sum():,}")
                             
@@ -3015,7 +3026,9 @@ def main():
                 # Show provider-specific stats
                 if selected_tool != 'All Tools':
                     tool_data = all_data[all_data['tool_source'] == selected_tool]
-                    st.info(f"📈 {selected_tool}: {tool_data['user_id'].nunique()} users, {len(tool_data):,} records")
+                    # Count unique emails to avoid over-counting users with multiple records
+                    unique_users = tool_data['email'].dropna().str.lower().nunique() if 'email' in tool_data.columns else tool_data['user_id'].nunique()
+                    st.info(f"📈 {selected_tool}: {unique_users} users, {len(tool_data):,} records")
             else:
                 selected_tool = 'All Tools'
             
@@ -3261,7 +3274,9 @@ def main():
             st.caption("ⓘ Blueflame weekly values are estimated from monthly totals (even-by-day allocation).")
         
         # Calculate key usage metrics
-        total_users = data['user_id'].nunique()
+        # Count unique emails (not user_id) to avoid over-counting users with multiple records
+        # This ensures accurate user counts matching actual organization headcount
+        total_users = data['email'].dropna().str.lower().nunique() if 'email' in data.columns else data['user_id'].nunique()
         total_usage = data['usage_count'].sum()
         avg_usage_per_user = total_usage / max(total_users, 1)
         
@@ -3314,8 +3329,9 @@ def main():
             )
             with st.expander("📊 Details"):
                 st.write("**Calculation:**")
-                st.code(f"COUNT(DISTINCT user_id) = {total_users:,}")
+                st.code(f"COUNT(DISTINCT email) = {total_users:,}")
                 st.write("Users with any message activity in the analyzed period")
+                st.caption("ℹ️ Counts unique emails to avoid over-counting users with multiple records")
         
         with col2:
             st.metric(
@@ -3349,13 +3365,12 @@ def main():
                 # Show engagement by provider
                 if not data.empty and 'tool_source' in data.columns:
                     st.write("**Messages per User by Provider:**")
-                    provider_engagement = data.groupby('tool_source').agg({
-                        'user_id': 'nunique',
-                        'usage_count': 'sum'
-                    })
-                    provider_engagement['msgs_per_user'] = provider_engagement['usage_count'] / provider_engagement['user_id']
-                    for provider, row in provider_engagement.iterrows():
-                        st.write(f"• {provider}: {row['msgs_per_user']:,.0f} msgs/user")
+                    # Count unique emails per provider for accurate user counts
+                    provider_users = data.groupby('tool_source')['email'].apply(lambda x: x.dropna().str.lower().nunique()).to_dict()
+                    provider_usage = data.groupby('tool_source')['usage_count'].sum().to_dict()
+                    for provider in provider_users.keys():
+                        msgs_per_user = provider_usage[provider] / max(provider_users[provider], 1)
+                        st.write(f"• {provider}: {msgs_per_user:,.0f} msgs/user")
         
         with col4:
             # Calculate active departments
@@ -3492,7 +3507,8 @@ def main():
                     completeness = min(completeness, col_completeness)
         
         # Get unique users count
-        unique_users = data['user_id'].nunique() if not data.empty else 0
+        # Count unique emails to avoid over-counting users with multiple records
+        unique_users = data['email'].dropna().str.lower().nunique() if not data.empty and 'email' in data.columns else (data['user_id'].nunique() if not data.empty else 0)
         
         # Calculate date coverage
         try:
@@ -3523,10 +3539,16 @@ def main():
         if not data.empty and 'tool_source' in data.columns:
             st.markdown('<div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 0.5rem; border: 1px solid #e2e8f0;">', unsafe_allow_html=True)
             st.write("**Data Sources:**")
-            source_summary = data.groupby('tool_source').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum'
-            }).reset_index()
+            if 'email' in data.columns:
+                source_summary = data.groupby('tool_source').agg({
+                    'email': lambda x: x.dropna().str.lower().nunique(),
+                    'usage_count': 'sum'
+                }).reset_index()
+            else:
+                source_summary = data.groupby('tool_source').agg({
+                    'user_id': 'nunique',
+                    'usage_count': 'sum'
+                }).reset_index()
             source_summary.columns = ['Provider', 'Users', 'Messages']
             
             total_messages = data['usage_count'].sum()
@@ -3548,10 +3570,16 @@ def main():
             monthly_data['month'] = monthly_data['date'].dt.to_period('M').astype(str)
             
             # Calculate monthly metrics
-            monthly_metrics = monthly_data.groupby('month').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum'
-            }).reset_index()
+            if 'email' in monthly_data.columns:
+                monthly_metrics = monthly_data.groupby('month').agg({
+                    'email': lambda x: x.dropna().str.lower().nunique(),
+                    'usage_count': 'sum'
+                }).reset_index()
+            else:
+                monthly_metrics = monthly_data.groupby('month').agg({
+                    'user_id': 'nunique',
+                    'usage_count': 'sum'
+                }).reset_index()
             monthly_metrics.columns = ['Month', 'Active Users', 'Total Usage']
             
             # Calculate MoM changes
@@ -3618,10 +3646,16 @@ def main():
         st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Department Performance</h3>', unsafe_allow_html=True)
         
         # Calculate comprehensive department statistics with message type breakdown
-        dept_stats = data.groupby('department').agg({
-            'user_id': 'nunique',
-            'usage_count': 'sum'
-        }).reset_index()
+        if 'email' in data.columns:
+            dept_stats = data.groupby('department').agg({
+                'email': lambda x: x.dropna().str.lower().nunique(),
+                'usage_count': 'sum'
+            }).reset_index()
+        else:
+            dept_stats = data.groupby('department').agg({
+                'user_id': 'nunique',
+                'usage_count': 'sum'
+            }).reset_index()
         dept_stats.columns = ['Department', 'Active Users', 'Total Usage']
         
         # Calculate message type breakdown for each department
@@ -4335,7 +4369,8 @@ def main():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                total_active = openai_data['user_id'].nunique()
+                # Count unique emails to avoid over-counting users
+                total_active = openai_data['email'].dropna().str.lower().nunique() if 'email' in openai_data.columns else openai_data['user_id'].nunique()
                 st.metric(
                     "Total Active Users",
                     f"{total_active:,}",
@@ -4343,8 +4378,9 @@ def main():
                 )
                 with st.expander("📊 Details"):
                     st.write("**Calculation:**")
-                    st.code(f"COUNT(DISTINCT user_id) = {total_active:,}")
+                    st.code(f"COUNT(DISTINCT email) = {total_active:,}")
                     st.write(f"Users with any ChatGPT message activity in the selected period")
+                    st.caption("ℹ️ Counts unique emails to ensure accurate user counts")
             
             with col2:
                 duau = calculate_duau(openai_data)
@@ -5486,7 +5522,9 @@ def main():
                 )
             
             with col3:
-                avg_hours_per_user = total_hours_saved / max(data['user_id'].nunique(), 1)
+                # Count unique emails for accurate per-user metrics
+                unique_users = data['email'].dropna().str.lower().nunique() if 'email' in data.columns else data['user_id'].nunique()
+                avg_hours_per_user = total_hours_saved / max(unique_users, 1)
                 st.metric(
                     "Avg Hours/User",
                     f"{avg_hours_per_user:,.1f}",
@@ -5496,7 +5534,8 @@ def main():
             with col4:
                 # Calculate monthly productivity boost as percentage
                 # Using configurable monthly work hours (default: 160 hours = 20 days × 8 hours)
-                total_users = data['user_id'].nunique()
+                # Count unique emails to avoid over-counting users
+                total_users = data['email'].dropna().str.lower().nunique() if 'email' in data.columns else data['user_id'].nunique()
                 available_hours = total_users * ROI_MONTHLY_WORK_HOURS
                 productivity_boost = (total_hours_saved / max(available_hours, 1)) * 100
                 st.metric(
@@ -5603,7 +5642,8 @@ def main():
                     month_data = ts_data[ts_data['month'] == month]
                     
                     # Core metrics
-                    active_users = month_data['user_id'].nunique()
+                    # Count unique emails to avoid over-counting users with multiple records
+                    active_users = month_data['email'].dropna().str.lower().nunique() if 'email' in month_data.columns else month_data['user_id'].nunique()
                     total_messages = month_data['usage_count'].sum()
                     unique_features = month_data['feature_used'].nunique()
                     
@@ -5791,7 +5831,8 @@ def main():
                 
                 total_messages = dept_data['usage_count'].sum()
                 unique_features = dept_data['feature_used'].nunique()
-                active_users = dept_data['user_id'].nunique()
+                # Count unique emails to avoid over-counting users
+                active_users = dept_data['email'].dropna().str.lower().nunique() if 'email' in dept_data.columns else dept_data['user_id'].nunique()
                 
                 # Calculate time savings
                 dept_data_copy = dept_data.copy()
@@ -6440,7 +6481,8 @@ def get_database_info():
     
     total_stats = {
         'total_records': len(all_data),
-        'total_users': all_data['user_id'].nunique(),
+        # Count unique emails to avoid over-counting users with multiple records
+        'total_users': all_data['email'].dropna().str.lower().nunique() if 'email' in all_data.columns else all_data['user_id'].nunique(),
         'total_days': total_days,
         'total_cost': float(total_cost)
     }

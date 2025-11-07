@@ -116,7 +116,8 @@ try:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            total_users = data['user_id'].nunique()
+            # Count unique emails to avoid over-counting users with multiple records
+            total_users = data['email'].dropna().str.lower().nunique() if 'email' in data.columns else data['user_id'].nunique()
             st.metric("Total Active Users", total_users)
         
         with col2:
