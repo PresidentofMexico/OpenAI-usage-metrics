@@ -86,11 +86,13 @@ class DataProcessor:
                     # Delete existing BlueFlame data for each month covered in the new upload
                     deleted_total = 0
                     for month_period in unique_months:
-                        # Convert period to first day of month for comparison
+                        # Convert period to date range for this month
+                        # month_start: first day of the month
+                        # month_end: first day of next month (exclusive upper bound)
                         month_start = month_period.to_timestamp()
-                        month_end = (month_period + 1).to_timestamp() - pd.Timedelta(days=1)
+                        month_end = (month_period + 1).to_timestamp()
                         
-                        # Delete records for this specific month
+                        # Delete records for this specific month (date >= month_start AND date < month_end)
                         cursor.execute("""
                             DELETE FROM usage_metrics 
                             WHERE tool_source = 'BlueFlame AI' 
