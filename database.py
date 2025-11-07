@@ -485,6 +485,102 @@ class DatabaseManager:
             print(f"Error getting database stats: {e}")
             return None
     
+    def get_superseding_preview(self, tool_source, months, users):
+        """
+        Get preview of records that will be superseded (deleted) for given months and users.
+        
+        Args:
+            tool_source: Tool source name (e.g., 'ChatGPT', 'BlueFlame AI')
+            months: List of month period strings (e.g., ['2025-01', '2025-02'])
+            users: List of user IDs
+            
+        Returns:
+            dict: Summary of records that will be affected
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Build query to count affected records
+            month_conditions = []
+            params = [tool_source]
+            
+            for month_str in months:
+                # Parse month string to period
+                try:
+                    month_period = pd.Period(month_str, 'M')
+                    month_start = month_period.to_timestamp().strftime('%Y-%m-%d')
+                    month_end = (month_period + 1).to_timestamp().strftime('%Y-%m-%d')
+                    month_conditions.append(f"(date >= ? AND date < ?)")
+                    params.extend([month_start, month_end])
+                except:
+                    continue
+            
+            if not month_conditions:
+                conn.close()
+                return {'total_records': 0, 'affected_users': 0, 'months': []}
+            
+            # Build user condition
+            user_placeholders = ','.join(['?' for _ in users])
+            params.extend(users)
+            
+            query = f"""
+                SELECT 
+                    COUNT(*) as total_records,
+                    COUNT(DISTINCT user_id) as affected_users,
+                    COUNT(DISTINCT date) as affected_dates
+                FROM usage_metrics
+                WHERE tool_source = ?
+                AND ({' OR '.join(month_conditions)})
+                AND user_id IN ({user_placeholders})
+            """
+            
+            cursor.execute(query, params)
+            result = cursor.fetchone()
+            
+            conn.close()
+            
+            return {
+                'total_records': result[0] if result else 0,
+                'affected_users': result[1] if result else 0,
+                'affected_dates': result[2] if result else 0,
+                'months': months
+            }
+            
+        except Exception as e:
+            print(f"Error getting superseding preview: {e}")
+            return {'total_records': 0, 'affected_users': 0, 'months': []}
+    
+    def detect_duplicates(self):
+        """
+        Detect duplicate records based on (user_id, date, feature_used, tool_source).
+        
+        Returns:
+            DataFrame with duplicate record information
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            query = """
+                SELECT 
+                    user_id,
+                    date,
+                    feature_used,
+                    tool_source,
+                    COUNT(*) as duplicate_count,
+                    SUM(usage_count) as total_usage,
+                    GROUP_CONCAT(id) as record_ids
+                FROM usage_metrics
+                GROUP BY user_id, date, feature_used, tool_source
+                HAVING COUNT(*) > 1
+                ORDER BY duplicate_count DESC, total_usage DESC
+            """
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            return df
+        except Exception as e:
+            print(f"Error detecting duplicates: {e}")
+            return pd.DataFrame()
+    
     def load_employees(self, df):
         """
         Load or update employee records from a DataFrame.
