@@ -944,10 +944,19 @@ def detect_data_source(df):
         return 'ChatGPT'
     
     # BlueFlame AI detection - updated for all formats
-    # Check for month columns in format 'Mon-YY' (e.g., 'Sep-24', 'Oct-25')
-    has_month_cols = any(col for col in columns if len(col.split('-')) == 2 and 
-                        col.split('-')[0] in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                                             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
+    # Check for month columns in both formats:
+    # - Mon-YY format (e.g., 'Sep-24', 'Oct-25')
+    # - YY-Mon format (e.g., '25-Apr', '25-Sep')
+    month_abbrevs = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+    has_month_cols = any(
+        col for col in columns 
+        if len(col.split('-')) == 2 and (
+            col.split('-')[0] in month_abbrevs or  # Mon-YY format
+            col.split('-')[1] in month_abbrevs     # YY-Mon format
+        )
+    )
     
     if ('Metric' in columns and any(col.startswith('MoM Var') for col in columns)) or \
        ('Total Messages' in df.values if not df.empty else False) or \
