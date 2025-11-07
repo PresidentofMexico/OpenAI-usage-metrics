@@ -69,21 +69,26 @@ class DataProcessor:
             # Get tool source for the data
             tool_source = processed_df['tool_source'].iloc[0] if 'tool_source' in processed_df.columns else 'Unknown'
             
-            # For BlueFlame AI wide-format uploads, supersede existing data for covered months
-            # This ensures that each new monthly upload fully replaces historical data for those months
-            if tool_source == 'BlueFlame AI' and 'date' in processed_df.columns:
-                # Extract unique months from the new data
-                processed_df['date'] = pd.to_datetime(processed_df['date'])
+            # UNIVERSAL DATA SUPERSEDING FOR BOTH BlueFlame AND OpenAI
+            # This ensures that each new upload fully replaces data for covered months and users
+            # Prevents duplicate/inflated message counts from re-uploads
+            if tool_source in ['BlueFlame AI', 'ChatGPT'] and 'date' in processed_df.columns:
+                # Extract unique months and users from the new data
+                processed_df['date'] = pd.to_datetime(processed_df['date'], errors='coerce')
+                # Filter out any invalid dates
+                processed_df = processed_df.dropna(subset=['date'])
                 unique_months = processed_df['date'].dt.to_period('M').unique()
+                unique_users = processed_df['user_id'].unique() if 'user_id' in processed_df.columns else []
                 
                 if len(unique_months) > 0:
-                    print(f"BlueFlame AI data covers {len(unique_months)} month(s): {[str(m) for m in unique_months]}")
-                    print("Superseding existing data for these months...")
+                    print(f"{tool_source} data covers {len(unique_months)} month(s): {[str(m) for m in unique_months]}")
+                    print(f"{tool_source} data contains {len(unique_users)} unique user(s)")
+                    print("Superseding existing data for these months and users...")
                     
                     conn = sqlite3.connect(self.db.db_path)
                     cursor = conn.cursor()
                     
-                    # Delete existing BlueFlame data for each month covered in the new upload
+                    # Delete existing data for each (month, user) combination covered in the new upload
                     deleted_total = 0
                     for month_period in unique_months:
                         # Convert period to date range for this month
@@ -92,22 +97,27 @@ class DataProcessor:
                         month_start = month_period.to_timestamp()
                         month_end = (month_period + 1).to_timestamp()
                         
-                        # Delete records for this specific month (date >= month_start AND date < month_end)
-                        cursor.execute("""
-                            DELETE FROM usage_metrics 
-                            WHERE tool_source = 'BlueFlame AI' 
-                            AND date >= ? AND date < ?
-                        """, (month_start.strftime('%Y-%m-%d'), month_end.strftime('%Y-%m-%d')))
-                        
-                        deleted_count = cursor.rowcount
-                        deleted_total += deleted_count
-                        print(f"  Deleted {deleted_count} existing records for {month_period}")
+                        for user_id in unique_users:
+                            # Delete records for this specific (tool, month, user) combination
+                            cursor.execute("""
+                                DELETE FROM usage_metrics 
+                                WHERE tool_source = ? 
+                                AND date >= ? AND date < ?
+                                AND user_id = ?
+                            """, (tool_source, month_start.strftime('%Y-%m-%d'), month_end.strftime('%Y-%m-%d'), user_id))
+                            
+                            deleted_count = cursor.rowcount
+                            if deleted_count > 0:
+                                deleted_total += deleted_count
+                                print(f"  Deleted {deleted_count} existing record(s) for {month_period}, user {user_id}")
                     
                     conn.commit()
                     conn.close()
                     
                     if deleted_total > 0:
                         print(f"Total records superseded: {deleted_total}")
+                    else:
+                        print("No existing records found to supersede (first upload for these months/users)")
             
             # Insert into database
             conn = sqlite3.connect(self.db.db_path)
