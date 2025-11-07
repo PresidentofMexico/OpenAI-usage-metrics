@@ -1,0 +1,9 @@
+Table,Rank,User ID,Metric,Sep-24,Oct-24,Nov-24,Dec-24,Jan-25,Feb-25,Mar-25,MoM Var Sep-24,MoM Var Oct-24,MoM Var Nov-24,MoM Var Dec-24
+Overall Monthly Trends,,,Total Messages,800,1200,1500,1800,2100,2400,2700,400,300,300,300
+Overall Monthly Trends,,,MoM Growth %,,,,,,,,,,
+Overall Monthly Trends,,,Monthly Active Users (MAUs),20,25,30,35,40,45,50,5,5,5,5
+Overall Monthly Trends,,,Avg. Messages per MAU,40,48,50,51,52,53,54,8,2,1,1
+Top 20 Users Total,1,alice.smith@company.com,,,120,150,180,200,220,250,280,,,
+Top 20 Users Total,2,bob.jones@company.com,,,100,130,140,150,160,170,180,,,
+Top 10 Increasing Users,1,alice.smith@company.com,,,120,150,180,200,220,250,280,,,
+Top 10 Decreasing Users,1,charlie.brown@company.com,,,80,70,60,50,40,30,20,,,

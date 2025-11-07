@@ -277,6 +277,31 @@ class DataProcessor:
         # Handle simple string
         return str(dept_str).title()
     
+    def parse_blueflame_month_column(self, month_col):
+        """
+        Parse BlueFlame month column to datetime, handling both formats:
+        - 'Mon-YY' format (e.g., 'Sep-24')
+        - 'YY-Mon' format (e.g., '25-Sep')
+        
+        Args:
+            month_col (str): Column name containing month information
+            
+        Returns:
+            pandas.Timestamp: Parsed datetime if successful, pd.NaT if parsing fails
+        """
+        # Try Mon-YY format first (original format)
+        month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+        if not pd.isna(month_date):
+            return month_date
+        
+        # Try YY-Mon format (new format)
+        month_date = pd.to_datetime(month_col, format='%y-%b', errors='coerce')
+        if not pd.isna(month_date):
+            return month_date
+        
+        # Both formats failed
+        return pd.NaT
+    
     def normalize_blueflame_data(self, df, filename):
         """
         Normalize BlueFlame AI data to standard schema.
@@ -305,7 +330,14 @@ class DataProcessor:
                 monthly_trends = df[df['Table'] == 'Overall Monthly Trends']
                 user_data = df[(df['Table'] == 'Top 20 Users Total') | 
                               (df['Table'] == 'Top 10 Increasing Users') | 
-                              (df['Table'] == 'Top 10 Decreasing Users')]
+                              (df['Table'] == 'Top 10 Decreasing Users') |
+                              (df['Table'] == 'All Users Total') |
+                              (df['Table'] == 'All Increasing Users') |
+                              (df['Table'] == 'All Decreasing Users')]
+                
+                # Deduplicate user data - same user may appear in multiple tables
+                if not user_data.empty and 'User ID' in user_data.columns:
+                    user_data = user_data.drop_duplicates(subset=['User ID'], keep='first')
                 
                 # Process monthly trends (aggregate metrics)
                 if not monthly_trends.empty:
@@ -316,8 +348,8 @@ class DataProcessor:
                     # Process each month that has data
                     for month_col in month_cols:
                         try:
-                            # Parse month to a datetime
-                            month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                            # Parse month to a datetime (supports both Mon-YY and YY-Mon formats)
+                            month_date = self.parse_blueflame_month_column(month_col)
                             if pd.isna(month_date):
                                 continue
                             
@@ -398,8 +430,8 @@ class DataProcessor:
                         # Process each month for this user
                         for month_col in month_cols:
                             try:
-                                # Parse month to a datetime
-                                month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                                # Parse month to a datetime (supports both Mon-YY and YY-Mon formats)
+                                month_date = self.parse_blueflame_month_column(month_col)
                                 if pd.isna(month_date):
                                     continue
                                 
@@ -442,8 +474,8 @@ class DataProcessor:
                 # Process each month that has data
                 for month_col in month_cols:
                     try:
-                        # Parse month to a datetime
-                        month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                        # Parse month to a datetime (supports both Mon-YY and YY-Mon formats)
+                        month_date = self.parse_blueflame_month_column(month_col)
                         if pd.isna(month_date):
                             continue
                         
@@ -525,8 +557,8 @@ class DataProcessor:
                     # Process each month for this user
                     for month_col in month_cols:
                         try:
-                            # Parse month to a datetime
-                            month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                            # Parse month to a datetime (supports both Mon-YY and YY-Mon formats)
+                            month_date = self.parse_blueflame_month_column(month_col)
                             if pd.isna(month_date):
                                 continue
                             
