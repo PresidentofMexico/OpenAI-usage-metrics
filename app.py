@@ -141,9 +141,18 @@ def auto_load_employee_file(db_manager):
                 if not should_reload:
                     continue
                 
-                # Read the employee file
+                # Read the employee file using robust encoding detection
                 print(f"[auto_load_employee_file] Reading CSV file: {file_path}")
-                emp_df = pd.read_csv(file_path, low_memory=False)
+                emp_df, error_msg = read_file_from_path(file_path)
+                
+                if error_msg:
+                    print(f"[auto_load_employee_file] ❌ Error reading file: {error_msg}")
+                    continue  # Try next candidate file
+                
+                if emp_df is None:
+                    print(f"[auto_load_employee_file] ❌ Failed to read file: {file_path}")
+                    continue  # Try next candidate file
+                
                 print(f"[auto_load_employee_file] CSV contains {len(emp_df)} rows")
                 
                 # Map columns - adjust based on the CSV structure
@@ -6250,57 +6259,59 @@ def main():
         
         if employee_file is not None:
             try:
-                # Read the file
-                if employee_file.name.endswith('.csv'):
-                    emp_df = pd.read_csv(employee_file, low_memory=False)
-                else:
-                    emp_df = pd.read_excel(employee_file)
+                # Read the file using robust encoding detection
+                emp_df, error_msg = read_file_robust(employee_file)
                 
-                st.write(f"**Preview of {employee_file.name}:**")
-                st.dataframe(emp_df.head(5), use_container_width=True)
+                if error_msg:
+                    display_file_error(error_msg)
+                    emp_df = None
                 
-                # Map columns
-                st.write("**Column Mapping:**")
-                st.info("ℹ️ Email column is optional. If your file doesn't have email addresses, employees will be matched by name.")
-                col_map_col1, col_map_col2 = st.columns(2)
-                
-                with col_map_col1:
-                    first_name_col = st.selectbox("First Name Column", emp_df.columns, 
-                                                  index=next((i for i, c in enumerate(emp_df.columns) if 'first' in c.lower()), 0))
-                    last_name_col = st.selectbox("Last Name Column", emp_df.columns,
-                                                index=next((i for i, c in enumerate(emp_df.columns) if 'last' in c.lower()), 1))
-                    # Make email optional
-                    email_col_options = ['[No Email Column]'] + list(emp_df.columns)
-                    email_col_idx = next((i+1 for i, c in enumerate(emp_df.columns) if 'email' in c.lower()), 0)
-                    email_col_selection = st.selectbox("Email Column (Optional)", email_col_options, index=email_col_idx)
-                
-                with col_map_col2:
-                    title_col = st.selectbox("Title Column", emp_df.columns,
-                                           index=next((i for i, c in enumerate(emp_df.columns) if 'title' in c.lower() or 'position' in c.lower()), 3))
-                    dept_col = st.selectbox("Department Column (Function)", emp_df.columns,
-                                          index=next((i for i, c in enumerate(emp_df.columns) if 'function' in c.lower() or 'department' in c.lower() or 'dept' in c.lower()), 4))
-                    status_col = st.selectbox("Status Column", emp_df.columns,
-                                            index=next((i for i, c in enumerate(emp_df.columns) if 'status' in c.lower()), 5))
-                
-                if st.button("📥 Load Employees", type="primary"):
-                    # Create normalized dataframe
-                    normalized_emp_df = pd.DataFrame({
-                        'first_name': emp_df[first_name_col],
-                        'last_name': emp_df[last_name_col],
-                        'email': emp_df[email_col_selection] if email_col_selection != '[No Email Column]' else None,
-                        'title': emp_df[title_col],
-                        'department': emp_df[dept_col],
-                        'status': emp_df[status_col]
-                    })
+                if emp_df is not None:
+                    st.write(f"**Preview of {employee_file.name}:**")
+                    st.dataframe(emp_df.head(5), use_container_width=True)
                     
-                    # Load into database
-                    success, message, count = db.load_employees(normalized_emp_df)
+                    # Map columns
+                    st.write("**Column Mapping:**")
+                    st.info("ℹ️ Email column is optional. If your file doesn't have email addresses, employees will be matched by name.")
+                    col_map_col1, col_map_col2 = st.columns(2)
                     
-                    if success:
-                        st.success(f"✅ {message}")
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
+                    with col_map_col1:
+                        first_name_col = st.selectbox("First Name Column", emp_df.columns, 
+                                                      index=next((i for i, c in enumerate(emp_df.columns) if 'first' in c.lower()), 0))
+                        last_name_col = st.selectbox("Last Name Column", emp_df.columns,
+                                                    index=next((i for i, c in enumerate(emp_df.columns) if 'last' in c.lower()), 1))
+                        # Make email optional
+                        email_col_options = ['[No Email Column]'] + list(emp_df.columns)
+                        email_col_idx = next((i+1 for i, c in enumerate(emp_df.columns) if 'email' in c.lower()), 0)
+                        email_col_selection = st.selectbox("Email Column (Optional)", email_col_options, index=email_col_idx)
+                    
+                    with col_map_col2:
+                        title_col = st.selectbox("Title Column", emp_df.columns,
+                                               index=next((i for i, c in enumerate(emp_df.columns) if 'title' in c.lower() or 'position' in c.lower()), 3))
+                        dept_col = st.selectbox("Department Column (Function)", emp_df.columns,
+                                              index=next((i for i, c in enumerate(emp_df.columns) if 'function' in c.lower() or 'department' in c.lower() or 'dept' in c.lower()), 4))
+                        status_col = st.selectbox("Status Column", emp_df.columns,
+                                                index=next((i for i, c in enumerate(emp_df.columns) if 'status' in c.lower()), 5))
+                    
+                    if st.button("📥 Load Employees", type="primary"):
+                        # Create normalized dataframe
+                        normalized_emp_df = pd.DataFrame({
+                            'first_name': emp_df[first_name_col],
+                            'last_name': emp_df[last_name_col],
+                            'email': emp_df[email_col_selection] if email_col_selection != '[No Email Column]' else None,
+                            'title': emp_df[title_col],
+                            'department': emp_df[dept_col],
+                            'status': emp_df[status_col]
+                        })
+                        
+                        # Load into database
+                        success, message, count = db.load_employees(normalized_emp_df)
+                        
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
                         
             except Exception as e:
                 st.error(f"❌ Error processing employee file: {str(e)}")
