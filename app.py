@@ -141,9 +141,18 @@ def auto_load_employee_file(db_manager):
                 if not should_reload:
                     continue
                 
-                # Read the employee file
+                # Read the employee file using robust encoding detection
                 print(f"[auto_load_employee_file] Reading CSV file: {file_path}")
-                emp_df = pd.read_csv(file_path, low_memory=False)
+                emp_df, error_msg = read_file_from_path(file_path)
+                
+                if error_msg:
+                    print(f"[auto_load_employee_file] ❌ Error reading file: {error_msg}")
+                    continue  # Try next candidate file
+                
+                if emp_df is None:
+                    print(f"[auto_load_employee_file] ❌ Failed to read file: {file_path}")
+                    continue  # Try next candidate file
+                
                 print(f"[auto_load_employee_file] CSV contains {len(emp_df)} rows")
                 
                 # Map columns - adjust based on the CSV structure
@@ -2149,7 +2158,8 @@ def display_tool_comparison(data):
             st.markdown(f'<div class="tool-badge {badge_class}">{tool}</div>', unsafe_allow_html=True)
             
             # Key metrics - USAGE ONLY, NO COSTS
-            active_users = tool_data['user_id'].nunique()
+            # Count unique emails (not user_id) to avoid over-counting users with multiple records
+            active_users = tool_data['email'].dropna().str.lower().nunique() if 'email' in tool_data.columns else tool_data['user_id'].nunique()
             total_usage = tool_data['usage_count'].sum()
             
             st.metric("Active Users", f"{active_users}")
@@ -2244,8 +2254,11 @@ def calculate_duau(data):
     if data.empty or 'date' not in data.columns:
         return 0
     
-    # Group by date and count unique users
-    daily_users = data.groupby('date')['user_id'].nunique()
+    # Group by date and count unique users (using email for accuracy)
+    if 'email' in data.columns:
+        daily_users = data.groupby('date')['email'].apply(lambda x: x.dropna().str.lower().nunique())
+    else:
+        daily_users = data.groupby('date')['user_id'].nunique()
     
     # Calculate average
     duau = daily_users.mean() if not daily_users.empty else 0
@@ -2414,10 +2427,16 @@ def calculate_weekly_trends(data):
     data_copy['week'] = data_copy['date'].dt.to_period('W')
     
     # Aggregate by week
-    weekly = data_copy.groupby('week').agg({
-        'user_id': 'nunique',
-        'usage_count': 'sum'
-    }).reset_index()
+    if 'email' in data_copy.columns:
+        weekly = data_copy.groupby('week').agg({
+            'email': lambda x: x.dropna().str.lower().nunique(),
+            'usage_count': 'sum'
+        }).reset_index()
+    else:
+        weekly = data_copy.groupby('week').agg({
+            'user_id': 'nunique',
+            'usage_count': 'sum'
+        }).reset_index()
     weekly.columns = ['week', 'active_users', 'total_messages']
     
     # Format week for display as MM/DD/YYYY (vectorized)
@@ -2694,7 +2713,8 @@ def main():
                             # Show summary metrics
                             col1, col2 = st.columns(2)
                             with col1:
-                                st.metric("Users Found", normalized_df['user_id'].nunique())
+                                user_count = normalized_df['email'].dropna().str.lower().nunique() if 'email' in normalized_df.columns else normalized_df['user_id'].nunique()
+                                st.metric("Users Found", user_count)
                             with col2:
                                 st.metric("Total Usage", f"{normalized_df['usage_count'].sum():,}")
                             
@@ -3015,7 +3035,9 @@ def main():
                 # Show provider-specific stats
                 if selected_tool != 'All Tools':
                     tool_data = all_data[all_data['tool_source'] == selected_tool]
-                    st.info(f"📈 {selected_tool}: {tool_data['user_id'].nunique()} users, {len(tool_data):,} records")
+                    # Count unique emails to avoid over-counting users with multiple records
+                    unique_users = tool_data['email'].dropna().str.lower().nunique() if 'email' in tool_data.columns else tool_data['user_id'].nunique()
+                    st.info(f"📈 {selected_tool}: {unique_users} users, {len(tool_data):,} records")
             else:
                 selected_tool = 'All Tools'
             
@@ -3261,7 +3283,9 @@ def main():
             st.caption("ⓘ Blueflame weekly values are estimated from monthly totals (even-by-day allocation).")
         
         # Calculate key usage metrics
-        total_users = data['user_id'].nunique()
+        # Count unique emails (not user_id) to avoid over-counting users with multiple records
+        # This ensures accurate user counts matching actual organization headcount
+        total_users = data['email'].dropna().str.lower().nunique() if 'email' in data.columns else data['user_id'].nunique()
         total_usage = data['usage_count'].sum()
         avg_usage_per_user = total_usage / max(total_users, 1)
         
@@ -3314,8 +3338,9 @@ def main():
             )
             with st.expander("📊 Details"):
                 st.write("**Calculation:**")
-                st.code(f"COUNT(DISTINCT user_id) = {total_users:,}")
+                st.code(f"COUNT(DISTINCT email) = {total_users:,}")
                 st.write("Users with any message activity in the analyzed period")
+                st.caption("ℹ️ Counts unique emails to avoid over-counting users with multiple records")
         
         with col2:
             st.metric(
@@ -3349,13 +3374,12 @@ def main():
                 # Show engagement by provider
                 if not data.empty and 'tool_source' in data.columns:
                     st.write("**Messages per User by Provider:**")
-                    provider_engagement = data.groupby('tool_source').agg({
-                        'user_id': 'nunique',
-                        'usage_count': 'sum'
-                    })
-                    provider_engagement['msgs_per_user'] = provider_engagement['usage_count'] / provider_engagement['user_id']
-                    for provider, row in provider_engagement.iterrows():
-                        st.write(f"• {provider}: {row['msgs_per_user']:,.0f} msgs/user")
+                    # Count unique emails per provider for accurate user counts
+                    provider_users = data.groupby('tool_source')['email'].apply(lambda x: x.dropna().str.lower().nunique()).to_dict()
+                    provider_usage = data.groupby('tool_source')['usage_count'].sum().to_dict()
+                    for provider in provider_users.keys():
+                        msgs_per_user = provider_usage[provider] / max(provider_users[provider], 1)
+                        st.write(f"• {provider}: {msgs_per_user:,.0f} msgs/user")
         
         with col4:
             # Calculate active departments
@@ -3492,7 +3516,8 @@ def main():
                     completeness = min(completeness, col_completeness)
         
         # Get unique users count
-        unique_users = data['user_id'].nunique() if not data.empty else 0
+        # Count unique emails to avoid over-counting users with multiple records
+        unique_users = data['email'].dropna().str.lower().nunique() if not data.empty and 'email' in data.columns else (data['user_id'].nunique() if not data.empty else 0)
         
         # Calculate date coverage
         try:
@@ -3523,10 +3548,16 @@ def main():
         if not data.empty and 'tool_source' in data.columns:
             st.markdown('<div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 0.5rem; border: 1px solid #e2e8f0;">', unsafe_allow_html=True)
             st.write("**Data Sources:**")
-            source_summary = data.groupby('tool_source').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum'
-            }).reset_index()
+            if 'email' in data.columns:
+                source_summary = data.groupby('tool_source').agg({
+                    'email': lambda x: x.dropna().str.lower().nunique(),
+                    'usage_count': 'sum'
+                }).reset_index()
+            else:
+                source_summary = data.groupby('tool_source').agg({
+                    'user_id': 'nunique',
+                    'usage_count': 'sum'
+                }).reset_index()
             source_summary.columns = ['Provider', 'Users', 'Messages']
             
             total_messages = data['usage_count'].sum()
@@ -3548,10 +3579,16 @@ def main():
             monthly_data['month'] = monthly_data['date'].dt.to_period('M').astype(str)
             
             # Calculate monthly metrics
-            monthly_metrics = monthly_data.groupby('month').agg({
-                'user_id': 'nunique',
-                'usage_count': 'sum'
-            }).reset_index()
+            if 'email' in monthly_data.columns:
+                monthly_metrics = monthly_data.groupby('month').agg({
+                    'email': lambda x: x.dropna().str.lower().nunique(),
+                    'usage_count': 'sum'
+                }).reset_index()
+            else:
+                monthly_metrics = monthly_data.groupby('month').agg({
+                    'user_id': 'nunique',
+                    'usage_count': 'sum'
+                }).reset_index()
             monthly_metrics.columns = ['Month', 'Active Users', 'Total Usage']
             
             # Calculate MoM changes
@@ -3618,10 +3655,16 @@ def main():
         st.markdown('<h3 style="color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 1rem;">Department Performance</h3>', unsafe_allow_html=True)
         
         # Calculate comprehensive department statistics with message type breakdown
-        dept_stats = data.groupby('department').agg({
-            'user_id': 'nunique',
-            'usage_count': 'sum'
-        }).reset_index()
+        if 'email' in data.columns:
+            dept_stats = data.groupby('department').agg({
+                'email': lambda x: x.dropna().str.lower().nunique(),
+                'usage_count': 'sum'
+            }).reset_index()
+        else:
+            dept_stats = data.groupby('department').agg({
+                'user_id': 'nunique',
+                'usage_count': 'sum'
+            }).reset_index()
         dept_stats.columns = ['Department', 'Active Users', 'Total Usage']
         
         # Calculate message type breakdown for each department
@@ -4335,7 +4378,8 @@ def main():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                total_active = openai_data['user_id'].nunique()
+                # Count unique emails to avoid over-counting users
+                total_active = openai_data['email'].dropna().str.lower().nunique() if 'email' in openai_data.columns else openai_data['user_id'].nunique()
                 st.metric(
                     "Total Active Users",
                     f"{total_active:,}",
@@ -4343,8 +4387,9 @@ def main():
                 )
                 with st.expander("📊 Details"):
                     st.write("**Calculation:**")
-                    st.code(f"COUNT(DISTINCT user_id) = {total_active:,}")
+                    st.code(f"COUNT(DISTINCT email) = {total_active:,}")
                     st.write(f"Users with any ChatGPT message activity in the selected period")
+                    st.caption("ℹ️ Counts unique emails to ensure accurate user counts")
             
             with col2:
                 duau = calculate_duau(openai_data)
@@ -5486,7 +5531,9 @@ def main():
                 )
             
             with col3:
-                avg_hours_per_user = total_hours_saved / max(data['user_id'].nunique(), 1)
+                # Count unique emails for accurate per-user metrics
+                unique_users = data['email'].dropna().str.lower().nunique() if 'email' in data.columns else data['user_id'].nunique()
+                avg_hours_per_user = total_hours_saved / max(unique_users, 1)
                 st.metric(
                     "Avg Hours/User",
                     f"{avg_hours_per_user:,.1f}",
@@ -5496,7 +5543,8 @@ def main():
             with col4:
                 # Calculate monthly productivity boost as percentage
                 # Using configurable monthly work hours (default: 160 hours = 20 days × 8 hours)
-                total_users = data['user_id'].nunique()
+                # Count unique emails to avoid over-counting users
+                total_users = data['email'].dropna().str.lower().nunique() if 'email' in data.columns else data['user_id'].nunique()
                 available_hours = total_users * ROI_MONTHLY_WORK_HOURS
                 productivity_boost = (total_hours_saved / max(available_hours, 1)) * 100
                 st.metric(
@@ -5603,7 +5651,8 @@ def main():
                     month_data = ts_data[ts_data['month'] == month]
                     
                     # Core metrics
-                    active_users = month_data['user_id'].nunique()
+                    # Count unique emails to avoid over-counting users with multiple records
+                    active_users = month_data['email'].dropna().str.lower().nunique() if 'email' in month_data.columns else month_data['user_id'].nunique()
                     total_messages = month_data['usage_count'].sum()
                     unique_features = month_data['feature_used'].nunique()
                     
@@ -5791,7 +5840,8 @@ def main():
                 
                 total_messages = dept_data['usage_count'].sum()
                 unique_features = dept_data['feature_used'].nunique()
-                active_users = dept_data['user_id'].nunique()
+                # Count unique emails to avoid over-counting users
+                active_users = dept_data['email'].dropna().str.lower().nunique() if 'email' in dept_data.columns else dept_data['user_id'].nunique()
                 
                 # Calculate time savings
                 dept_data_copy = dept_data.copy()
@@ -6209,57 +6259,59 @@ def main():
         
         if employee_file is not None:
             try:
-                # Read the file
-                if employee_file.name.endswith('.csv'):
-                    emp_df = pd.read_csv(employee_file, low_memory=False)
-                else:
-                    emp_df = pd.read_excel(employee_file)
+                # Read the file using robust encoding detection
+                emp_df, error_msg = read_file_robust(employee_file)
                 
-                st.write(f"**Preview of {employee_file.name}:**")
-                st.dataframe(emp_df.head(5), use_container_width=True)
+                if error_msg:
+                    display_file_error(error_msg)
+                    emp_df = None
                 
-                # Map columns
-                st.write("**Column Mapping:**")
-                st.info("ℹ️ Email column is optional. If your file doesn't have email addresses, employees will be matched by name.")
-                col_map_col1, col_map_col2 = st.columns(2)
-                
-                with col_map_col1:
-                    first_name_col = st.selectbox("First Name Column", emp_df.columns, 
-                                                  index=next((i for i, c in enumerate(emp_df.columns) if 'first' in c.lower()), 0))
-                    last_name_col = st.selectbox("Last Name Column", emp_df.columns,
-                                                index=next((i for i, c in enumerate(emp_df.columns) if 'last' in c.lower()), 1))
-                    # Make email optional
-                    email_col_options = ['[No Email Column]'] + list(emp_df.columns)
-                    email_col_idx = next((i+1 for i, c in enumerate(emp_df.columns) if 'email' in c.lower()), 0)
-                    email_col_selection = st.selectbox("Email Column (Optional)", email_col_options, index=email_col_idx)
-                
-                with col_map_col2:
-                    title_col = st.selectbox("Title Column", emp_df.columns,
-                                           index=next((i for i, c in enumerate(emp_df.columns) if 'title' in c.lower() or 'position' in c.lower()), 3))
-                    dept_col = st.selectbox("Department Column (Function)", emp_df.columns,
-                                          index=next((i for i, c in enumerate(emp_df.columns) if 'function' in c.lower() or 'department' in c.lower() or 'dept' in c.lower()), 4))
-                    status_col = st.selectbox("Status Column", emp_df.columns,
-                                            index=next((i for i, c in enumerate(emp_df.columns) if 'status' in c.lower()), 5))
-                
-                if st.button("📥 Load Employees", type="primary"):
-                    # Create normalized dataframe
-                    normalized_emp_df = pd.DataFrame({
-                        'first_name': emp_df[first_name_col],
-                        'last_name': emp_df[last_name_col],
-                        'email': emp_df[email_col_selection] if email_col_selection != '[No Email Column]' else None,
-                        'title': emp_df[title_col],
-                        'department': emp_df[dept_col],
-                        'status': emp_df[status_col]
-                    })
+                if emp_df is not None:
+                    st.write(f"**Preview of {employee_file.name}:**")
+                    st.dataframe(emp_df.head(5), use_container_width=True)
                     
-                    # Load into database
-                    success, message, count = db.load_employees(normalized_emp_df)
+                    # Map columns
+                    st.write("**Column Mapping:**")
+                    st.info("ℹ️ Email column is optional. If your file doesn't have email addresses, employees will be matched by name.")
+                    col_map_col1, col_map_col2 = st.columns(2)
                     
-                    if success:
-                        st.success(f"✅ {message}")
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
+                    with col_map_col1:
+                        first_name_col = st.selectbox("First Name Column", emp_df.columns, 
+                                                      index=next((i for i, c in enumerate(emp_df.columns) if 'first' in c.lower()), 0))
+                        last_name_col = st.selectbox("Last Name Column", emp_df.columns,
+                                                    index=next((i for i, c in enumerate(emp_df.columns) if 'last' in c.lower()), 1))
+                        # Make email optional
+                        email_col_options = ['[No Email Column]'] + list(emp_df.columns)
+                        email_col_idx = next((i+1 for i, c in enumerate(emp_df.columns) if 'email' in c.lower()), 0)
+                        email_col_selection = st.selectbox("Email Column (Optional)", email_col_options, index=email_col_idx)
+                    
+                    with col_map_col2:
+                        title_col = st.selectbox("Title Column", emp_df.columns,
+                                               index=next((i for i, c in enumerate(emp_df.columns) if 'title' in c.lower() or 'position' in c.lower()), 3))
+                        dept_col = st.selectbox("Department Column (Function)", emp_df.columns,
+                                              index=next((i for i, c in enumerate(emp_df.columns) if 'function' in c.lower() or 'department' in c.lower() or 'dept' in c.lower()), 4))
+                        status_col = st.selectbox("Status Column", emp_df.columns,
+                                                index=next((i for i, c in enumerate(emp_df.columns) if 'status' in c.lower()), 5))
+                    
+                    if st.button("📥 Load Employees", type="primary"):
+                        # Create normalized dataframe
+                        normalized_emp_df = pd.DataFrame({
+                            'first_name': emp_df[first_name_col],
+                            'last_name': emp_df[last_name_col],
+                            'email': emp_df[email_col_selection] if email_col_selection != '[No Email Column]' else None,
+                            'title': emp_df[title_col],
+                            'department': emp_df[dept_col],
+                            'status': emp_df[status_col]
+                        })
+                        
+                        # Load into database
+                        success, message, count = db.load_employees(normalized_emp_df)
+                        
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
                         
             except Exception as e:
                 st.error(f"❌ Error processing employee file: {str(e)}")
@@ -6440,7 +6492,8 @@ def get_database_info():
     
     total_stats = {
         'total_records': len(all_data),
-        'total_users': all_data['user_id'].nunique(),
+        # Count unique emails to avoid over-counting users with multiple records
+        'total_users': all_data['email'].dropna().str.lower().nunique() if 'email' in all_data.columns else all_data['user_id'].nunique(),
         'total_days': total_days,
         'total_cost': float(total_cost)
     }
