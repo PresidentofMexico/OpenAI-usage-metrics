@@ -12,47 +12,15 @@ detected as "Unknown" format, causing data upload failures.
 import pandas as pd
 import sys
 import os
+import glob
 
 # Add project root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 sys.path.insert(0, project_root)
 
-
-def detect_data_source(df):
-    """
-    Copy of the detect_data_source function from app.py for testing.
-    This is the updated version with YY-Mon format support.
-    """
-    columns = df.columns.tolist()
-    
-    # OpenAI ChatGPT detection
-    if 'gpt_messages' in columns or 'tool_messages' in columns:
-        return 'ChatGPT'
-    
-    # BlueFlame AI detection - updated for all formats
-    # Check for month columns in both formats:
-    # - Mon-YY format (e.g., 'Sep-24', 'Oct-25')
-    # - YY-Mon format (e.g., '25-Apr', '25-Sep')
-    month_abbrevs = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    
-    has_month_cols = any(
-        col for col in columns 
-        if len(col.split('-')) == 2 and (
-            col.split('-')[0] in month_abbrevs or  # Mon-YY format
-            col.split('-')[1] in month_abbrevs     # YY-Mon format
-        )
-    )
-    
-    if ('Metric' in columns and any(col.startswith('MoM Var') for col in columns)) or \
-       ('Total Messages' in df.values if not df.empty else False) or \
-       ('User ID' in columns and has_month_cols) or \
-       ('Table' in columns and has_month_cols):
-        return 'BlueFlame AI'
-    
-    # Default or ask user
-    return 'Unknown'
+# Import the actual function from app.py
+from app import detect_data_source
 
 
 def test_detect_yy_mon_format():
@@ -160,27 +128,38 @@ def test_detect_unknown_format():
 
 
 def test_actual_file():
-    """Test with the actual problematic file if it exists."""
-    print("\n🧪 Testing with Actual Blueflame File...")
+    """Test with any BlueFlame file in the data directory if available."""
+    print("\n🧪 Testing with Actual Blueflame File(s)...")
     
-    file_path = os.path.join(project_root, 'BlueFlame User Data', 
-                             'blueflame_usage_combined_October2025_normalized.csv')
+    # Look for any BlueFlame CSV files in the data directory
+    blueflame_dir = os.path.join(project_root, 'BlueFlame User Data')
     
-    if not os.path.exists(file_path):
-        print("⚠️  Actual file not found, skipping this test")
+    if not os.path.exists(blueflame_dir):
+        print("⚠️  BlueFlame User Data directory not found, skipping this test")
         return True
+    
+    # Find any CSV files with 'blueflame' in the name
+    csv_files = glob.glob(os.path.join(blueflame_dir, '*blueflame*.csv'))
+    
+    if not csv_files:
+        print("⚠️  No BlueFlame CSV files found, skipping this test")
+        return True
+    
+    # Test with the first available file
+    file_path = csv_files[0]
+    file_name = os.path.basename(file_path)
     
     try:
         df = pd.read_csv(file_path)
         detected = detect_data_source(df)
         
         assert detected == 'BlueFlame AI', f"Expected 'BlueFlame AI', got '{detected}'"
-        print(f"✅ Actual file correctly detected as: {detected}")
+        print(f"✅ File '{file_name}' correctly detected as: {detected}")
         print(f"   File has {len(df)} rows with columns: {list(df.columns)[:5]}...")
         
         return True
     except Exception as e:
-        print(f"❌ Error testing actual file: {e}")
+        print(f"❌ Error testing file '{file_name}': {e}")
         return False
 
 
