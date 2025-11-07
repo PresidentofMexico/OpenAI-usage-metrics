@@ -1280,21 +1280,60 @@ def normalize_blueflame_data(df, filename):
         # Skip processing as we prefer real user data from other formats
         print("Skipping aggregate-only format without user data")
     
-    # If we have the top users file format with User ID column
+    # If we have the wide-format file with User ID column (new format without 'Table' column)
     elif 'User ID' in df.columns:
-        # Get month columns (excluding MoM variance columns)
-        month_cols = [col for col in df.columns if col not in ['User ID'] and not col.startswith('MoM Var')]
+        # Get month columns (excluding MoM variance columns, Rank, Metric, and User ID)
+        month_cols = [col for col in df.columns if col not in ['User ID', 'Rank', 'Metric'] 
+                     and not col.startswith('MoM Var')]
         
         # Process each user record
         for _, row in df.iterrows():
             user_email = row['User ID']
-            user_name = user_email.split('@')[0].replace('.', ' ').title()
+            if pd.isna(user_email) or not user_email:
+                continue
+            
+            # Look up employee by email to get authoritative department
+            employee = None
+            try:
+                employee = db.get_employee_by_email(user_email) if user_email else None
+                
+                # If no match by email, try to extract name from email and match
+                if not employee and user_email:
+                    # Try to parse name from email (e.g., john.doe@company.com -> John Doe)
+                    email_name = user_email.split('@')[0].replace('.', ' ').strip()
+                    name_parts = email_name.split()
+                    if len(name_parts) >= 2:
+                        first_name = name_parts[0]
+                        last_name = ' '.join(name_parts[1:])
+                        employee = db.get_employee_by_name(first_name, last_name)
+            except AttributeError:
+                # Handle cache error - database object missing methods
+                employee = None
+            
+            if employee:
+                # Use employee data as source of truth
+                dept = employee['department'] if employee['department'] else 'Unknown'
+                user_name = f"{employee['first_name']} {employee['last_name']}".strip()
+                if not user_name:
+                    user_name = user_email.split('@')[0].replace('.', ' ').title()
+            else:
+                # User not in employee roster - flag as unidentified
+                dept = 'Unknown'
+                user_name = user_email.split('@')[0].replace('.', ' ').title()
             
             # Process each month for this user
             for month_col in month_cols:
                 try:
-                    # Parse month to a datetime
-                    month_date = pd.to_datetime(month_col, format='%b-%y', errors='coerce')
+                    # Parse month to a datetime (format like '25-Sep' or 'Sep-25')
+                    month_date = None
+                    for fmt in ['%y-%b', '%b-%y', '%Y-%b', '%b-%Y']:
+                        try:
+                            month_date = pd.to_datetime(month_col, format=fmt, errors='coerce')
+                            if not pd.isna(month_date):
+                                break
+                        except:
+                            continue
+                    
                     if pd.isna(month_date):
                         continue
                     
@@ -1303,7 +1342,7 @@ def normalize_blueflame_data(df, filename):
                     
                     # Handle dash placeholders and formatting
                     if isinstance(message_count, str):
-                        if message_count in ['–', '-', '—', 'N/A']:
+                        if message_count in ['–', '-', '—', 'N/A', '']:
                             continue
                         message_count = int(message_count.replace(',', ''))
                     
@@ -1316,10 +1355,10 @@ def normalize_blueflame_data(df, filename):
                         'user_id': user_email,
                         'user_name': user_name,
                         'email': user_email,
-                        'department': 'BlueFlame Users',  # Default department, can be updated later
+                        'department': dept,
                         'date': month_date,
                         'feature_used': 'BlueFlame Messages',
-                        'usage_count': message_count,
+                        'usage_count': int(message_count),
                         'cost_usd': monthly_license_cost,  # Enterprise license cost per user per month
                         'tool_source': 'BlueFlame AI',
                         'file_source': filename
