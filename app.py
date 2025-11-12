@@ -451,6 +451,99 @@ def is_employee_user(email, user_name):
         # This happens when code is updated while app is running
         return False
 
+def load_department_headcounts():
+    """
+    Load department headcounts from the Employee Headcount CSV file.
+    
+    Returns:
+        dict: Dictionary mapping department names to total employee counts
+              Returns empty dict if file not found or error occurs
+    """
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Try to find the employee headcount file
+        import glob
+        import chardet
+        
+        glob_patterns = [
+            "Employee Headcount*Emails.csv",
+            "Employee Headcount*.csv"
+        ]
+        
+        employee_file = None
+        for pattern in glob_patterns:
+            pattern_path = os.path.join(script_dir, pattern)
+            matched_files = glob.glob(pattern_path)
+            if matched_files:
+                matched_files.sort(reverse=True)
+                employee_file = matched_files[0]
+                break
+        
+        if not employee_file:
+            print("Employee headcount file not found")
+            return {}
+        
+        # Detect encoding
+        with open(employee_file, 'rb') as f:
+            result = chardet.detect(f.read())
+            encoding = result['encoding'] or 'utf-8'
+        
+        # Read the CSV file
+        df = pd.read_csv(employee_file, encoding=encoding)
+        
+        # Check if 'Function' column exists (department column)
+        if 'Function' not in df.columns:
+            print(f"Warning: 'Function' column not found in {employee_file}")
+            return {}
+        
+        # Count employees by department
+        dept_counts = df['Function'].value_counts().to_dict()
+        
+        print(f"Loaded headcounts for {len(dept_counts)} departments from {os.path.basename(employee_file)}")
+        return dept_counts
+        
+    except Exception as e:
+        print(f"Error loading department headcounts: {e}")
+        traceback.print_exc()
+        return {}
+
+def format_number_abbreviated(num):
+    """
+    Format large numbers with K/M abbreviations for cleaner display.
+    
+    Args:
+        num: Number to format
+        
+    Returns:
+        str: Formatted number (e.g., "52.4K", "1.2M")
+    """
+    if num >= 1_000_000:
+        return f"{num/1_000_000:.1f}M"
+    elif num >= 10_000:
+        return f"{num/1_000:.1f}K"
+    elif num >= 1_000:
+        return f"{num/1_000:.1f}K"
+    else:
+        return f"{num:,.0f}"
+
+def get_utilization_color(utilization_pct):
+    """
+    Get color code for utilization percentage.
+    
+    Args:
+        utilization_pct: Utilization percentage (0-100)
+        
+    Returns:
+        str: Color code (green/yellow/red)
+    """
+    if utilization_pct >= 70:
+        return '#10b981'  # Green
+    elif utilization_pct >= 40:
+        return '#f59e0b'  # Yellow/Orange
+    else:
+        return '#ef4444'  # Red
+
 def get_employee_for_user(email, user_name):
     """
     Get employee record for a user by email or name.
@@ -3703,11 +3796,14 @@ def main():
         with dept_tab1:
             st.markdown("### Department Usage Comparison")
             
-            # Add interactive filtering for departments
-            st.markdown("**🎯 Filter Chart Data**")
-            filter_col1, filter_col2, filter_col3 = st.columns([2, 1, 1])
+            # Load department headcounts for utilization calculation
+            dept_headcounts = load_department_headcounts()
             
-            with filter_col1:
+            # Add interactive filtering for departments and message types
+            st.markdown("**🎯 Filter Chart Data**")
+            filter_row1_col1, filter_row1_col2, filter_row1_col3 = st.columns([2, 1, 1])
+            
+            with filter_row1_col1:
                 # Department filter - allow excluding specific departments
                 all_departments = dept_stats['Department'].tolist()
                 excluded_depts = st.multiselect(
@@ -3716,7 +3812,7 @@ def main():
                     help="Select departments to exclude from the visualization below"
                 )
             
-            with filter_col2:
+            with filter_row1_col2:
                 # Sort order
                 sort_by = st.selectbox(
                     "Sort by:",
@@ -3724,7 +3820,7 @@ def main():
                     index=0
                 )
             
-            with filter_col3:
+            with filter_row1_col3:
                 # Number of departments to show
                 if len(dept_stats) > 1:
                     num_depts = st.slider(
@@ -3737,15 +3833,45 @@ def main():
                     num_depts = len(dept_stats)
                     st.write(f"Showing: {num_depts} department" if num_depts == 1 else f"Showing: {num_depts} departments")
             
+            # ENHANCEMENT 1: Add message type filter for dynamic y-axis scaling
+            # Get all available message types from dept_stats
+            all_message_type_cols = [col for col in dept_stats.columns 
+                                    if col not in ['Department', 'Active Users', 'Total Usage', 'Usage Share %', 'Avg Messages/User', 'Efficiency']]
+            
+            if all_message_type_cols:
+                st.markdown("**📊 Message Type Filters** (Select which message types to display)")
+                filter_row2_col = st.columns(1)[0]
+                with filter_row2_col:
+                    selected_msg_types = st.multiselect(
+                        "Show message types:",
+                        all_message_type_cols,
+                        default=all_message_type_cols,
+                        help="Uncheck message types to hide them from the chart. Y-axis will adjust dynamically.",
+                        key='msg_type_filter'
+                    )
+                    
+                    # If no message types selected, show all
+                    if not selected_msg_types:
+                        selected_msg_types = all_message_type_cols
+                        st.info("No message types selected - showing all types")
+            else:
+                selected_msg_types = []
+            
             # Apply filters
             dept_stats_filtered = dept_stats.copy()
             if excluded_depts:
                 dept_stats_filtered = dept_stats_filtered[~dept_stats_filtered['Department'].isin(excluded_depts)]
             
+            # Recalculate Total Usage based on selected message types
+            if selected_msg_types:
+                dept_stats_filtered['Filtered Total Usage'] = dept_stats_filtered[selected_msg_types].sum(axis=1)
+            else:
+                dept_stats_filtered['Filtered Total Usage'] = dept_stats_filtered['Total Usage']
+            
             # Ensure num_depts doesn't exceed available filtered departments
             num_depts = min(num_depts, len(dept_stats_filtered))
             
-            # Apply sorting
+            # Apply sorting (using original Total Usage for sorting to maintain consistency)
             sort_mapping = {
                 "Total Usage": "Total Usage",
                 "Active Users": "Active Users",
@@ -3753,12 +3879,15 @@ def main():
             }
             dept_stats_filtered = dept_stats_filtered.sort_values(by=sort_mapping[sort_by], ascending=False).head(num_depts)
             
+            # Add department headcount and utilization to filtered data
+            dept_stats_filtered['Total Headcount'] = dept_stats_filtered['Department'].map(dept_headcounts).fillna(0).astype(int)
+            dept_stats_filtered['Utilization %'] = dept_stats_filtered.apply(
+                lambda row: (row['Active Users'] / row['Total Headcount'] * 100) if row['Total Headcount'] > 0 else 0,
+                axis=1
+            ).round(1)
+            
             # ENHANCED VISUALIZATION: Create a dual-axis chart with stacked bars for message types
             fig = make_subplots(specs=[[{"secondary_y": True}]])
-            
-            # Get all available message types from the filtered data
-            message_type_cols = [col for col in dept_stats_filtered.columns 
-                               if col not in ['Department', 'Active Users', 'Total Usage', 'Usage Share %', 'Avg Messages/User', 'Efficiency']]
             
             # Define color scheme for message types
             message_type_colors = {
@@ -3769,20 +3898,31 @@ def main():
                 'BlueFlame Messages': '#4f46e5'
             }
             
-            # Add stacked bars for each message type
-            for msg_type in message_type_cols:
+            # ENHANCEMENT 3: Build enhanced hover template with utilization info
+            # Add stacked bars for each selected message type
+            for msg_type in selected_msg_types:
+                # Enhanced hover template with utilization
+                hover_template_parts = [f'<b>{msg_type}</b><br>%{{y:,}} messages']
                 fig.add_trace(
                     go.Bar(
                         x=dept_stats_filtered['Department'],
                         y=dept_stats_filtered[msg_type],
                         name=msg_type,
                         marker=dict(color=message_type_colors.get(msg_type, '#667eea')),
-                        hovertemplate=f'<b>{msg_type}</b><br>%{{y:,}} messages<extra></extra>'
+                        hovertemplate='<br>'.join(hover_template_parts) + '<extra></extra>'
                     ),
                     secondary_y=False
                 )
             
-            # Add line for active users
+            # Add line for active users with enhanced hover showing utilization
+            hover_texts = []
+            for _, row in dept_stats_filtered.iterrows():
+                if row['Total Headcount'] > 0:
+                    hover_text = f"<b>{row['Department']}</b><br>Active Users: {int(row['Active Users'])}<br>Total Headcount: {int(row['Total Headcount'])}<br>Utilization: {row['Utilization %']:.1f}%"
+                else:
+                    hover_text = f"<b>{row['Department']}</b><br>Active Users: {int(row['Active Users'])}<br>Headcount data not available"
+                hover_texts.append(hover_text)
+            
             line = go.Scatter(
                 x=dept_stats_filtered['Department'],
                 y=dept_stats_filtered['Active Users'],
@@ -3790,25 +3930,34 @@ def main():
                 mode='markers+lines',
                 marker=dict(size=12, symbol='circle', color='#FFA500'),
                 line=dict(color='#FFA500', width=3),
-                hovertemplate='<b>%{x}</b><br>Active Users: %{y}<extra></extra>',
+                hovertemplate='%{text}<extra></extra>',
+                text=hover_texts,
                 yaxis='y2'
             )
             
             # Add the line trace
             fig.add_trace(line, secondary_y=True)
             
-            # Update layout with improved styling
+            # ENHANCEMENT 1: Dynamic y-axis scaling based on filtered data
+            # Calculate max value for visible message types only
+            max_filtered_usage = dept_stats_filtered['Filtered Total Usage'].max() if not dept_stats_filtered.empty else 1
+            
+            # Update layout with improved styling and dynamic y-axis
             fig.update_layout(
                 title=f"Department Usage Comparison - Message Type Breakdown ({len(dept_stats_filtered)} of {len(dept_stats)} depts)",
                 xaxis=dict(title='Department', tickangle=-45, tickfont=dict(size=11)),
-                yaxis=dict(title='Total Messages', gridcolor='rgba(255,255,255,0.1)'),
+                yaxis=dict(
+                    title='Total Messages', 
+                    gridcolor='rgba(255,255,255,0.1)',
+                    range=[0, max_filtered_usage * 1.15]  # Dynamic range based on filtered data
+                ),
                 yaxis2=dict(
                     title='Active Users', 
                     gridcolor='rgba(255,255,255,0)', 
                     range=[0, max(dept_stats_filtered['Active Users'])*1.2] if not dept_stats_filtered.empty else [0, 1]
                 ),
                 legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
-                barmode='stack',  # Changed to stack for message types
+                barmode='stack',
                 height=500,
                 margin=dict(t=80, b=100),
                 hovermode='closest',
@@ -3817,34 +3966,70 @@ def main():
                 font=dict(color='white')
             )
             
-            # Add total messages and avg messages per user annotations
-            # Place 'Total Messages' at the top, 'Messages per User' inside bars
+            # ENHANCEMENT 2 & 3: Smart data labels with abbreviations and utilization info
             for i, row in dept_stats_filtered.iterrows():
-                # Total messages at top of stacked bar
-                fig.add_annotation(
-                    x=row['Department'],
-                    y=row['Total Usage'],
-                    text=f"{row['Total Usage']:,}",
-                    showarrow=False,
-                    font=dict(size=10, color="white", weight='bold'),
-                    xanchor='center',
-                    yanchor='bottom',
-                    yshift=5
-                )
+                filtered_usage = row['Filtered Total Usage']
                 
-                # Messages per user inside the bar (at midpoint)
-                fig.add_annotation(
-                    x=row['Department'],
-                    y=row['Total Usage'] / 2,  # Middle of the bar
-                    text=f"{row['Avg Messages/User']:,.0f}/user",
-                    showarrow=False,
-                    font=dict(size=9, color="rgba(255,255,255,0.8)"),
-                    xanchor='center',
-                    yanchor='middle'
-                )
+                # Smart label positioning: show abbreviated total at top if bar is tall enough
+                if filtered_usage > max_filtered_usage * 0.05:  # Only show if bar > 5% of max
+                    # Total messages at top of stacked bar (abbreviated for large numbers)
+                    fig.add_annotation(
+                        x=row['Department'],
+                        y=filtered_usage,
+                        text=format_number_abbreviated(filtered_usage),
+                        showarrow=False,
+                        font=dict(size=10, color="white", weight='bold'),
+                        xanchor='center',
+                        yanchor='bottom',
+                        yshift=5
+                    )
+                    
+                    # Messages per user inside the bar (only if bar is tall enough)
+                    if filtered_usage > max_filtered_usage * 0.15:  # Only show if bar > 15% of max
+                        fig.add_annotation(
+                            x=row['Department'],
+                            y=filtered_usage / 2,  # Middle of the bar
+                            text=f"{format_number_abbreviated(row['Avg Messages/User'])}/user",
+                            showarrow=False,
+                            font=dict(size=9, color="rgba(255,255,255,0.8)"),
+                            xanchor='center',
+                            yanchor='middle'
+                        )
+                
+                # ENHANCEMENT 3: Add utilization rate annotation near each department
+                if row['Total Headcount'] > 0:
+                    utilization_pct = row['Utilization %']
+                    utilization_color = get_utilization_color(utilization_pct)
+                    
+                    # Position utilization annotation at the bottom of the chart
+                    fig.add_annotation(
+                        x=row['Department'],
+                        y=-max_filtered_usage * 0.08,  # Position below x-axis
+                        text=f"{utilization_pct:.0f}%",
+                        showarrow=False,
+                        font=dict(size=11, color=utilization_color, weight='bold'),
+                        xanchor='center',
+                        yanchor='top',
+                        bgcolor='rgba(0,0,0,0.3)',
+                        bordercolor=utilization_color,
+                        borderwidth=1,
+                        borderpad=3
+                    )
             
             # Display chart
             st.plotly_chart(fig, use_container_width=True, key='dept_comparison_chart')
+            
+            # Show utilization legend
+            if dept_headcounts:
+                st.markdown("""
+                <div style="font-size: 0.85em; color: rgba(255,255,255,0.7); margin-top: -10px; margin-bottom: 15px;">
+                    <b>Utilization Rate Key:</b> 
+                    <span style="color: #10b981;">■ Green ≥70%</span> | 
+                    <span style="color: #f59e0b;">■ Yellow 40-69%</span> | 
+                    <span style="color: #ef4444;">■ Red <40%</span>
+                    (Percentage shows active AI users out of total department headcount)
+                </div>
+                """, unsafe_allow_html=True)
             
             # Department drilldown selector (use all departments, not just filtered ones)
             st.markdown("---")
